@@ -34,7 +34,7 @@ def main():
 
 
     # Path to your image
-    image_path = "/home/zonghuan/tudelft/projects/large_models/samples/toyota.png"
+    image_path = "/home/zonghuan/tudelft/projects/datasets/modification/annotated/IdiapPoster/IP_imgs/022_camA_part1_009_00001759_021.jpg"
 
     # Getting the base64 string
     base64_image = encode_image(image_path)
@@ -44,6 +44,8 @@ def main():
         "Authorization": f"Bearer {api_key}"
     }
 
+    prompt = "This image shows the scene of an academic conference from an overhead camera. Each person in the image is assigned a number, which is denoted in red and positioned next to each person. Please annotate conversation groups and write them in brackets. A conversation group means that there is only one conversation taking place among its members, and that all members are focusing on the same topic. An example format of annotation is (3, 20), (4, 21), (13, 14). Please ignore the unmarked people. remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation."
+
     payload = {
         "model": "gpt-4o-mini",
         "messages": [
@@ -52,7 +54,7 @@ def main():
                 "content": [
                     {
                         "type": "text",
-                        "text": "What’s in this image?"
+                        "text": prompt
                     },
                     {
                         "type": "image_url",
