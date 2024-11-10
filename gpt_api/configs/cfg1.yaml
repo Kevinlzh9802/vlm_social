@@ -1,0 +1,7 @@
+prompt_strategy: 'naive'
+prompt: "This image shows the scene of an academic conference from an overhead camera. Each person in the image is assigned a number, which is denoted in red and positioned next to each person. Please annotate conversation groups and write them in brackets. A conversation group means that there is only one conversation taking place among its members, and that all members are focusing on the same topic. An example format of annotation is (3, 20), (4, 21), (13, 14). Please ignore the unmarked people. remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation."
+dataset:
+  parent_path_linux: "/home/zonghuan/tudelft/projects/datasets/modification/annotated/"
+  parent_path_win: "C:\\Users\\zongh\\Desktop\\annotated\\"
+  name: 'IdiapPoster'
+  modality: 'img'
