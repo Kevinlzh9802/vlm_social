@@ -1,4 +1,4 @@
-bash fformation_detech.sh
+bash fformation_detect.sh
 # echo ${PWD}
 # dir=/home/smith/Desktop/Test
 # parentdir="$(dirname "${PWD}")"

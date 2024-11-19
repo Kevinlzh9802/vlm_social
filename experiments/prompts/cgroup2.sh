@@ -35,7 +35,7 @@ MMPROJ_PATH="/home/zonghuan/tudelft/projects/large_models/models/llava-v1.6-vicu
 MMPROJ_NAME="mmproj-model-f16.gguf"
 MMPROJ=${MMPROJ_PATH}${MMPROJ_NAME}
 
-IMG_PATH="/home/zonghuan/tudelft/projects/datasets/modification/annotated/ConfLab/CF_imgs/"
+IMG_PATH="/home/zonghuan/tudelft/projects/datasets/modification/annotated/IdiapPoster/IP_imgs/"
 IMG_NAME="072_GH020162_00062420_007.jpg"
 SIMGLE_IMG=${IMG_PATH}${IMG_NAME}
 
@@ -56,13 +56,13 @@ echo Model name: "$MODEL_NAME_NO_SUFFIX" >> "$output_file"
 echo Prompt: "$PROMPT" >> "$output_file"
 
 # All images in folder
-#for img in "$IMG_PATH"*
-#do
-#    prompting $LLAMA_EXEC $MODEL $MMPROJ "$img" "$PROMPT" "$output_file"
-#done
+for img in "$IMG_PATH"*
+do
+    prompting $LLAMA_EXEC $MODEL $MMPROJ "$img" "$PROMPT" "$output_file"
+done
 
 # Single image
- prompting $LLAMA_EXEC $MODEL $MMPROJ $SIMGLE_IMG "$PROMPT" "$output_file" "$model_log"
+# prompting $LLAMA_EXEC $MODEL $MMPROJ $SIMGLE_IMG "$PROMPT" "$output_file" "$model_log"
 
 # bash fformation_detect.sh &> log.txt
 
