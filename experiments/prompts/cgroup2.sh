@@ -35,7 +35,7 @@ MMPROJ_PATH="/home/zonghuan/tudelft/projects/large_models/models/llava-v1.6-vicu
 MMPROJ_NAME="mmproj-model-f16.gguf"
 MMPROJ=${MMPROJ_PATH}${MMPROJ_NAME}
 
-IMG_PATH="/home/zonghuan/tudelft/projects/datasets/modification/annotated/IdiapPoster/IP_imgs/"
+IMG_PATH="/home/zonghuan/tudelft/projects/datasets/modification/annotated/Salsa/Salsa_imgs/"
 IMG_NAME="072_GH020162_00062420_007.jpg"
 SIMGLE_IMG=${IMG_PATH}${IMG_NAME}
 

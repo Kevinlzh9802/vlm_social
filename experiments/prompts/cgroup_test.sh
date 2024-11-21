@@ -23,7 +23,7 @@ prompting () {
 }
 
 if [[ "$USER" == "zli33" ]]; then
-    LLAMA_CPP_PATH="/home/nfs/zli33/projects/llama.cpp"
+    LLAMA_CPP_PATH="/home/nfs/zli33/projects/llama.cpp/"
     MPATH="/tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_models/models/llava-v1.6-vicuna-7b/vit/"
     MMPROJ_PATH="/tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_models/models/llava-v1.6-vicuna-7b/vit/"
     DPARENT_PATH="/tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/datasets/vlm_baseline/annotated/"
@@ -72,5 +72,5 @@ echo Prompt: "$PROMPT" >> "$output_file"
 #done
 
 # Single image
-prompting $LLAMA_EXEC $MODEL $MMPROJ $SIMGLE_IMG "$PROMPT" "$output_file" "$model_log"
+#prompting $LLAMA_EXEC $MODEL $MMPROJ $SIMGLE_IMG "$PROMPT" "$output_file" "$model_log"
 
