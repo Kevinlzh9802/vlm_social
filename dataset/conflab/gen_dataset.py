@@ -3,6 +3,7 @@ import cv2
 import os
 import re
 import numpy as np
+import json
 
 
 dataset_path = '/home/zonghuan/tudelft/projects/datasets/conflab/'
@@ -103,6 +104,8 @@ def generate_per_timestamp(timestamp: int, annotations: dict, video_dir: str):
             print(f"Could not extract frame from {video_path} at {timestamp}.")
             continue
 
+        print(camera, groups)
+
 
 def read_csv_and_process(csv_file, video_dir):
     """
@@ -130,42 +133,13 @@ def read_csv_and_process(csv_file, video_dir):
 
         generate_per_timestamp(time_in_seconds, annotations, cameras_path)
 
-        # for person_ids, camera in annotations:
-        #     camera = augment_string(camera)
-        #     video_folder = os.path.join(video_dir, camera)
-        #     video_path = find_files(video_folder, seg=fformation_seg)[0]
-        #     if not os.path.exists(video_path):
-        #         print(f"Video {video_path} not found.")
-        #         continue
-        #
-        #     # Read the frame from the video
-        #     capture = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
-        #     # capture.set(cv2.CAP_PROP_VIDEO_STREAM, 0)
-        #     fps = 60
-        #     frame_number = int(time_in_seconds * fps)
-        #     capture.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-        #     ret, frame = capture.read()
-        #
-        #     if not ret:
-        #         print(f"Could not extract frame from {video_path} at {timestamp}.")
-        #         continue
-        #
-        #     cv2.imshow('Frame', frame)
-        #     if cv2.waitKey(1) & 0xFF == ord('q'):
-        #         break
-        #
-        #     # Process bounding boxes
-        #     for person_id in person_ids:
-        #         print(f"Processing person {person_id} from {camera} at {timestamp}.")
-        #         # Add your bounding box extraction logic here
-        #
-        #     # Release video capture after processing
-        #     capture.release()
 
 
 def main():
     # Example usage
-    read_csv_and_process(csv_path, cameras_path)
+    # read_csv_and_process(csv_path, cameras_path)
+    coco_json = json.load(open('/home/zonghuan/tudelft/projects/datasets/conflab/annotations/pose/coco/cam2_vid3_seg1_coco.json'))
+    c = 9
 
 if __name__ == '__main__':
     main()
