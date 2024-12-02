@@ -147,15 +147,82 @@ def process_csv_files(csv_folder, json_folder, video_folder, output_folder):
     print(f"Metadata saved to {metadata_json_path}")
 
 
+def process_bounding_boxes(image_folder, metadata_json_path, output_folder):
+    """
+    Process images and bounding boxes to create cropped person images.
+
+    Args:
+        image_folder (str): Path to the folder containing the generated images.
+        metadata_json_path (str): Path to the JSON file containing bounding box metadata.
+        output_folder (str): Path to the folder to store cropped images.
+    """
+    # Create the output folder if it doesn't exist
+    Path(output_folder).mkdir(parents=True, exist_ok=True)
+
+    # Load metadata from the JSON file
+    with open(metadata_json_path, 'r') as json_file:
+        metadata = json.load(json_file)
+
+    for entry in metadata:
+        image_id = entry['id']
+        camera = entry['camera']
+        segment = entry['segment']
+        bounding_boxes = entry['bounding_boxes']
+
+        # Construct the image filename
+        image_filename = f"{image_id}_{camera}_{segment}.jpg"
+        image_path = os.path.join(image_folder, image_filename)
+
+        # Check if the image exists
+        if not os.path.exists(image_path):
+            print(f"Image {image_path} not found. Skipping...")
+            continue
+
+        # Read the image
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"Failed to load image {image_path}. Skipping...")
+            continue
+
+        # Create a folder for the cropped bounding boxes for this image
+        image_output_folder = os.path.join(output_folder, Path(image_filename).stem)
+        Path(image_output_folder).mkdir(parents=True, exist_ok=True)
+
+        # Crop and save each bounding box
+        for bbox_data in bounding_boxes:
+            person_id = bbox_data['person_id']
+            x, y, w, h = bbox_data['bbox']
+
+            # Crop the bounding box
+            cropped_image = image[y:y + h, x:x + w]
+
+            # Save the cropped image with the person ID as the filename
+            cropped_image_filename = f"{person_id}.jpg"
+            cropped_image_path = os.path.join(image_output_folder, cropped_image_filename)
+
+            # Write the cropped image to disk
+            cv2.imwrite(cropped_image_path, cropped_image)
+            print(f"Saved cropped image: {cropped_image_path}")
+
+
+# Example usage
+
+
 
 def main():
     # Example usage
-    csv_folder = "/home/zonghuan/tudelft/projects/datasets/modification/fformation_3_segments/"  # Folder containing CSV files
-    json_folder = "/home/zonghuan/tudelft/projects/datasets/conflab/annotations/pose/coco/"  # Folder containing JSON annotations
-    video_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_seg_custom"  # Folder containing videos
-    output_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox"  # Folder to save output videos
+    # csv_folder = "/home/zonghuan/tudelft/projects/datasets/modification/fformation_3_segments/"  # Folder containing CSV files
+    # json_folder = "/home/zonghuan/tudelft/projects/datasets/conflab/annotations/pose/coco/"  # Folder containing JSON annotations
+    # video_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_seg_custom"  # Folder containing videos
+    # output_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox"  # Folder to save output videos
+    #
+    # process_csv_files(csv_folder, json_folder, video_folder, output_folder)
 
-    process_csv_files(csv_folder, json_folder, video_folder, output_folder)
+    image_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox"  # Folder containing generated images
+    metadata_json_path = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox/metadata.json"  # Path to the metadata JSON file
+    output_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_gallery"  # Folder to store cropped bounding box images
+
+    process_bounding_boxes(image_folder, metadata_json_path, output_folder)
 
 if __name__ == '__main__':
     main()
