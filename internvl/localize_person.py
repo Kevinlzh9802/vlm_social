@@ -81,6 +81,19 @@ def load_image(image_file, input_size=448, max_num=12):
     pixel_values = torch.stack(pixel_values)
     return pixel_values
 
+# def multi_img_query(model, images: list, tokenizer, generation_config):
+#     pixel_values1 = load_image(img_toyota, max_num=12).to(torch.bfloat16).cuda()
+#     pixel_values2 = load_image(img_nvidia, max_num=12).to(torch.bfloat16).cuda()
+#     pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
+#     num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
+#
+#     question = 'Image-1: <image>\nImage-2: <image>\nDescribe the two images in detail.'
+#     response, history = model.chat(tokenizer, pixel_values, question, generation_config,
+#                                    num_patches_list=num_patches_list,
+#                                    history=None, return_history=True)
+#     print(f'User: {question}\nAssistant: {response}')
+
+
 # If you have an 80G A100 GPU, you can put the entire model on a single GPU.
 # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
 def main():
@@ -93,29 +106,32 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, use_fast=False)
     generation_config = dict(max_new_tokens=1024, do_sample=False)
 
-    img_bird = '/home/zonghuan/tudelft/projects/large_models/samples/bird.png'
-    img_toyota = '/home/zonghuan/tudelft/projects/large_models/samples/toyota.png'
-    img_nvidia = '/home/zonghuan/tudelft/projects/large_models/samples/nvidia.png'
+    # img_bird = '/home/zonghuan/tudelft/projects/large_models/samples/bird.png'
+    # img_toyota = '/home/zonghuan/tudelft/projects/large_models/samples/toyota.png'
+    # img_nvidia = '/home/zonghuan/tudelft/projects/large_models/samples/nvidia.png'
+    #
+    # for subfolder in os.listdir(folder_path):
+    #     subfolder_path = os.path.join(folder_path, subfolder)
 
-    for subfolder in os.listdir(folder_path):
-        subfolder_path = os.path.join(folder_path, subfolder)
+    img_main = '/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox/000000_cam8_seg6.jpg'
+    img_gallery_1 = '/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox/gallery/000000_cam8_seg6/12.jpg'
 
     # multi-image multi-round conversation, separate images (多图多轮对话，独立图像)
-    pixel_values1 = load_image(img_toyota, max_num=12).to(torch.bfloat16).cuda()
-    pixel_values2 = load_image(img_nvidia, max_num=12).to(torch.bfloat16).cuda()
+    pixel_values1 = load_image(img_main, max_num=12).to(torch.bfloat16).cuda()
+    pixel_values2 = load_image(img_gallery_1, max_num=12).to(torch.bfloat16).cuda()
     pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
     num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
 
-    question = 'Image-1: <image>\nImage-2: <image>\nDescribe the two images in detail.'
+    # question = 'Question: The second images shows a person. Where is this person in the first image? \nSelect from the following choices: (A)Top-left\n (B)Top-right\n (C)Bottom-left\n (D)Bottom-right. Image-1: <image>\nImage-2: <image>\n'
+    # response, history = model.chat(tokenizer, pixel_values, question, generation_config,
+    #                                num_patches_list=num_patches_list,
+    #                                history=None, return_history=True)
+    # print(f'User: {question}\nAssistant: {response}')
+
+    question = 'What are the differences between these two companies?Image1: <image>\n, Image 2: <image>\n'
     response, history = model.chat(tokenizer, pixel_values, question, generation_config,
                                    num_patches_list=num_patches_list,
                                    history=None, return_history=True)
-    print(f'User: {question}\nAssistant: {response}')
-
-    question = 'What are the differences between these two companies?'
-    response, history = model.chat(tokenizer, pixel_values, question, generation_config,
-                                   num_patches_list=num_patches_list,
-                                   history=history, return_history=True)
     print(f'User: {question}\nAssistant: {response}')
 
 if __name__ == '__main__':
