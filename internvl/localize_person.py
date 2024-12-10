@@ -97,7 +97,7 @@ def load_image(image_file, input_size=448, max_num=12):
 # If you have an 80G A100 GPU, you can put the entire model on a single GPU.
 # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
 def main():
-    model_path = '/home/zonghuan/tudelft/projects/large_models/models/InternVL2-2B'
+    model_path = '/home/zonghuan/tudelft/projects/large_models/models/InternVL2-4B'
     model = AutoModel.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
@@ -106,9 +106,9 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, use_fast=False)
     generation_config = dict(max_new_tokens=1024, do_sample=False)
 
-    # img_bird = '/home/zonghuan/tudelft/projects/large_models/samples/bird.png'
-    # img_toyota = '/home/zonghuan/tudelft/projects/large_models/samples/toyota.png'
-    # img_nvidia = '/home/zonghuan/tudelft/projects/large_models/samples/nvidia.png'
+    img_bird = '/home/zonghuan/tudelft/projects/large_models/samples/bird.png'
+    img_toyota = '/home/zonghuan/tudelft/projects/large_models/samples/toyota.png'
+    img_nvidia = '/home/zonghuan/tudelft/projects/large_models/samples/nvidia.png'
     #
     # for subfolder in os.listdir(folder_path):
     #     subfolder_path = os.path.join(folder_path, subfolder)
@@ -117,8 +117,8 @@ def main():
     img_gallery_1 = '/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox/gallery/000000_cam8_seg6/12.jpg'
 
     # multi-image multi-round conversation, separate images (多图多轮对话，独立图像)
-    pixel_values1 = load_image(img_main, max_num=12).to(torch.bfloat16).cuda()
-    pixel_values2 = load_image(img_gallery_1, max_num=12).to(torch.bfloat16).cuda()
+    pixel_values1 = load_image(img_toyota, max_num=12).to(torch.bfloat16).cuda()
+    pixel_values2 = load_image(img_nvidia, max_num=12).to(torch.bfloat16).cuda()
     pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
     num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
 
