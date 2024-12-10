@@ -98,6 +98,8 @@ def load_image(image_file, input_size=448, max_num=12):
 # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
 def main():
     model_path = '/home/zonghuan/tudelft/projects/large_models/models/InternVL2-4B'
+    model_path = '/mnt/zonghuan/large_models/models/InternVL2-4B'
+    # model_path = '/tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_models/models/InternVL2-4B'
     model = AutoModel.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
@@ -109,7 +111,11 @@ def main():
     img_bird = '/home/zonghuan/tudelft/projects/large_models/samples/bird.png'
     img_toyota = '/home/zonghuan/tudelft/projects/large_models/samples/toyota.png'
     img_nvidia = '/home/zonghuan/tudelft/projects/large_models/samples/nvidia.png'
-    #
+
+    img_toyota = '/mnt/zonghuan/datasets/sample/toyota.png'
+    img_nvidia = '/mnt/zonghuan/datasets/sample/toyota.png'
+    #/tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/datasets/vlm_baseline/conflab_bbox_sample/gallery
+    # /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/datasets/sample
     # for subfolder in os.listdir(folder_path):
     #     subfolder_path = os.path.join(folder_path, subfolder)
 
