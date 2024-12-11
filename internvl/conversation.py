@@ -5,6 +5,7 @@ from decord import VideoReader, cpu
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoModel, AutoTokenizer
+from localize_person import print_memory_usage
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -96,6 +97,9 @@ def main():
     img_toyota = '/home/zonghuan/tudelft/projects/large_models/samples/toyota.png'
     img_nvidia = '/home/zonghuan/tudelft/projects/large_models/samples/nvidia.png'
 
+    img_1 = '/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox/000000_cam8_seg6.jpg'
+    img_2 = '/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox_sample/gallery/000000_cam8_seg6/12.jpg'
+
     # set the max number of tiles in `max_num`
     # pixel_values = load_image('/home/zonghuan/tudelft/projects/large_models/samples/cat_bird.png', max_num=12).to(torch.bfloat16).cuda()
     #
@@ -139,22 +143,35 @@ def main():
 # print(f'User: {question}\nAssistant: {response}')
 
     # multi-image multi-round conversation, separate images (多图多轮对话，独立图像)
-    pixel_values1 = load_image(img1, max_num=12).to(torch.bfloat16).cuda()
-    pixel_values2 = load_image(img2, max_num=12).to(torch.bfloat16).cuda()
-    pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
-    num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
+    for k in range(5):
+        with torch.no_grad():
+            print_memory_usage()
+            pixel_values1 = load_image(img_bird, max_num=12).to(torch.bfloat16).cuda()
+            pixel_values2 = load_image(img_1, max_num=12).to(torch.bfloat16).cuda()
 
-    question = 'Image-1: <image>\nImage-2: <image>\nDescribe the two images in detail.'
-    response, history = model.chat(tokenizer, pixel_values, question, generation_config,
-                                   num_patches_list=num_patches_list,
-                                   history=None, return_history=True)
-    print(f'User: {question}\nAssistant: {response}')
+            print_memory_usage()
+            pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
+            num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
 
-    question = 'What are the differences between these two companies?'
-    response, history = model.chat(tokenizer, pixel_values, question, generation_config,
-                                   num_patches_list=num_patches_list,
-                                   history=history, return_history=True)
-    print(f'User: {question}\nAssistant: {response}')
+            question = 'Image-1: <image>\nImage-2: <image>\nDescribe the two images in detail.'
+            response, history = model.chat(tokenizer, pixel_values, question, generation_config,
+                                           num_patches_list=num_patches_list,
+                                           history=None, return_history=True)
+            # print(f'User: {question}\nAssistant: {response}')
+
+            print_memory_usage()
+
+            question = 'What are the differences between these two companies?'
+            response, history = model.chat(tokenizer, pixel_values, question, generation_config,
+                                           num_patches_list=num_patches_list,
+                                           history=history, return_history=True)
+            # print(f'User: {question}\nAssistant: {response}')
+
+            del pixel_values1, pixel_values2, pixel_values, response, history
+            torch.cuda.empty_cache()
+
+            print_memory_usage()
+            print('end one loop')
 
     # batch inference, single image per sample (单图批处理)
     # pixel_values1 = load_image('./examples/image1.jpg', max_num=12).to(torch.bfloat16).cuda()
