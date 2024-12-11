@@ -90,7 +90,7 @@ def get_paths_based_on_hostname():
     hostname = socket.gethostname()
 
     # Define the regular expression pattern to match hostnames like host1.hpc.tudelft.nl, host2, host3
-    daic_pattern = r"^host[1-3]\.hpc\.tudelft\.nl$"
+    daic_pattern = r"^.*\.hpc\.tudelft\.nl$"
 
     # Check if the hostname matches the pattern
     if re.match(daic_pattern, hostname):

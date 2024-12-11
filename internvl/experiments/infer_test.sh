@@ -21,7 +21,7 @@ previous=$(/usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utili
 # Uncomment these lines and adapt them to load the software that your job requires
 # module use /opt/insy/modulefiles          # Use DAIC INSY software collection
 # module load cuda/12.4 cudnn/12-8.9.1.23 # Load certain versions of cuda and cudnn
-srun apptainer run --bind /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan:/mnt/zonghuan --bind /home/nfs/zli33:/mnt/zli33 /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_builds/containers/internvl2-6-stable.sif python /home/nfs/zli33/projects/vlm_social/internvl/localize_person.py # Computations should be started with 'srun'. For example:
+srun apptainer exec --bind /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan:/mnt/zonghuan --bind /home/nfs/zli33:/mnt/zli33 /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_builds/containers/internvl2-6-stable.sif python /home/nfs/zli33/projects/vlm_social/internvl/localize_person.py # Computations should be started with 'srun'. For example:
 
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"
