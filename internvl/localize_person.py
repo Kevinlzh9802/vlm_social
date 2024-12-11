@@ -109,9 +109,9 @@ def get_paths_based_on_hostname():
             'output_file': '/mnt/zli33/projects/vlm_social/internvl/experiments/results'
         },
         'default': {
-            'dataset_dir': '/default/path/to/dataset',
-            'model_path': '/default/path/to/model',
-            'output_file': '/default/path/to/output/output.txt'
+            'dataset_dir': '/mnt/zonghuan/datasets/vlm_baseline/',
+            'model_path': '/mnt/zonghuan/large_models/models/',
+            'output_file': '/mnt/zli33/projects/vlm_social/internvl/experiments/results'
         }
     }
 
