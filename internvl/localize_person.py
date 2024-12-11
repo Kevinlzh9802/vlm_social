@@ -185,6 +185,7 @@ def evaluate(dataset_path, model_path, output_path):
     image_files.sort(key=extract_x)
 
     #
+    print('before load')
     model = AutoModel.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
@@ -195,6 +196,8 @@ def evaluate(dataset_path, model_path, output_path):
 
     output_file = os.path.join(output_path, 'output.txt')
     # Open the output file for writing
+
+    print('before iterating')
     with open(output_file, 'w') as output:
         # Record the model path and the prompt template once
 
@@ -212,6 +215,7 @@ def evaluate(dataset_path, model_path, output_path):
                 print(f"No gallery images found for {img_filename}")
                 continue
 
+            print('before iterate gallery')
             # Load the original image and one gallery image at a time for evaluation
             for gallery_img in gallery_images:
                 # print_memory_usage()
@@ -229,6 +233,7 @@ def evaluate(dataset_path, model_path, output_path):
                     # Get the current time
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+                    print('after converting pixel values')
                     print_memory_usage()
                     # Get response from the model
                     response, history = model.chat(tokenizer, pixel_values, question, generation_config,
@@ -262,6 +267,8 @@ def main():
 
     dataset_dir = os.path.join(dataset_dir, dataset_name)
     model_path = os.path.join(model_path, model_name)
+
+    print('before evaluation')
     evaluate(dataset_dir, model_path, output_path)
 
 if __name__ == '__main__':
