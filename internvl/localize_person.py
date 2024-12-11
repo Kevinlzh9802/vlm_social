@@ -6,9 +6,13 @@ from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoModel, AutoTokenizer
 import os
+import re
+import socket
+from datetime import datetime
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+
 
 def build_transform(input_size):
     mean, std = IMAGENET_MEAN, IMAGENET_STD
@@ -81,25 +85,72 @@ def load_image(image_file, input_size=448, max_num=12):
     pixel_values = torch.stack(pixel_values)
     return pixel_values
 
-# def multi_img_query(model, images: list, tokenizer, generation_config):
-#     pixel_values1 = load_image(img_toyota, max_num=12).to(torch.bfloat16).cuda()
-#     pixel_values2 = load_image(img_nvidia, max_num=12).to(torch.bfloat16).cuda()
-#     pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
-#     num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
-#
-#     question = 'Image-1: <image>\nImage-2: <image>\nDescribe the two images in detail.'
-#     response, history = model.chat(tokenizer, pixel_values, question, generation_config,
-#                                    num_patches_list=num_patches_list,
-#                                    history=None, return_history=True)
-#     print(f'User: {question}\nAssistant: {response}')
+def get_paths_based_on_hostname():
+    # Get the current system's hostname
+    hostname = socket.gethostname()
 
+    # Define the regular expression pattern to match hostnames like host1.hpc.tudelft.nl, host2, host3
+    daic_pattern = r"^host[1-3]\.hpc\.tudelft\.nl$"
 
-# If you have an 80G A100 GPU, you can put the entire model on a single GPU.
-# Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
-def main():
-    model_path = '/home/zonghuan/tudelft/projects/large_models/models/InternVL2-4B'
-    model_path = '/mnt/zonghuan/large_models/models/InternVL2-4B'
-    # model_path = '/tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_models/models/InternVL2-4B'
+    # Check if the hostname matches the pattern
+    if re.match(daic_pattern, hostname):
+        hostname = 'daic'
+
+    # Define paths for different hostnames
+    config = {
+        'tud1006233': {
+            'dataset_dir': '/home/zonghuan/tudelft/projects/datasets/modification/',
+            'model_path': '/home/zonghuan/tudelft/projects/large_models/models/',
+            'output_file': '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/results'
+        },
+        'daic': {
+            'dataset_dir': '/mnt/zonghuan/datasets/vlm_baseline/',
+            'model_path': '/mnt/zonghuan/large_models/models/',
+            'output_file': '/mnt/zli33/projects/vlm_social/internvl/experiments/results'
+        },
+        'default': {
+            'dataset_dir': '/default/path/to/dataset',
+            'model_path': '/default/path/to/model',
+            'output_file': '/default/path/to/output/output.txt'
+        }
+    }
+
+    # Select the appropriate configuration based on the hostname
+    paths = config.get(hostname, config['default'])
+
+    dataset_dir = paths['dataset_dir']
+    model_path = paths['model_path']
+    output_file = paths['output_file']
+
+    return dataset_dir, model_path, output_file
+
+def extract_x(filename):
+    # Split the filename at the first underscore and extract the first part
+    x_part = filename.split('_')[0]
+    # Try to convert the first part to an integer, default to infinity if conversion fails
+    try:
+        return int(x_part)
+    except ValueError:
+        return float('inf')
+
+def get_gallery_images(image_path):
+    base_name = os.path.basename(image_path).split('.')[0]
+    dataset_dir = os.path.dirname(image_path)
+    gallery_dir = os.path.join(dataset_dir, "gallery", base_name)
+    if os.path.exists(gallery_dir):
+        return [os.path.join(gallery_dir, f) for f in os.listdir(gallery_dir) if f.endswith('.jpg')]
+    return []
+
+def form_prompt():
+    return "Image-1: <image>\nImage-2: <image>\nDescribe the two images in detail."
+
+# Main function to perform the evaluation
+def evaluate(dataset_path, model_path, output_path):
+    # Collect all jpg files in the dataset folder
+    image_files = [f for f in os.listdir(dataset_path) if f.endswith('.jpg')]
+    image_files.sort(key=extract_x)
+
+    #
     model = AutoModel.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
@@ -108,37 +159,64 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, use_fast=False)
     generation_config = dict(max_new_tokens=1024, do_sample=False)
 
-    img_bird = '/home/zonghuan/tudelft/projects/large_models/samples/bird.png'
-    img_toyota = '/home/zonghuan/tudelft/projects/large_models/samples/toyota.png'
-    img_nvidia = '/home/zonghuan/tudelft/projects/large_models/samples/nvidia.png'
+    output_file = os.path.join(output_path, 'output.txt')
+    # Open the output file for writing
+    with open(output_file, 'w') as output:
+        # Record the model path and the prompt template once
+        prompt_template = form_prompt()
+        output.write(f"Model Path: {model_path}\n")
+        output.write(f"Prompt Template: {prompt_template}\n\n")
 
-    img_toyota = '/mnt/zonghuan/datasets/sample/toyota.png'
-    img_nvidia = '/mnt/zonghuan/datasets/sample/toyota.png'
-    #/tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/datasets/vlm_baseline/conflab_bbox_sample/gallery
-    # /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/datasets/sample
-    # for subfolder in os.listdir(folder_path):
-    #     subfolder_path = os.path.join(folder_path, subfolder)
+        for img_filename in image_files:
+            img_path = os.path.join(dataset_path, img_filename)
+            gallery_images = get_gallery_images(img_path)
 
-    img_main = '/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox/000000_cam8_seg6.jpg'
-    img_gallery_1 = '/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox/gallery/000000_cam8_seg6/12.jpg'
+            if not gallery_images:
+                print(f"No gallery images found for {img_filename}")
+                continue
 
-    # multi-image multi-round conversation, separate images (多图多轮对话，独立图像)
-    pixel_values1 = load_image(img_toyota, max_num=12).to(torch.bfloat16).cuda()
-    pixel_values2 = load_image(img_nvidia, max_num=12).to(torch.bfloat16).cuda()
-    pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
-    num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
+            # Load the original image and one gallery image at a time for evaluation
+            for gallery_img in gallery_images:
+                try:
+                    # Load images
+                    pixel_values1 = load_image(img_path, max_num=12).to(torch.bfloat16).cuda()
+                    pixel_values2 = load_image(gallery_img, max_num=12).to(torch.bfloat16).cuda()
+                    pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
+                    num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
 
-    # question = 'Question: The second images shows a person. Where is this person in the first image? \nSelect from the following choices: (A)Top-left\n (B)Top-right\n (C)Bottom-left\n (D)Bottom-right. Image-1: <image>\nImage-2: <image>\n'
-    # response, history = model.chat(tokenizer, pixel_values, question, generation_config,
-    #                                num_patches_list=num_patches_list,
-    #                                history=None, return_history=True)
-    # print(f'User: {question}\nAssistant: {response}')
+                    # Form the prompt
+                    question = form_prompt()
 
-    question = 'What are the differences between these two companies?Image1: <image>\n, Image 2: <image>\n'
-    response, history = model.chat(tokenizer, pixel_values, question, generation_config,
-                                   num_patches_list=num_patches_list,
-                                   history=None, return_history=True)
-    print(f'User: {question}\nAssistant: {response}')
+                    # Get the current time
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                    # Get response from the model
+                    response, history = model.chat(tokenizer, pixel_values, question, generation_config,
+                                                   num_patches_list=num_patches_list,
+                                                   history=None, return_history=True)
+
+                    # Write the results to the file
+                    output.write(f"Image Path: {img_path}\n")
+                    output.write(f"Gallery Image Path: {gallery_img}\n")
+                    output.write(f"Time: {current_time}\n")
+                    output.write(f"Response: {response}\n")
+                    output.write("-" * 80 + "\n")
+
+                    print(f"Processed {img_filename} with gallery {os.path.basename(gallery_img)}")
+
+                except Exception as e:
+                    print(f"Error processing {img_filename} with gallery {os.path.basename(gallery_img)}: {e}")
+
+# If you have an 80G A100 GPU, you can put the entire model on a single GPU.
+# Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
+def main():
+    dataset_dir, model_path, output_path = get_paths_based_on_hostname()
+    dataset_name = 'conflab_bbox_sample'
+    model_name = 'InternVL2-2B'
+
+    dataset_dir = os.path.join(dataset_dir, dataset_name)
+    model_path = os.path.join(model_path, model_name)
+    evaluate(dataset_dir, model_path, output_path)
 
 if __name__ == '__main__':
     main()

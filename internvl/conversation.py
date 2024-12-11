@@ -139,8 +139,8 @@ def main():
 # print(f'User: {question}\nAssistant: {response}')
 
     # multi-image multi-round conversation, separate images (多图多轮对话，独立图像)
-    pixel_values1 = load_image(img_toyota, max_num=12).to(torch.bfloat16).cuda()
-    pixel_values2 = load_image(img_nvidia, max_num=12).to(torch.bfloat16).cuda()
+    pixel_values1 = load_image(img1, max_num=12).to(torch.bfloat16).cuda()
+    pixel_values2 = load_image(img2, max_num=12).to(torch.bfloat16).cuda()
     pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
     num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
 
