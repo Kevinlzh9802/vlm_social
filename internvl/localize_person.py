@@ -1,17 +1,19 @@
 import numpy as np
-import torch
-import torchvision.transforms as T
-from decord import VideoReader, cpu
+# import torch
+# import torchvision.transforms as T
+# from decord import VideoReader, cpu
 from PIL import Image
-from torchvision.transforms.functional import InterpolationMode
-from transformers import AutoModel, AutoTokenizer
+# from torchvision.transforms.functional import InterpolationMode
+# from transformers import AutoModel, AutoTokenizer
 import os
 import re
 import socket
 from datetime import datetime
 import psutil
-import GPUtil
+# import GPUtil
 import time
+import argparse
+import sys
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -102,7 +104,7 @@ def get_paths_based_on_hostname():
     # Define paths for different hostnames
     config = {
         'tud1006233': {
-            'dataset_dir': '/home/zonghuan/tudelft/projects/datasets/modification/conflab',
+            'dataset_dir': '/home/zonghuan/tudelft/projects/datasets/modification/',
             'model_path': '/home/zonghuan/tudelft/projects/large_models/models/',
             'output_file': '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/results'
         },
@@ -327,18 +329,63 @@ def evaluate(dataset_path, model_path, output_path, config=None):
 
 # If you have an 80G A100 GPU, you can put the entire model on a single GPU.
 # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
-def main():
-    dataset_path, model_path, output_path = get_paths_based_on_hostname()
-    dataset_name = 'gallery_concat'
-    model_name = 'InternVL2-2B'
-    # output_name = 'output.txt'
-    # '/home/zonghuan/tudelft/projects/datasets/modification/annotated/ConfLab/imgs'
-    # output_path = os.path.join(output_path, output_name)
-    dataset_path = os.path.join(dataset_path, dataset_name)
-    model_path = os.path.join(model_path, model_name)
 
-    print('before evaluation')
-    evaluate(dataset_path, model_path, output_path)
+def check_args(args):
+    valid_models = ["internvl1b", "internvl2b", "internvl4b"]
+    valid_visual_strats = ["multi", "concat"]
+    valid_tasks = ["fform", "cgroup"]
+
+    if args.model_name not in valid_models:
+        print(f"Error: Invalid model_name '{args.model_name}'. Must be one of {valid_models}.")
+        sys.exit(1)
+
+    # Validate visual_strat
+    if args.visual_strat not in valid_visual_strats:
+        print(f"Error: Invalid visual_strat '{args.visual_strat}'. Must be one of {valid_visual_strats}.")
+        sys.exit(1)
+
+    # Validate task
+    if args.task not in valid_tasks:
+        print(f"Error: Invalid task '{args.task}'. Must be one of {valid_tasks}.")
+        sys.exit(1)
+
+def get_rel_dataset_path(args):
+    if args.visual_strat == "multi":
+        return 'imgs_gallery'
+    elif args.visual_strat == "concat":
+        return 'imgs_gallery_concat'
+    else:
+        raise ValueError(f"Invalid visual_strat '{args.visual_strat}'.")
+
+def main():
+    # Initialize argument parser
+    parser = argparse.ArgumentParser(description="Evaluation script with model, visual strategy, and task.")
+
+    # Add arguments
+    parser.add_argument("--model_name", type=str, required=True, help="Name of the model to use.")
+    parser.add_argument("--visual_strat", type=str, required=True, help="Visual strategy: 'multi' or 'concat'.")
+    parser.add_argument("--task", type=str, required=True, help="Task to perform: 'fform' or 'cgroup'.")
+    parser.add_argument("--dataset", type=str, required=False, default="conflab", help="Task to perform: 'fform' or 'cgroup'.")
+
+    # Parse arguments
+    args = parser.parse_args()
+    check_args(args)
+
+    # Create configuration dictionary
+    cfg = {
+        "model_name": args.model_name,
+        "visual_strat": args.visual_strat,
+        "task": args.task
+    }
+
+    dataset_path, model_path, output_path = get_paths_based_on_hostname()
+    output_name = '_'.join([args.modle_name, args.dataset, args.visual_strat, args.task]) + '.txt'
+
+    dataset_path = os.path.join(dataset_path, args.dataset, get_rel_dataset_path(args))
+    model_path = os.path.join(model_path, args.model_name)
+    output_path = os.path.join(output_path, output_name)
+
+    evaluate(dataset_path, model_path, output_path, cfg)
 
 if __name__ == '__main__':
     main()
