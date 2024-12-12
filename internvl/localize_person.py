@@ -197,11 +197,8 @@ def evaluate(dataset_path, model_path, output_path):
     output_file = os.path.join(output_path, 'output.txt')
     # Open the output file for writing
 
-    print('before iterating')
     with open(output_file, 'w') as output:
         # Record the model path and the prompt template once
-
-        # print_memory_usage()
 
         prompt_template = form_prompt()
         output.write(f"Model Path: {model_path}\n")
@@ -251,9 +248,6 @@ def evaluate(dataset_path, model_path, output_path):
 
                     del pixel_values1, pixel_values2, pixel_values, response, history
                     torch.cuda.empty_cache()
-
-                    print_memory_usage()
-                    print('end one loop')
 
                 except Exception as e:
                     print(f"Error processing {img_filename} with gallery {os.path.basename(gallery_img)}: {e}")
