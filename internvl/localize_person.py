@@ -102,7 +102,7 @@ def get_paths_based_on_hostname():
     # Define paths for different hostnames
     config = {
         'tud1006233': {
-            'dataset_dir': '/home/zonghuan/tudelft/projects/datasets/modification/',
+            'dataset_dir': '/home/zonghuan/tudelft/projects/datasets/modification/conflab',
             'model_path': '/home/zonghuan/tudelft/projects/large_models/models/',
             'output_file': '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/results'
         },
@@ -175,95 +175,170 @@ def print_memory_usage(interval=5, duration=60):
 
         # time.sleep(interval)
 
-def form_prompt():
-    return "Image-1: <image>\nImage-2: <image>\nDescribe the two images in detail."
-
-# Main function to perform the evaluation
-def evaluate(dataset_path, model_path, output_path):
-    # Collect all jpg files in the dataset folder
-    image_files = [f for f in os.listdir(dataset_path) if f.endswith('.jpg')]
-    image_files.sort(key=extract_x)
-
-    #
-    print('before load')
+def load_model(model_path):
+    """
+    Load the model and tokenizer from the specified model path.
+    """
+    print('Loading model...')
     model = AutoModel.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
-        trust_remote_code=True).eval().cuda()
+        trust_remote_code=True
+    ).eval().cuda()
+
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, use_fast=False)
+    print('Model loaded successfully.')
     generation_config = dict(max_new_tokens=1024, do_sample=False)
+    return model, tokenizer, generation_config
 
-    output_file = os.path.join(output_path, 'output.txt')
+def gen_prompt_general():
+    converse_group_prompt = "You will be given an original image and several gallery images. The original images ia about a scene captured from an overhead camera, and each gallery image captures a person in the scene. Each person is associated with an ID. Your job is to determine which people are within the same conversation group in the original scene (i.e. by considering who is talking with whom). Only consider people given in the gallery images. A conversation group may include 2 or more people. Give the response by grouping the IDs of people in parentheses. An example format of answer is (3, 9, 20), (4, 21), (13, 14). Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your answer."
+
+    converse_group_prompt_single_number = "Suppose you're an expert in annotating conversation groups. This image shows the scene of an academic conference from an overhead camera. Each person in the image is assigned a number, which is denoted in red and positioned next to each person. Please annotate conversation groups and write them in brackets. A conversation group means that there is only one conversation taking place among its members, and that all members are focusing on the same topic. A conversation group may include 2 or more people. Please ignore the unmarked people. Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation. Let's think step by step by considering people's behavioral cues. For example, two people facing each other might indicate they are in the same conversation group, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. An example format of annotation is [(3, 9, 20), (4, 21), (13, 14)]. Please output your response in this format."
+
+    converse_group_prompt_gallery_concat = "Suppose you're an expert in annotating conversation groups. This image on the left shows the scene of an academic conference from an overhead camera. The small images on the right side are the gallery, which consists of some people cropped from the left side. Each person is assigned a number, which is denoted in red and positioned under their corresponding gallery image. Please annotate conversation groups and write them in parentheses. Use IDs of the people to represent them. A conversation group means that there is only one conversation taking place among its members, and that all members are focusing on the same topic. A conversation group may include 2 or more people. Please ignore people not included in the gallery. Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation. "
+
+    step_prompt = "Let's think step by step by considering people's behavioral cues. "
+    cue_hint = "For example, two people facing each other might indicate they are in the same conversation group, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. "
+    example = "An example format of annotation is [(3, 9, 20), (4, 21), (13, 14)]. Please output your response in a format similar to this. "
+
+    converse_group_prompt_gallery_concat_simple = "Who and whom are talking together? Look at the image on the left side and refer to the right side for IDs of people. Format the output in parentheses. For example, [(x1, x2, x3), (x4, x5)], where x1, ..., x5 are people's IDs. This example annotation means that you believe x1, x2, x3 are talking together, while x4 and x5 are talking together. Now, provide your answer regarding this image."
+
+    fformation_prompt = "The F-formation is defined as a socio-spatial formation, where every member of it has direct, easy and equal access. Look at the image on the left side, what F-formations do you observe in it? Refer to the right side for IDs of people. Output several brackets, each containing the IDs of people within one F-formation. "
+    example_2 = "For example, your output should look like [(x1, x2, x3), (x4, x5)]. This sample answer means that you believe x1, x2, x3 are in one F-formation, while x4 and x5 are in another, where x1, ..., x5 are people's IDs. Now, provide your answer regarding this image. Do not simply repeat the sample answer! Replace the IDs with the read IDs of people in the image!"
+
+    return converse_group_prompt_gallery_concat_simple
+
+
+def gen_prompt_spec(img_path, gallery_ids):
+    """
+    Forms a prompt for the model that includes the original image and multiple gallery images,
+    each labeled with its corresponding ID.
+
+    Args:
+        img_path (str): Path to the original image.
+        gallery_ids (list): List of gallery image IDs (filenames).
+
+    Returns:
+        str: The formatted prompt string.
+    """
+    prompt_lines = [f"Original Image: <image>"]
+
+    # Add the original image with its label
+    # Add each gallery image with its ID and placeholder
+    for _, gallery_filename in enumerate(gallery_ids, start=1):
+        person_id = gallery_filename.split('.')[0]
+        prompt_lines.append(f"Person of ID {person_id}: <image>")
+
+    # # Add the instruction to describe all the images in detail
+    # prompt_lines.append("\nDescribe the images in detail.")
+
+    # Join all lines into a single prompt string
+    prompt = "\n".join(prompt_lines)
+    return prompt
+
+
+def process_gallery_images(img_path, gallery_images):
+    """
+    Loop over gallery images and evaluate the model.
+    """
+    if not gallery_images:
+        print(f"No gallery images found for {img_path}")
+        return
+
+    # Load the original image
+    pixel_values_list = [load_image(img_path, max_num=12).to(torch.bfloat16).cuda()]
+    num_patches_list = [pixel_values_list[0].size(0)]
+    gallery_ids = []
+    # num_patches_list = []
+    for gallery_img in gallery_images:
+        try:
+            # Initialize with the number of patches in the original image
+            # Load all gallery images and append to the list
+            pixel_values_gallery = load_image(gallery_img, max_num=2).to(torch.bfloat16).cuda()
+            pixel_values_list.append(pixel_values_gallery)
+            num_patches_list.append(pixel_values_gallery.size(0))
+            gallery_id = os.path.basename(gallery_img)
+            gallery_ids.append(gallery_id)
+        except Exception as e:
+            print(f"Error processing {os.path.basename(img_path)} with gallery {os.path.basename(gallery_img)}: {e}")
+
+            # Concatenate all the pixel values
+    pixel_values = torch.cat(pixel_values_list, dim=0)
+    return pixel_values, num_patches_list, gallery_ids
+
+
+# Main function to perform the evaluation
+def evaluate(dataset_path, model_path, output_path, config=None):
+    # Collect all jpg files in the dataset folder
+    image_files = [f for f in os.listdir(dataset_path) if f.endswith('.jpg')]
+    image_files.sort(key=extract_x)
+
+    # model, tokenizer, generation_config = load_model(model_path)
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    output_name = current_time + '.txt'
+    output_file = os.path.join(output_path, output_name)
     # Open the output file for writing
-
     with open(output_file, 'w') as output:
         # Record the model path and the prompt template once
 
-        prompt_template = form_prompt()
+        prompt_general = gen_prompt_general()
         output.write(f"Model Path: {model_path}\n")
-        output.write(f"Prompt Template: {prompt_template}\n\n")
+        output.write(f"Prompt Template: {prompt_general}\n\n")
 
         for img_filename in image_files:
+            model, tokenizer, generation_config = load_model(model_path)
             img_path = os.path.join(dataset_path, img_filename)
-            gallery_images = get_gallery_images(img_path)
+            prompt_spec = ''
+            pixel_values_main = load_image(img_path, max_num=12).to(torch.bfloat16).cuda()
+            num_patches_list = [pixel_values_main[0].size(0)]
+            # gallery_images = get_gallery_images(img_path)
+            # if not gallery_images:
+            #     print(f"No gallery images found for {img_filename}")
+            #     continue
+            #
+            # pixel_values, num_patches_list, gallery_ids = process_gallery_images(img_path, gallery_images)
+            #
+            # # Form the prompt
+            # prompt_spec = gen_prompt_spec(img_path, gallery_ids)
 
-            if not gallery_images:
-                print(f"No gallery images found for {img_filename}")
-                continue
+            prompt = prompt_general + prompt_spec
+            print_memory_usage()
+            pixel_values = pixel_values_main
+            # Get response from the model
+            response, history = model.chat(tokenizer, pixel_values, prompt, generation_config,
+                                           # num_patches_list=num_patches_list,
+                                           history=None, return_history=True)
 
-            print('before iterate gallery')
-            # Load the original image and one gallery image at a time for evaluation
-            for gallery_img in gallery_images:
-                # print_memory_usage()
-                # print(gallery_img)
-                try:
-                    # Load images
-                    pixel_values1 = load_image(img_path, max_num=12).to(torch.bfloat16).cuda()
-                    pixel_values2 = load_image(gallery_img, max_num=12).to(torch.bfloat16).cuda()
-                    pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
-                    num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
+            # Get the current time
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Write the results to the file
+            output.write(f"Image Path: {img_path}\n")
+            # output.write(f"Gallery Image Path: {gallery_img}\n")
+            output.write(f"Time: {current_time}\n")
+            output.write(f"Response: {response}\n")
+            output.write("-" * 80 + "\n")
+            # print(f"Processed {img_filename} with gallery {os.path.basename(gallery_img)}")
 
-                    # Form the prompt
-                    question = form_prompt()
+            del pixel_values, response, history
+            torch.cuda.empty_cache()
 
-                    # Get the current time
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                    print('after converting pixel values')
-                    print_memory_usage()
-                    # Get response from the model
-                    response, history = model.chat(tokenizer, pixel_values, question, generation_config,
-                                                   num_patches_list=num_patches_list,
-                                                   history=None, return_history=True)
-
-                    # Write the results to the file
-                    output.write(f"Image Path: {img_path}\n")
-                    output.write(f"Gallery Image Path: {gallery_img}\n")
-                    output.write(f"Time: {current_time}\n")
-                    output.write(f"Response: {response}\n")
-                    output.write("-" * 80 + "\n")
-
-                    print(f"Processed {img_filename} with gallery {os.path.basename(gallery_img)}")
-
-                    del pixel_values1, pixel_values2, pixel_values, response, history
-                    torch.cuda.empty_cache()
-
-                except Exception as e:
-                    print(f"Error processing {img_filename} with gallery {os.path.basename(gallery_img)}: {e}")
 
 # If you have an 80G A100 GPU, you can put the entire model on a single GPU.
 # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
 def main():
-    dataset_dir, model_path, output_path = get_paths_based_on_hostname()
-    dataset_name = 'conflab_bbox_sample'
+    dataset_path, model_path, output_path = get_paths_based_on_hostname()
+    dataset_name = 'gallery_concat'
     model_name = 'InternVL2-2B'
-
-    dataset_dir = os.path.join(dataset_dir, dataset_name)
+    # output_name = 'output.txt'
+    # '/home/zonghuan/tudelft/projects/datasets/modification/annotated/ConfLab/imgs'
+    # output_path = os.path.join(output_path, output_name)
+    dataset_path = os.path.join(dataset_path, dataset_name)
     model_path = os.path.join(model_path, model_name)
 
     print('before evaluation')
-    evaluate(dataset_dir, model_path, output_path)
+    evaluate(dataset_path, model_path, output_path)
 
 if __name__ == '__main__':
     main()
