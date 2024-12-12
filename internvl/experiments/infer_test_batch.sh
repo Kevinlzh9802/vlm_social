@@ -9,7 +9,7 @@
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_infer/slurm_%j.out # Set name of output log. %j is the Slurm jobId
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_infer/slurm_%j.err # Set name of error log. %j is the Slurm jobId
 
-#SBATCH --gres=gpu:turing:1 # Request 1 GPU
+#SBATCH --gres=gpu:a40:1 # Request 1 GPU
 
 # Measure GPU usage of your job (initialization)
 previous=$(/usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/tail -n '+2')
