@@ -4,7 +4,7 @@
 usage() {
     echo "Usage: $0 --model_name <model_name> --visual_strat <visual_strat> --task <task>"
     echo "  model_name: internvl1b, internvl2b, internvl4b"
-    echo "  visual_strat: multi, concat"
+    echo "  visual_strat: gallery, concat"
     echo "  task: fform, cgroup"
     exit 1
 }
@@ -26,8 +26,8 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Call the Python script with the validated arguments
-python ../evaluate.py --model_name "$model_name" --visual_strat "$visual_strat" --task "$task"
-#apptainer exec --nv --bind /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan:/mnt/zonghuan --bind /home/nfs/zli33:/mnt/zli33 /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_builds/containers/internvl2-8.sif python /home/nfs/zli33/projects/vlm_social/internvl/localize_person.py --model_name "$model_name" --visual_strat "$visual_strat" --task "$task"
+#python ../evaluate.py --model_name "$model_name" --visual_strat "$visual_strat" --task "$task"
+apptainer exec --nv --bind /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan:/mnt/zonghuan --bind /home/nfs/zli33:/mnt/zli33 /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_builds/containers/internvl2-8.sif python /home/nfs/zli33/projects/vlm_social/internvl/localize_person.py --model_name "$model_name" --visual_strat "$visual_strat" --task "$task"
 
 # sample usage
 # ./infer_main.sh --model_name internvl2b --visual_strat concat --task cgroup
