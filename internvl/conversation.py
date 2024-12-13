@@ -146,10 +146,11 @@ def main():
     for k in range(5):
         with torch.no_grad():
             print_memory_usage()
-            pixel_values1 = load_image(img_bird, max_num=12).to(torch.bfloat16).cuda()
-            pixel_values2 = load_image(img_1, max_num=12).to(torch.bfloat16).cuda()
+            img_1 = '/path/to/img1'
+            img_2 = '/path/to/img1'
+            pixel_values1 = load_image(img_1, max_num=12).to(torch.bfloat16).cuda()
+            pixel_values2 = load_image(img_2, max_num=12).to(torch.bfloat16).cuda()
 
-            print_memory_usage()
             pixel_values = torch.cat((pixel_values1, pixel_values2), dim=0)
             num_patches_list = [pixel_values1.size(0), pixel_values2.size(0)]
 
