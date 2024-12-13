@@ -335,9 +335,9 @@ def evaluate(dataset_path, model_path, output_path, args=None):
 # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
 
 def check_args(args):
-    valid_models = ["InternVL2-1B", "InternVL2-2B", "InternVL2-4B"]
+    valid_models = ["InternVL2-1B", "InternVL2-2B", "InternVL2-4B", "InternVL2_5-1B"]
     valid_visual_strats = ["gallery", "concat"]
-    valid_tasks = ["fform", "cgroup"]
+    valid_tasks = ["fform", "cgroup", "locate"]
 
     if args.model_name not in valid_models:
         print(f"Error: Invalid model_name '{args.model_name}'. Must be one of {valid_models}.")
