@@ -196,7 +196,7 @@ def load_model(model_path):
     return model, tokenizer, generation_config
 
 def gen_prompt_general(args):
-    with open('prompts.yaml', 'r') as file:
+    with open('/mnt/zli33/projects/vlm_social/internvl/prompts.yaml', 'r') as file:
         prompts = yaml.safe_load(file)
     task_prompt = prompts[args.task]
     basic = task_prompt['def']
@@ -294,11 +294,11 @@ def evaluate(dataset_path, model_path, output_path, args=None):
     image_files = [f for f in os.listdir(dataset_path) if f.endswith('.jpg')]
     image_files.sort(key=extract_x)
 
+    prompt_general = gen_prompt_general(args)
     model, tokenizer, generation_config = load_model(model_path)
     # Open the output file for writing
     with open(output_path, 'w') as output:
         # Record the model path and the prompt template once
-        prompt_general = gen_prompt_general(args)
         output.write(f"Model Path: {model_path}\n")
         output.write(f"Prompt Template: {prompt_general}\n\n")
 
