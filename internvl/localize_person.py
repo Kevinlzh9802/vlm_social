@@ -277,17 +277,6 @@ def process_gallery_images(img_path, gallery_images):
     pixel_values = torch.cat(pixel_values_list, dim=0)
     return pixel_values, num_patches_list, gallery_ids
 
-# def deal_multi_image(img_path,):
-#     gallery_images = get_gallery_images(img_path)
-#     if not gallery_images:
-#         print(f"No gallery images found for {img_filename}")
-#         return
-#
-#     pixel_values, num_patches_list, gallery_ids = process_gallery_images(img_path, gallery_images)
-#
-#     # Form the prompt
-#     prompt_spec = gen_prompt_spec(img_path, gallery_ids)
-
 # Main function to perform the evaluation
 def evaluate(dataset_path, model_path, output_path, args=None):
     # Collect all jpg files in the dataset folder
