@@ -21,7 +21,7 @@ previous=$(/usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utili
 # Uncomment these lines and adapt them to load the software that your job requires
 # module use /opt/insy/modulefiles          # Use DAIC INSY software collection
 # module load cuda/12.4 cudnn/12-8.9.1.23 # Load certain versions of cuda and cudnn
-srun bash infer_main.sh --model_name InternVL2-2B --visual_strat gallery --task cgroup # Computations should be started with 'srun'. For example:
+srun bash infer_main.sh --model_name InternVL2-4B --visual_strat concat --task fform # Computations should be started with 'srun'. For example:
 
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"
