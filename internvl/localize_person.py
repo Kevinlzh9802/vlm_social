@@ -1,19 +1,20 @@
 import numpy as np
-# import torch
-# import torchvision.transforms as T
-# from decord import VideoReader, cpu
+import torch
+import torchvision.transforms as T
+from decord import VideoReader, cpu
 from PIL import Image
-# from torchvision.transforms.functional import InterpolationMode
-# from transformers import AutoModel, AutoTokenizer
+from torchvision.transforms.functional import InterpolationMode
+from transformers import AutoModel, AutoTokenizer
 import os
 import re
 import socket
 from datetime import datetime
 import psutil
-# import GPUtil
+import GPUtil
 import time
 import argparse
 import sys
+import yaml
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -191,26 +192,32 @@ def load_model(model_path):
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, use_fast=False)
     print('Model loaded successfully.')
-    generation_config = dict(max_new_tokens=1024, do_sample=False)
+    generation_config = dict(max_new_tokens=4096, do_sample=False)
     return model, tokenizer, generation_config
 
-def gen_prompt_general():
-    converse_group_prompt = "You will be given an original image and several gallery images. The original images ia about a scene captured from an overhead camera, and each gallery image captures a person in the scene. Each person is associated with an ID. Your job is to determine which people are within the same conversation group in the original scene (i.e. by considering who is talking with whom). Only consider people given in the gallery images. A conversation group may include 2 or more people. Give the response by grouping the IDs of people in parentheses. An example format of answer is (3, 9, 20), (4, 21), (13, 14). Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your answer."
+def gen_prompt_general(args):
+    with open('prompts.yaml', 'r') as file:
+        prompts = yaml.safe_load(file)
+    task_prompt = prompts[args.task]
+    basic = task_prompt['def']
 
-    converse_group_prompt_single_number = "Suppose you're an expert in annotating conversation groups. This image shows the scene of an academic conference from an overhead camera. Each person in the image is assigned a number, which is denoted in red and positioned next to each person. Please annotate conversation groups and write them in brackets. A conversation group means that there is only one conversation taking place among its members, and that all members are focusing on the same topic. A conversation group may include 2 or more people. Please ignore the unmarked people. Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation. Let's think step by step by considering people's behavioral cues. For example, two people facing each other might indicate they are in the same conversation group, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. An example format of annotation is [(3, 9, 20), (4, 21), (13, 14)]. Please output your response in this format."
+    if args.visual_strat in ['concat', 'number']:
+        visual_strat_prompt = task_prompt['single']
+    elif args.visual_strat in ['gallery']:
+        visual_strat_prompt = task_prompt['multi']
+    else:
+        raise ValueError('Visual strategy not recognized')
 
-    converse_group_prompt_gallery_concat = "Suppose you're an expert in annotating conversation groups. This image on the left shows the scene of an academic conference from an overhead camera. The small images on the right side are the gallery, which consists of some people cropped from the left side. Each person is assigned a number, which is denoted in red and positioned under their corresponding gallery image. Please annotate conversation groups and write them in parentheses. Use IDs of the people to represent them. A conversation group means that there is only one conversation taking place among its members, and that all members are focusing on the same topic. A conversation group may include 2 or more people. Please ignore people not included in the gallery. Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation. "
-
-    step_prompt = "Let's think step by step by considering people's behavioral cues. "
-    cue_hint = "For example, two people facing each other might indicate they are in the same conversation group, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. "
-    example = "An example format of annotation is [(3, 9, 20), (4, 21), (13, 14)]. Please output your response in a format similar to this. "
-
-    converse_group_prompt_gallery_concat_simple = "Who and whom are talking together? Look at the image on the left side and refer to the right side for IDs of people. Format the output in parentheses. For example, [(x1, x2, x3), (x4, x5)], where x1, ..., x5 are people's IDs. This example annotation means that you believe x1, x2, x3 are talking together, while x4 and x5 are talking together. Now, provide your answer regarding this image."
-
-    fformation_prompt = "The F-formation is defined as a socio-spatial formation, where every member of it has direct, easy and equal access. Look at the image on the left side, what F-formations do you observe in it? Refer to the right side for IDs of people. Output several brackets, each containing the IDs of people within one F-formation. "
-    example_2 = "For example, your output should look like [(x1, x2, x3), (x4, x5)]. This sample answer means that you believe x1, x2, x3 are in one F-formation, while x4 and x5 are in another, where x1, ..., x5 are people's IDs. Now, provide your answer regarding this image. Do not simply repeat the sample answer! Replace the IDs with the read IDs of people in the image!"
-
-    return converse_group_prompt_gallery_concat_simple
+    scene_desc = (visual_strat_prompt[args.visual_strat]['modal_desc'] +
+                  visual_strat_prompt[args.visual_strat]['scene_desc'] +
+                  visual_strat_prompt[args.visual_strat]['task_desc'])
+    prompt_plain = scene_desc + basic + task_prompt['output_instruct'] + prompts['img_token']
+    prompt_candidates = {
+        'plain': prompt_plain,
+        'role': task_prompt['role'] + prompt_plain,
+        'step': prompts['step_prompt'] + prompt_plain,
+    }
+    return prompt_candidates[args.prompt_strat]
 
 
 def gen_prompt_spec(img_path, gallery_ids):
@@ -270,49 +277,57 @@ def process_gallery_images(img_path, gallery_images):
     pixel_values = torch.cat(pixel_values_list, dim=0)
     return pixel_values, num_patches_list, gallery_ids
 
+# def deal_multi_image(img_path,):
+#     gallery_images = get_gallery_images(img_path)
+#     if not gallery_images:
+#         print(f"No gallery images found for {img_filename}")
+#         return
+#
+#     pixel_values, num_patches_list, gallery_ids = process_gallery_images(img_path, gallery_images)
+#
+#     # Form the prompt
+#     prompt_spec = gen_prompt_spec(img_path, gallery_ids)
 
 # Main function to perform the evaluation
-def evaluate(dataset_path, model_path, output_path, config=None):
+def evaluate(dataset_path, model_path, output_path, args=None):
     # Collect all jpg files in the dataset folder
     image_files = [f for f in os.listdir(dataset_path) if f.endswith('.jpg')]
     image_files.sort(key=extract_x)
 
-    # model, tokenizer, generation_config = load_model(model_path)
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    output_name = current_time + '.txt'
-    output_file = os.path.join(output_path, output_name)
+    model, tokenizer, generation_config = load_model(model_path)
     # Open the output file for writing
-    with open(output_file, 'w') as output:
+    with open(output_path, 'w') as output:
         # Record the model path and the prompt template once
-
-        prompt_general = gen_prompt_general()
+        prompt_general = gen_prompt_general(args)
         output.write(f"Model Path: {model_path}\n")
         output.write(f"Prompt Template: {prompt_general}\n\n")
 
         for img_filename in image_files:
-            model, tokenizer, generation_config = load_model(model_path)
+            # model, tokenizer, generation_config = load_model(model_path)
             img_path = os.path.join(dataset_path, img_filename)
-            prompt_spec = ''
-            pixel_values_main = load_image(img_path, max_num=12).to(torch.bfloat16).cuda()
-            num_patches_list = [pixel_values_main[0].size(0)]
-            # gallery_images = get_gallery_images(img_path)
-            # if not gallery_images:
-            #     print(f"No gallery images found for {img_filename}")
-            #     continue
-            #
-            # pixel_values, num_patches_list, gallery_ids = process_gallery_images(img_path, gallery_images)
-            #
-            # # Form the prompt
-            # prompt_spec = gen_prompt_spec(img_path, gallery_ids)
+            if args.visual_strat in ['concat', 'number']:
+                # Single image
+                pixel_values = load_image(img_path, max_num=12).to(torch.bfloat16).cuda()
+                prompt = prompt_general
+                response, history = model.chat(tokenizer, pixel_values, prompt, generation_config,
+                                               history=None, return_history=True)
+            elif args.visual_strat in ['gallery']:
+                # Multiple images
+                gallery_images = get_gallery_images(img_path)
+                if not gallery_images:
+                    print(f"No gallery images found for {img_filename}")
+                    continue
 
-            prompt = prompt_general + prompt_spec
+                pixel_values, num_patches_list, gallery_ids = process_gallery_images(img_path, gallery_images)
+
+                # Form the prompt
+                prompt_spec = gen_prompt_spec(img_path, gallery_ids)
+                prompt = prompt_general + prompt_spec
+                response, history = model.chat(tokenizer, pixel_values, prompt, generation_config,
+                                               num_patches_list=num_patches_list,
+                                               history=None, return_history=True)
+
             print_memory_usage()
-            pixel_values = pixel_values_main
-            # Get response from the model
-            response, history = model.chat(tokenizer, pixel_values, prompt, generation_config,
-                                           # num_patches_list=num_patches_list,
-                                           history=None, return_history=True)
-
             # Get the current time
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # Write the results to the file
@@ -331,8 +346,8 @@ def evaluate(dataset_path, model_path, output_path, config=None):
 # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
 
 def check_args(args):
-    valid_models = ["internvl1b", "internvl2b", "internvl4b"]
-    valid_visual_strats = ["multi", "concat"]
+    valid_models = ["InternVL2-1B", "InternVL2-2B", "InternVL2-4B"]
+    valid_visual_strats = ["gallery", "concat"]
     valid_tasks = ["fform", "cgroup"]
 
     if args.model_name not in valid_models:
@@ -350,42 +365,43 @@ def check_args(args):
         sys.exit(1)
 
 def get_rel_dataset_path(args):
-    if args.visual_strat == "multi":
-        return 'imgs_gallery'
-    elif args.visual_strat == "concat":
-        return 'imgs_gallery_concat'
-    else:
-        raise ValueError(f"Invalid visual_strat '{args.visual_strat}'.")
+    if args.modality == "image":
+        if args.visual_strat == "gallery":
+            return 'image/gallery_bbox'
+        elif args.visual_strat == "concat":
+            return 'image/gallery_concat'
+        else:
+            raise ValueError(f"Invalid visual_strat '{args.visual_strat}'.")
+    elif args.modality == "video":
+        return "video"
 
 def main():
     # Initialize argument parser
     parser = argparse.ArgumentParser(description="Evaluation script with model, visual strategy, and task.")
 
     # Add arguments
-    parser.add_argument("--model_name", type=str, required=True, help="Name of the model to use.")
-    parser.add_argument("--visual_strat", type=str, required=True, help="Visual strategy: 'multi' or 'concat'.")
-    parser.add_argument("--task", type=str, required=True, help="Task to perform: 'fform' or 'cgroup'.")
-    parser.add_argument("--dataset", type=str, required=False, default="conflab", help="Task to perform: 'fform' or 'cgroup'.")
+    parser.add_argument("--model_name", type=str, required=False, default="InternVL2-2B", help="Name of the model to use.")
+    parser.add_argument("--visual_strat", type=str, required=False, default="concat", help="Visual strategy: 'gallery' or 'concat'.")
+    parser.add_argument("--task", type=str, required=False, default="fform", help="Task to perform: 'fform' or 'cgroup'.")
+    parser.add_argument("--dataset", type=str, required=False, default="conflab", help="Dataset: 'conflab' or 'idiap'.")
+    parser.add_argument("--modality", type=str, required=False, default="image", help="Modality: 'image' or 'video'.")
+    parser.add_argument("--prompt_strat", type=str, required=False, default="plain", help="Modality: 'image' or 'video'.")
 
     # Parse arguments
     args = parser.parse_args()
     check_args(args)
 
     # Create configuration dictionary
-    cfg = {
-        "model_name": args.model_name,
-        "visual_strat": args.visual_strat,
-        "task": args.task
-    }
 
     dataset_path, model_path, output_path = get_paths_based_on_hostname()
-    output_name = '_'.join([args.modle_name, args.dataset, args.visual_strat, args.task]) + '.txt'
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    output_name = '_'.join([args.model_name, args.dataset, args.visual_strat, args.task, current_time]) + '.txt'
 
     dataset_path = os.path.join(dataset_path, args.dataset, get_rel_dataset_path(args))
     model_path = os.path.join(model_path, args.model_name)
     output_path = os.path.join(output_path, output_name)
 
-    evaluate(dataset_path, model_path, output_path, cfg)
+    evaluate(dataset_path, model_path, output_path, args)
 
 if __name__ == '__main__':
     main()

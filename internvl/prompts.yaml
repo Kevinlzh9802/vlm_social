@@ -1,0 +1,59 @@
+cgroup:
+  role: "Now, suppose you're an expert in annotating conversation groups. "
+  job_desc: "Your job is to determine which people are within the same conversation group. "
+  def: "A conversation group means that there is only one conversation taking place among its members, and that all members are focusing on the same topic. "
+  case_desc: "A conversation group may include 2 or more people. Please ignore the unmarked people. Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation. "
+  output_instruct: "Give the response by grouping the IDs of people in parentheses. "
+  sample_format:
+    main: "An example format of annotation is [(3, 9, 20), (4, 21), (13, 14)]. Please output your response in this format. "
+    detail: "For example, [(x1, x2, x3), (x4, x5)], where x1, ..., x5 are people's IDs. This example annotation means that you believe x1, x2, x3 are talking together, while x4 and x5 are talking together. "
+  sample_reason: "For example, two people facing each other might indicate they are in the same conversation group, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. "
+  multi:
+    gallery:
+      modal_desc: "You will be given several images. "
+      scene_desc: "The first one is about a scene captured from an overhead camera, and each subsequent image is the cropped area of a person in the scene. Each person is associated with an ID, provided in text form before the corresponding image token. "
+      task_desc: "Provide conversation groups you observe in the first image, by referring to subsequent images for people's IDs."
+    command: "Now, provide your answer."
+
+  single:
+    number:
+      modal_desc: ""
+      scene_desc: "This image shows the scene of an academic conference from an overhead camera. Each person in the image is assigned a number, which is denoted in red and positioned next to each person. "
+      task_desc: "Provide conversation groups you observe."
+    concat:
+      modal_desc: ""
+      scene_desc: "For the given image, the left part shows the scene of an academic conference from an overhead camera. The small images on the right side are bounding boxes of some people cropped from the left side. Each person is assigned an ID, which is denoted in red and positioned under their corresponding image. Use the IDs of people to represent them. "
+      task_desc: "Provide conversation groups you observe in the image on the left, by referring to the right side for people's IDs."
+    command: "Now, provide your answer. "
+
+    simple: "Who and whom are talking together? Look at the image on the left side and refer to the right side for IDs of people. Format the output in parentheses. "
+
+fform:
+  role: "Suppose you're an expert in annotating F-formations. "
+  job_desc: "Your job is to determine which people are within the same F-formation. "
+  def: "The F-formation is defined as a socio-spatial formation in which people have established and maintain a convex space to which everybody in the gathering has direct, easy and equal access. "
+  case_desc: "A conversation group may include 2 or more people. Please ignore the unmarked people. Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation. "
+  output_instruct: "Give the response by grouping the IDs of people in parentheses. "
+  sample_format:
+    main: "An example format of annotation is [(3, 9, 20), (4, 21), (13, 14)]. Please output your response in this format. "
+    detail: "For example, [(x1, x2, x3), (x4, x5)], where x1, ..., x5 are people's IDs. This example annotation means that you believe x1, x2, x3 are talking together, while x4 and x5 are talking together. "
+  sample_reason: "For example, two people facing each other might indicate they are in the same conversation group, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. "
+  multi:
+    gallery:
+      modal_desc: "You will be given several images. "
+      scene_desc: "The first one is about a scene captured from an overhead camera, and each subsequent image is the cropped area of a person in the scene. Each person is associated with an ID, provided in text form before the corresponding image token. "
+      task_desc: "Provide F-formations you observe in the first image, by referring to subsequent images for people's IDs."
+    command: "Now, provide your answer."
+  single:
+    number:
+      modal_desc: ""
+      scene_desc: "This image shows the scene of an academic conference from an overhead camera. Each person in the image is assigned a number, which is denoted in red and positioned next to each person. "
+      task_desc: "Provide F-formations you observe."
+    concat:
+      modal_desc: ""
+      scene_desc: "For the given image, the left part shows the scene of an academic conference from an overhead camera. The small images on the right side are bounding boxes of some people cropped from the left side. Each person is assigned an ID, which is denoted in red and positioned under their corresponding image. Use the IDs of people to represent them. "
+      task_desc: "Provide F-formations you observe in the image on the left, by referring to the right side for people's IDs."
+    command: "Now, provide your answer."
+
+step_prompt: "Let's think step by step. "
+img_token: '<image>\n'
