@@ -29,7 +29,8 @@ def process_gallery_images(img_path, gallery_images):
             gallery_ids.append(gallery_id)
         except Exception as e:
             print(f"Error processing {os.path.basename(img_path)} with gallery {os.path.basename(gallery_img)}: {e}")
-    return pixel_values_list, num_patches_list, gallery_ids
+    pixel_values = torch.cat(pixel_values_list, dim=0)
+    return pixel_values, num_patches_list, gallery_ids
 
 
 def iter_by_file(image_files, dataset_path, model, tokenizer, generation_config, output, args):

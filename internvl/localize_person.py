@@ -51,6 +51,11 @@ def get_paths_based_on_hostname():
 
     return dataset_dir, model_path, output_file
 
+def use_json(args):
+    if args.task == 'locate' and args.visual_strat == 'concat':
+        return True
+    else:
+        return False
 
 # Main function to perform the evaluation
 def evaluate(dataset_path, model_path, output_path, args=None):
@@ -66,8 +71,10 @@ def evaluate(dataset_path, model_path, output_path, args=None):
         output.write(f"Model Path: {model_path}\n")
         output.write(f"Prompt Template: {prompt_general}\n\n")
 
-        iter_by_file(image_files, dataset_path, model, tokenizer, generation_config, output, args)
-        iter_by_json(image_files, dataset_path, model, tokenizer, generation_config, output, args)
+        if use_json(args):
+            iter_by_json(image_files, dataset_path, model, tokenizer, generation_config, output, args)
+        else:
+            iter_by_file(image_files, dataset_path, model, tokenizer, generation_config, output, args)
 
 
 # If you have an 80G A100 GPU, you can put the entire model on a single GPU.

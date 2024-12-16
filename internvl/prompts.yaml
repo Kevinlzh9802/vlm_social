@@ -56,21 +56,26 @@ fform:
     command: "Now, provide your answer."
 
 locate:
+  role: ""
+  job_desc: ""
+  def: ""
+  output_instruct: "Select from the following choices: (A) top left; (B) top right; (C) bottom left; (D) bottom right. "
   multi:
     gallery:
       modal_desc: "You will be given two images. "
       scene_desc: ""
-      task_desc: "The second image is a person. Which part in the first image is this person located? Select from the following choices: (A) top left; (B) top right; (C) bottom left; (D) bottom right. "
+      task_desc: "The second image is a person. Which part in the first image is this person located? "
     command: "Now, provide your answer."
   single:
     number:
       modal_desc: ""
-      scene_desc: "This image shows the scene of an academic conference from an overhead camera. Each person in the image is assigned a number, which is denoted in red and positioned next to each person. "
+      scene_desc: "SENSELESS PROMPT!"
       task_desc: "SENSELESS PROMPT!"
     concat:
       modal_desc: ""
       scene_desc: ""
-      task_desc: "The image on the right is a person. Which part in the image on the left is this person located? Select from the following choices: (A) top left; (B) top right; (C) bottom left; (D) bottom right. "
+      task_desc: "The image on the right is a person. Which part in the image on the left is this person located? "
+    simple: "Which?"
     command: "Now, provide your answer."
 
 step_prompt: "Let's think step by step. "
