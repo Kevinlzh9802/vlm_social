@@ -17,19 +17,7 @@ previous=$(/usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utili
 /usr/bin/nvidia-smi # Check sbatch settings are working (it should show the GPU that you requested)
 
 # Remaining job commands go below here. For example, to run python code that makes use of GPU resources:
-model_name=""
-visual_strat=""
-task=""
 
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --model_name) model_name="$2"; shift ;;
-        --visual_strat) visual_strat="$2"; shift ;;
-        --task) task="$2"; shift ;;
-        *) echo "Unknown parameter: $1"; usage ;;
-    esac
-    shift
-done
 # Uncomment these lines and adapt them to load the software that your job requires
 # module use /opt/insy/modulefiles          # Use DAIC INSY software collection
 # module load cuda/12.4 cudnn/12-8.9.1.23 # Load certain versions of cuda and cudnn
