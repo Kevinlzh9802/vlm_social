@@ -52,7 +52,7 @@ def get_paths_based_on_hostname():
     return dataset_dir, model_path, output_file
 
 def use_json(args):
-    if args.task == 'locate' and args.visual_strat == 'concat':
+    if args.task == 'locate' and args.visual_strat == 'gallery':
         return True
     else:
         return False
@@ -72,7 +72,8 @@ def evaluate(dataset_path, model_path, output_path, args=None):
         output.write(f"Prompt Template: {prompt_general}\n\n")
 
         if use_json(args):
-            iter_by_json(image_files, dataset_path, model, tokenizer, generation_config, output, args)
+            metadata_file = os.path.join(dataset_path, 'metadata.json')
+            iter_by_json(metadata_file, model, tokenizer, generation_config, output, args)
         else:
             iter_by_file(image_files, dataset_path, model, tokenizer, generation_config, output, args)
 
@@ -81,13 +82,8 @@ def evaluate(dataset_path, model_path, output_path, args=None):
 # Otherwise, you need to load a model using multiple GPUs, please refer to the `Multiple GPUs` section.
 
 def check_args(args):
-    valid_models = ["InternVL2-1B", "InternVL2-2B", "InternVL2-4B", "InternVL2_5-1B"]
     valid_visual_strats = ["gallery", "concat"]
     valid_tasks = ["fform", "cgroup", "locate"]
-
-    if args.model_name not in valid_models:
-        print(f"Error: Invalid model_name '{args.model_name}'. Must be one of {valid_models}.")
-        sys.exit(1)
 
     # Validate visual_strat
     if args.visual_strat not in valid_visual_strats:
@@ -100,6 +96,8 @@ def check_args(args):
         sys.exit(1)
 
 def get_rel_dataset_path(args):
+    if args.task == 'locate':
+        return 'image/position_concat'
     if args.modality == "image":
         if args.visual_strat == "gallery":
             return 'image/gallery_bbox'
@@ -129,7 +127,7 @@ def main():
     # Create configuration dictionary
 
     dataset_path, model_path, output_path = get_paths_based_on_hostname()
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     output_name = '_'.join([args.model_name, args.dataset, args.visual_strat, args.task, current_time]) + '.txt'
 
     dataset_path = os.path.join(dataset_path, args.dataset, get_rel_dataset_path(args))

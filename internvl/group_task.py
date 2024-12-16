@@ -102,7 +102,7 @@ def iter_by_json(metadata_path, model, tokenizer, generation_config, output, arg
         # Form the prompt
 
         # prompt_spec = gen_prompt_spec(gallery_ids)
-        prompt_spec = '<image>'
+        prompt_spec = '<image>\n'
         prompt = prompt_general + prompt_spec
         response, history = model.chat(tokenizer, pixel_values, prompt, generation_config,
                                        num_patches_list=num_patches_list,
