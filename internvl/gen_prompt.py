@@ -1,8 +1,8 @@
 import yaml
 
 def gen_prompt_general(args):
-    # with open('/mnt/zli33/projects/vlm_social/internvl/prompts.yaml', 'r') as file:
-    with open('prompts.yaml', 'r') as file:
+    with open('/mnt/zli33/projects/vlm_social/internvl/prompts.yaml', 'r') as file:
+    # with open('prompts.yaml', 'r') as file:
         prompts = yaml.safe_load(file)
     task_prompt = prompts[args.task]
     basic = task_prompt['def']
