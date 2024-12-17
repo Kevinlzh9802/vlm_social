@@ -88,8 +88,8 @@ def iter_by_json(metadata_path, model, tokenizer, generation_config, output, arg
 
         # some metadata.json store absolute paths on local machine,
         # so replace them with relative paths on the cluster
-        original_image = replace_until_common_base(entry['original_image'], metadata_path, 'img')
-        gallery_image = replace_until_common_base(entry['gallery_image'], metadata_path, 'img')
+        original_image = replace_until_common_base(entry['original_image'], metadata_path, 'image')
+        gallery_image = replace_until_common_base(entry['gallery_image'], metadata_path, 'image')
 
         # Load the images and process them
         pixel_values1 = load_image(original_image, max_num=12).to(torch.bfloat16).cuda()
