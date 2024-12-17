@@ -12,6 +12,26 @@ import os
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
+
+def replace_until_common_base(path1, path2, stop_folder):
+    # Split paths into parts
+    parts1 = path1.split(os.sep)
+    parts2 = path2.split(os.sep)
+
+    # Find the index of the stop_folder in both paths
+    try:
+        index1 = parts1.index(stop_folder)
+        index2 = parts2.index(stop_folder)
+    except ValueError:
+        return "Stop folder not found in both paths."
+
+    # Reconstruct the new path
+    new_base = os.sep.join(parts2[:index2 + 1])  # Up to and including the stop_folder in path2
+    rest_of_path = os.sep.join(parts1[index1 + 1:])  # After the stop_folder in path1
+
+    return os.path.join(new_base, rest_of_path)
+
+
 def build_transform(input_size):
     mean, std = IMAGENET_MEAN, IMAGENET_STD
     transform = T.Compose([
@@ -157,3 +177,15 @@ def record_info(output, img_path, response):
     output.write(f"Response: {response}\n")
     output.write("-" * 80 + "\n")
     # print(f"Processed {img_filename} with gallery {os.path.basename(gallery_img)}")
+
+def main():
+    # Example usage
+    path1 = '/path1/to1/dataset/.../output.txt'
+    path2 = '/path2/to2/dataset/.../file.json'
+    stop_folder = 'dataset'
+
+    new_path = replace_until_common_base(path1, path2, stop_folder)
+    print(new_path)  # Output: '/path2/to2/dataset/.../output.txt'
+
+if __name__ == '__main__':
+    main()

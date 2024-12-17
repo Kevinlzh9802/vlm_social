@@ -3,7 +3,7 @@ import os
 import torch
 import json
 from gen_prompt import gen_prompt_general, gen_prompt_spec
-from utils import print_memory_usage, record_info, get_gallery_images
+from utils import print_memory_usage, record_info, get_gallery_images, replace_until_common_base
 
 def process_gallery_images(img_path, gallery_images):
     """
@@ -86,8 +86,10 @@ def iter_by_json(metadata_path, model, tokenizer, generation_config, output, arg
     # Loop over every entry in the metadata
     for i, (key, entry) in enumerate(metadata_entries.items()):
 
-        original_image = entry['original_image']
-        gallery_image = entry['gallery_image']
+        # some metadata.json store absolute paths on local machine,
+        # so replace them with relative paths on the cluster
+        original_image = replace_until_common_base(entry['original_image'], metadata_path, 'img')
+        gallery_image = replace_until_common_base(entry['gallery_image'], metadata_path, 'img')
 
         # Load the images and process them
         pixel_values1 = load_image(original_image, max_num=12).to(torch.bfloat16).cuda()
