@@ -1,7 +1,7 @@
 import os.path
 import re
 import json
-
+import pandas as pd
 
 def extract_image_path(section):
     """Extract the image path from the section."""
@@ -99,7 +99,7 @@ def extract_info(input_file, output_file):
     # Split the content by the dotted line separators
     sections = re.split(r'\n-+\n', content)
 
-    results = []
+    results = {}
 
     for section in sections:
         image_path = extract_image_path(section)
@@ -112,26 +112,82 @@ def extract_info(input_file, output_file):
             grouped_numbers = extract_group_in_response(response)
 
             # Append to results
-            results.append({
+            num = file_name.split('_')[0][-4:]
+            results[num] = {
                 "file_name": file_name,
                 "image_path": image_path,
                 # "extraction_results": matches,
                 "grouped_numbers": grouped_numbers
-            })
+            }
 
     # Write to the output JSON file
+    # with open(output_file, 'w') as json_file:
+    #     json.dump(results, json_file, indent=4)
+
+    return results
+
+def deal_annotation_xlsx(input_file, output_file, tab='Conversation group'):
+    gt_file = '/home/zonghuan/tudelft/projects/vlm_social/Conflab.xlsx'
+
+    df = pd.read_excel(gt_file, sheet_name=tab)
+    df = pd.DataFrame(df.values[3:])
+    # Step 1: Drop the column before "Num"
+    df = df.loc[:, df.columns[1:]]
+
+    # Step 2: Replace the current row index with row 0 values
+    df.columns = df.iloc[0]  # Set the first row as column headers
+    df = df[1:]  # Drop the first row
+
+    # Step 3: Ensure all values are strings
+    df = df.applymap(lambda x: str(x) if not pd.isna(x) else x)
+
+    # Step 4: Create the dictionary with values turned into tuples of integers
+    result_dict = {}
+    for index, row in df.iterrows():
+        key = row['Num']  # Get the "Num" column value
+        groups = [
+            tuple(map(int, group.split(',')))  # Convert group string to tuple of integers
+            for group in row[1:]  # Skip the "Num" column
+            if pd.notna(group) and isinstance(group, str)  # Ignore NaN values and ensure strings
+        ]
+        result_dict[key] = groups
+
+    # Print the resulting dictionary
+    # print(result_dict)
     with open(output_file, 'w') as json_file:
-        json.dump(results, json_file, indent=4)
+        json.dump(result_dict, json_file, indent=4)
+    return result_dict
+
 
 def main():
-    # file_name = 'InternVL2-4B_conflab_gallery_cgroup_2024-12-13 21:15:48.txt'
-    # result_path = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/results/'
 
-    file_name = "InternVL2-2B_conflab_gallery_fform.txt"
-    result_path = 'D:\\Desktop\\'
-    input_file_path = os.path.join(result_path, file_name)  # Replace with the path to your document
-    output_file_path = os.path.join(result_path, 'group_extraction', file_name.split('.')[0] + '.json')
-    extract_info(input_file_path, output_file_path)
+
+    result_folder = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/cluster_raw/results/'
+    # result_path = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/results/'
+    single_text_file = f"InternVL2-2B_conflab_gallery_cgroup_2024-12-13 21:15:48.txt"
+    input_file_path = os.path.join(result_folder, single_text_file)  # Replace with the path to your document
+    output_file_path = os.path.join(result_folder, 'group_extraction', single_text_file.split('.')[0] + '.json')
+
+    if 'cgroup' in single_text_file:
+        gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json'
+    elif 'fform' in single_text_file:
+        gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json'
+    else:
+        gt_file = None
+    a = extract_info(input_file_path, output_file_path)
+    with open(gt_file, 'r') as f:
+        b = json.load(f)
+    # deal_annotation_xlsx(gt_file, '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json',
+    #                      tab='Conversation group')
+    #
+    # deal_annotation_xlsx(gt_file, '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json',
+    #                      tab='F-formation')
+    # files = [f for f in os.listdir(result_folder) if f.endswith('.txt')]
+
+    # file_name = "InternVL2-2B_conflab_gallery_fform.txt"
+    # result_path = 'D:\\Desktop\\'
+
+    c = 9
 
 if __name__ == '__main__':
     main()
