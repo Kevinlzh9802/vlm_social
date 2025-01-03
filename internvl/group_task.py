@@ -116,8 +116,6 @@ def iter_by_json(metadata_path, model, tokenizer, generation_config, output, arg
         del pixel_values, response, history
         torch.cuda.empty_cache()
 
-
-
 def main():
     iter_by_json('C:\\Users\\Zonghuan Li\\Downloads\\position_concat\\positional_info.json', 3)
 

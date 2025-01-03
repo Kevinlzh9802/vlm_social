@@ -18,11 +18,15 @@ def compute_HIC(T, P, G, GT):
         gt_t = GT[t]
         if not g_t or not gt_t:
             continue
-        for p in P:
-            for i in range(1, max_gt_cardinality + 1):
-                for j in range(1, max_detected_cardinality + 1):
-                    if dij(p, G[t], GT[t], i, j):
-                        HIC[i - 1][j - 1] += 1
+
+        for i in range(1, max_gt_cardinality + 1):
+            for j in range(1, max_detected_cardinality + 1):
+                a = any(len(group) == j for group in g_t)
+                b = any(len(group) == i for group in gt_t)
+                if a and b:
+                    for p in P:
+                        if dij(p, G[t], GT[t], i, j):
+                            HIC[i - 1][j - 1] += 1
 
     # Normalize each row by the number of people in ground-truth groups of cardinality i
     for i in range(max_gt_cardinality):

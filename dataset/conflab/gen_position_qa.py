@@ -7,7 +7,7 @@ import math
 DATASET_DIR = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/image/gallery_bbox"
 GALLERY_DIR = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/image/gallery_bbox/gallery"
 METADATA_FILE = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/image/gallery_bbox/metadata.json"
-OUTPUT_DIR = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/image/position_concat"
+OUTPUT_DIR = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/image/position_concat2"
 
 # Create the output directory if it doesn't exist
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -84,7 +84,7 @@ def main():
         metadata = json.load(f)
 
     # Iterate through all images in the dataset
-    for original_filename in os.listdir(DATASET_DIR):
+    for original_filename in sorted(os.listdir(DATASET_DIR)):
         if original_filename.endswith('.jpg'):
             original_image_path = os.path.join(DATASET_DIR, original_filename)
             gallery_subfolder = os.path.join(GALLERY_DIR, os.path.splitext(original_filename)[0])
