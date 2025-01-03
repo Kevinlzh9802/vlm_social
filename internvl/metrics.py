@@ -1,16 +1,23 @@
 import numpy as np
 from collections import defaultdict
 
+def get_all_elems(x: list):
+    return list(set(element for sublist1 in x for sublist2 in sublist1 for element in sublist2))
+
 def compute_HIC(T, P, G, GT):
     # Determine the maximum cardinalities in detected and ground-truth groups
     max_gt_cardinality = max(max(len(gt) for gt in GT[t]) for t in T)
-    max_detected_cardinality = max(max(len(g) for g in G[t]) for t in T)
+    max_detected_cardinality = max(0 if not G[t] else max(len(g) for g in G[t]) for t in T)
 
     # Initialize the HIC matrix
     HIC = np.zeros((max_gt_cardinality, max_detected_cardinality))
 
     # Calculate HIC(i, j) according to the formula
     for t in T:
+        g_t = G[t]
+        gt_t = GT[t]
+        if not g_t or not gt_t:
+            continue
         for p in P:
             for i in range(1, max_gt_cardinality + 1):
                 for j in range(1, max_detected_cardinality + 1):

@@ -2,6 +2,8 @@ import os.path
 import re
 import json
 import pandas as pd
+from metrics import compute_HIC, get_all_elems
+import numpy as np
 
 def extract_image_path(section):
     """Extract the image path from the section."""
@@ -88,9 +90,11 @@ def extract_group_in_response(s):
         return result
 
     # Step 4: Return all numbers as a list
-    numbers = list(map(int, re.findall(r'\d+', s)))
+    numbers = [tuple(map(int, re.findall(r'\d+', s)))]
     return numbers
 
+def clear_grouping(group: list):
+    return [list(set(tup)) for tup in group if tup]
 
 def extract_info(input_file, output_file):
     with open(input_file, 'r') as file:
@@ -110,7 +114,7 @@ def extract_info(input_file, output_file):
             # Extract numbers and parentheses
             # matches = extract_numbers_and_parentheses(response)
             grouped_numbers = extract_group_in_response(response)
-
+            grouped_numbers = clear_grouping(grouped_numbers)
             # Append to results
             num = file_name.split('_')[0][-4:]
             results[num] = {
@@ -161,7 +165,6 @@ def deal_annotation_xlsx(input_file, output_file, tab='Conversation group'):
 
 def main():
 
-
     result_folder = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/cluster_raw/results/'
     # result_path = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/results/'
     single_text_file = f"InternVL2-2B_conflab_gallery_cgroup_2024-12-13 21:15:48.txt"
@@ -174,9 +177,15 @@ def main():
         gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json'
     else:
         gt_file = None
-    a = extract_info(input_file_path, output_file_path)
+
+    results = extract_info(input_file_path, output_file_path)
     with open(gt_file, 'r') as f:
-        b = json.load(f)
+        gt = json.load(f)
+    common_keys = list(results.keys() & gt.keys())
+    common_keys.sort()
+    results = {x: results[x]['grouped_numbers'] for x in common_keys}
+    gt = {x: gt[x] for x in common_keys}
+
     # deal_annotation_xlsx(gt_file, '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json',
     #                      tab='Conversation group')
     #
@@ -186,7 +195,8 @@ def main():
 
     # file_name = "InternVL2-2B_conflab_gallery_fform.txt"
     # result_path = 'D:\\Desktop\\'
-
+    all_detected = get_all_elems(list(results.values()))
+    hic = compute_HIC(common_keys, all_detected, results, gt)
     c = 9
 
 if __name__ == '__main__':
