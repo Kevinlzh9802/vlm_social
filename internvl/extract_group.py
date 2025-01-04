@@ -4,6 +4,7 @@ import json
 import pandas as pd
 from metrics import compute_HIC, get_all_elems
 import numpy as np
+import matplotlib.pyplot as plt
 
 def extract_image_path(section):
     """Extract the image path from the section."""
@@ -31,32 +32,6 @@ def remove_list_style_numbers(response):
     """Remove numbers followed by a dot if the contents after the dot are not empty."""
     return re.sub(r'\b\d+\.\s+\S+', '', response)
 
-
-# def group_numbers_by_group(response):
-#     """Group numbers between each occurrence of 'group', ignoring numbers after 'group' and list-style numbers, and remove duplicates."""
-#     # response = remove_list_style_numbers(response)
-#     # response = remove_group_numbers(response)
-#
-#     # Find all 'group' sections and the content that follows until the next 'group' or the end of the response
-#     group_matches = re.finditer(r'(?i)^\\s*group\\s*\\d*[:\\n](.*?)(?=^\\s*group\\s*\\d*[:\\n]|\\Z)', response,
-#                                 re.S | re.M)
-#     grouped_numbers = []
-#
-#     for match in group_matches:
-#         group_content = match.group(1)
-#         numbers = re.findall(r'\\d+', group_content)
-#         unique_numbers = sorted(set(numbers), key=numbers.index)
-#         if unique_numbers:
-#             grouped_numbers.append(unique_numbers)
-#
-#     return grouped_numbers
-#
-#
-# def extract_numbers_and_parentheses(response):
-#     """Extract numbers and parentheses, ignoring numbers after 'group' and list-style numbers."""
-#     # response = remove_group_numbers(response)
-#     response = remove_list_style_numbers(response)
-#     return re.findall(r'\d+|[()]', response)
 
 def extract_group_in_response(s):
     # Step 1: Remove any number before a dot ('.'), except if the dot is at the end
@@ -96,8 +71,8 @@ def extract_group_in_response(s):
 def clear_grouping(group: list):
     return [list(set(tup)) for tup in group if tup]
 
-def extract_info(input_file, output_file):
-    with open(input_file, 'r') as file:
+def extract_info(input_file):
+    with open(input_file, 'r', encoding='latin1') as file:
         content = file.read()
 
     # Split the content by the dotted line separators
@@ -130,9 +105,7 @@ def extract_info(input_file, output_file):
 
     return results
 
-def deal_annotation_xlsx(input_file, output_file, tab='Conversation group'):
-    gt_file = '/home/zonghuan/tudelft/projects/vlm_social/Conflab.xlsx'
-
+def deal_annotation_xlsx(gt_file, output_file, tab='Conversation group'):
     df = pd.read_excel(gt_file, sheet_name=tab)
     df = pd.DataFrame(df.values[3:])
     # Step 1: Drop the column before "Num"
@@ -163,40 +136,72 @@ def deal_annotation_xlsx(input_file, output_file, tab='Conversation group'):
     return result_dict
 
 
-def main():
-
-    result_folder = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/cluster_raw/results/'
-    # result_path = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/results/'
-    single_text_file = f"InternVL2-2B_conflab_gallery_cgroup_2024-12-13 21:15:48.txt"
-    input_file_path = os.path.join(result_folder, single_text_file)  # Replace with the path to your document
-    output_file_path = os.path.join(result_folder, 'group_extraction', single_text_file.split('.')[0] + '.json')
-
-    if 'cgroup' in single_text_file:
-        gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json'
-    elif 'fform' in single_text_file:
-        gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json'
+def evaluate_groups(result_folder, file_name):
+    input_file_path = os.path.join(result_folder, file_name)
+    if 'cgroup' in file_name:
+        gt_file = 'D:\\Desktop\\results\\conflab_cgroup.json'
+        # gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json'
+    elif 'fform' in file_name:
+        gt_file = 'D:\\Desktop\\results\\conflab_fform.json'
+        # gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json'
     else:
         gt_file = None
+        return
 
-    results = extract_info(input_file_path, output_file_path)
+    results = extract_info(input_file_path)
     with open(gt_file, 'r') as f:
         gt = json.load(f)
     common_keys = list(results.keys() & gt.keys())
     common_keys.sort()
     results = {x: results[x]['grouped_numbers'] for x in common_keys}
     gt = {x: gt[x] for x in common_keys}
-
-    # deal_annotation_xlsx(gt_file, '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json',
-    #                      tab='Conversation group')
-    #
-    # deal_annotation_xlsx(gt_file, '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json',
-    #                      tab='F-formation')
-    # files = [f for f in os.listdir(result_folder) if f.endswith('.txt')]
-
-    # file_name = "InternVL2-2B_conflab_gallery_fform.txt"
-    # result_path = 'D:\\Desktop\\'
     all_detected = get_all_elems(list(results.values()))
     hic = compute_HIC(common_keys, all_detected, results, gt)
+
+    plt.clf()
+    plt.imshow(hic, cmap='viridis', interpolation='nearest')
+    # Add a color bar
+    plt.colorbar(label='Value')
+
+    # Add labels for clarity
+    plt.title('HIC matrix')
+    plt.xlabel('Detected group cardinality')
+    plt.ylabel('GT group cardinality')
+
+    plt.savefig(os.path.join(result_folder, file_name.split('.')[0] + '.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    # Show the plot
+    # plt.show()
+
+
+def main():
+    # gt_original ='D:\\Desktop\\results\\Conflab.xlsx'
+    # deal_annotation_xlsx(gt_original, 'D:\\Desktop\\results\\conflab_cgroup.json',
+    #                      tab='Conversation group')
+    # deal_annotation_xlsx(gt_original, 'D:\\Desktop\\results\\conflab_fform.json',
+    #                      tab='F-formation')
+
+    result_folder = 'D:\\Desktop\\results\\'
+    # result_folder = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/cluster_raw/results/'
+    # for file in os.listdir(result_folder):
+    #     if file.endswith('.txt'):
+    #         try:
+    #             evaluate_groups(result_folder, file)
+    #         except Exception as e:
+    #             print(e)
+    #             print(file)
+
+    # file = 'InternVL2-4B_conflab_gallery_fform_2024-12-13-21-15-48.txt'
+    file = 'InternVL2_5-1B_conflab_concat_cgroup_2024-12-13-21-15-48.txt'
+    # file = 'InternVL2_5-1B_conflab_concat_fform_2024-12-13-21-15-48.txt'
+    try:
+        evaluate_groups(result_folder, file)
+    except Exception as e:
+        print(e)
+        print(file)
+    # single_text_file = f"InternVL2-2B_conflab_gallery_cgroup_2024-12-13-21-15-48.txt"
+    # output_file_path = os.path.join(result_folder, 'group_extraction', single_text_file.split('.')[0] + '.json')
+
     c = 9
 
 if __name__ == '__main__':

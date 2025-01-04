@@ -2,10 +2,10 @@ cgroup:
   role: "Now, suppose you're an expert in annotating conversation groups. "
   job_desc: "Your job is to determine which people are within the same conversation group. "
   def: "A conversation group means that there is only one conversation taking place among its members, and that all members are focusing on the same topic. "
-  case_desc: "A conversation group may include 2 or more people. Please ignore the unmarked people. Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation. "
+  case_desc: "There may be singleton people who are not involved in conversation group, and you also need to include them by listing them outside the parentheses. "
   output_instruct: "Give the response by grouping the IDs of people in parentheses. "
   sample_format:
-    main: "An example format of annotation is [(3, 9, 20), (4, 21), (13, 14)]. Please output your response in this format. "
+    main: "An example format of annotation is [(3, 9, 20), (4, 21), (13, 14), 5, 7]. Please output your response in this format. "
     detail: "For example, [(x1, x2, x3), (x4, x5)], where x1, ..., x5 are people's IDs. This example annotation means that you believe x1, x2, x3 are talking together, while x4 and x5 are talking together. "
   sample_reason: "For example, two people facing each other might indicate they are in the same conversation group, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. "
   multi:
@@ -32,12 +32,12 @@ fform:
   role: "Suppose you're an expert in annotating F-formations. "
   job_desc: "Your job is to determine which people are within the same F-formation. "
   def: "The F-formation is defined as a socio-spatial formation in which people have established and maintain a convex space to which everybody in the gathering has direct, easy and equal access. "
-  case_desc: "A conversation group may include 2 or more people. Please ignore the unmarked people. Remember there may be singleton people who are not involved in any conversation group, and you don't need to include them in your annotation. "
+  case_desc: "There may be singleton people who are not involved in any F-formation, and you also need to include them by listing them outside the parentheses. "
   output_instruct: "Give the response by grouping the IDs of people in parentheses. "
   sample_format:
-    main: "An example format of annotation is [(3, 9, 20), (4, 21), (13, 14)]. Please output your response in this format. "
+    main: "An example format of annotation is [(3, 9, 20), (4, 21), (13, 14), 5, 7]. Please output your response in this format. "
     detail: "For example, [(x1, x2, x3), (x4, x5)], where x1, ..., x5 are people's IDs. This example annotation means that you believe x1, x2, x3 are talking together, while x4 and x5 are talking together. "
-  sample_reason: "For example, two people facing each other might indicate they are in the same conversation group, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. "
+  sample_reason: "For example, two people facing each other might indicate they are in the F-formation, while two people back-to-back or very distant from each other are rather unlikely to be in the same group. "
   multi:
     gallery:
       modal_desc: "You will be given several images. "
