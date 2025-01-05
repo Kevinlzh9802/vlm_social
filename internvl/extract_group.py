@@ -87,9 +87,8 @@ def extract_info(input_file):
 
         if image_path and response:
             # Extract numbers and parentheses
-            # matches = extract_numbers_and_parentheses(response)
             grouped_numbers = extract_group_in_response(response)
-            grouped_numbers = clear_grouping(grouped_numbers)
+            # grouped_numbers = clear_grouping(grouped_numbers)
             # Append to results
             num = file_name.split('_')[0][-4:]
             results[num] = {
@@ -131,10 +130,49 @@ def deal_annotation_xlsx(gt_file, output_file, tab='Conversation group'):
 
     # Print the resulting dictionary
     # print(result_dict)
+    # Add singletons
+    result_dict = add_singletons(result_dict, 'C:\\Users\\Zonghuan Li\\Downloads\\gallery')
+
     with open(output_file, 'w') as json_file:
         json.dump(result_dict, json_file, indent=4)
     return result_dict
 
+def add_singletons(input_dict, img_folder):
+    # Resulting dictionary to store updated values
+    updated_dict = {}
+
+    for key, value in input_dict.items():
+        # 1. Turn the key into a 6-digit string
+        six_digit_key = key.zfill(6)
+
+        # 2. Find the subfolder that starts with the six-digit key
+        subfolder = None
+        for folder in os.listdir(img_folder):
+            if folder.startswith(six_digit_key):
+                subfolder = os.path.join(img_folder, folder)
+                break
+
+        if not subfolder or not os.path.isdir(subfolder):
+            print(f"Subfolder for {six_digit_key} not found. Skipping...")
+            continue
+
+        # 3. Get all image filenames as a list of numbers
+        all_people = []
+        for file in os.listdir(subfolder):
+            f_name = file.split('.')[0]
+            if f_name.isdigit():  # Ensure file name is numeric
+                all_people.append(int(f_name))
+
+        # 4. Update the list of tuples in the dictionary
+        existing_numbers = {num for tup in value for num in tup}  # Flatten existing tuples
+        new_tuples = value.copy()
+
+        for num in all_people:
+            if num not in existing_numbers:
+                new_tuples.append((num,))  # Append as a tuple
+        updated_dict[key] = new_tuples
+
+    return updated_dict
 
 def evaluate_groups(result_folder, file_name):
     input_file_path = os.path.join(result_folder, file_name)
@@ -149,56 +187,74 @@ def evaluate_groups(result_folder, file_name):
         return
 
     results = extract_info(input_file_path)
-    with open(gt_file, 'r') as f:
-        gt = json.load(f)
-    common_keys = list(results.keys() & gt.keys())
-    common_keys.sort()
-    results = {x: results[x]['grouped_numbers'] for x in common_keys}
-    gt = {x: gt[x] for x in common_keys}
-    all_detected = get_all_elems(list(results.values()))
-    hic = compute_HIC(common_keys, all_detected, results, gt)
+    group_stats(results)
+    c = 9
+    # with open(gt_file, 'r') as f:
+    #     gt = json.load(f)
+    # common_keys = list(results.keys() & gt.keys())
+    # common_keys.sort()
+    # results = {x: results[x]['grouped_numbers'] for x in common_keys}
+    # gt = {x: gt[x] for x in common_keys}
+    # all_detected = get_all_elems(list(results.values()))
+    # hic = compute_HIC(common_keys, all_detected, results, gt)
+    #
+    # plt.clf()
+    # plt.imshow(hic, cmap='viridis', interpolation='nearest')
+    # # Add a color bar
+    # plt.colorbar(label='Value')
+    #
+    # # Add labels for clarity
+    # plt.title('HIC matrix' + file_name.split('.')[0])
+    # plt.xlabel('Detected group cardinality')
+    # plt.ylabel('GT group cardinality')
+    #
+    # plt.savefig(os.path.join(result_folder, file_name.split('.')[0] + '.png'), dpi=300, bbox_inches='tight')
+    # plt.close()
+    # # Show the plot
+    # # plt.show()
+def get_all_groups(results):
+    all_groups = []
+    for x in results.values():
+        all_groups += x['grouped_numbers']
+    return all_groups
 
-    plt.clf()
-    plt.imshow(hic, cmap='viridis', interpolation='nearest')
-    # Add a color bar
-    plt.colorbar(label='Value')
-
-    # Add labels for clarity
-    plt.title('HIC matrix')
-    plt.xlabel('Detected group cardinality')
-    plt.ylabel('GT group cardinality')
-
-    plt.savefig(os.path.join(result_folder, file_name.split('.')[0] + '.png'), dpi=300, bbox_inches='tight')
-    plt.close()
-    # Show the plot
-    # plt.show()
-
+def group_stats(results):
+    all_groups = get_all_groups(results)
+    long_groups = len([1 for x in all_groups if len(x) > 20])
+    dup_groups = len([1 for x in all_groups if len(x) > len(set(x))])
+    empty_groups = len([1 for x in all_groups if not x])
+    max_card = max(len(x) for x in all_groups)
+    print(f'long groups: {long_groups} / {len(all_groups)}, {long_groups/len(all_groups)}')
+    print(f'duplicate groups: {dup_groups} / {len(all_groups)}, {dup_groups/len(all_groups)}')
+    print(f'empty groups: {empty_groups} / {len(all_groups)}, {empty_groups/len(all_groups)}')
+    print(f'max card: {max_card}')
 
 def main():
     # gt_original ='D:\\Desktop\\results\\Conflab.xlsx'
-    # deal_annotation_xlsx(gt_original, 'D:\\Desktop\\results\\conflab_cgroup.json',
+    # deal_annotation_xlsx(gt_original, 'D:\\Desktop\\results\\conflab_cgroup2.json',
     #                      tab='Conversation group')
-    # deal_annotation_xlsx(gt_original, 'D:\\Desktop\\results\\conflab_fform.json',
+    # deal_annotation_xlsx(gt_original, 'D:\\Desktop\\results\\conflab_fform2.json',
     #                      tab='F-formation')
 
     result_folder = 'D:\\Desktop\\results\\'
     # result_folder = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/cluster_raw/results/'
-    # for file in os.listdir(result_folder):
-    #     if file.endswith('.txt'):
-    #         try:
-    #             evaluate_groups(result_folder, file)
-    #         except Exception as e:
-    #             print(e)
-    #             print(file)
+    for file in os.listdir(result_folder):
+        if file.endswith('.txt'):
+            print(file)
+            try:
+                evaluate_groups(result_folder, file)
+            except Exception as e:
+                print(e)
+                print(file)
 
-    # file = 'InternVL2-4B_conflab_gallery_fform_2024-12-13-21-15-48.txt'
-    file = 'InternVL2_5-1B_conflab_concat_cgroup_2024-12-13-21-15-48.txt'
-    # file = 'InternVL2_5-1B_conflab_concat_fform_2024-12-13-21-15-48.txt'
-    try:
-        evaluate_groups(result_folder, file)
-    except Exception as e:
-        print(e)
-        print(file)
+    # # file = 'InternVL2-4B_conflab_gallery_fform_2024-12-13-21-15-48.txt'
+    # file = 'InternVL2_5-1B_conflab_concat_cgroup_2024-12-13-21-15-48.txt'
+    # # file = 'InternVL2_5-1B_conflab_concat_fform_2024-12-13-21-15-48.txt'
+    # try:
+    #     evaluate_groups(result_folder, file)
+    # except Exception as e:
+    #     print(e)
+    #     print(file)
     # single_text_file = f"InternVL2-2B_conflab_gallery_cgroup_2024-12-13-21-15-48.txt"
     # output_file_path = os.path.join(result_folder, 'group_extraction', single_text_file.split('.')[0] + '.json')
 
