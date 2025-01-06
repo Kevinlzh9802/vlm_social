@@ -43,6 +43,61 @@ def dij(p, G_t, GT_t, i, j):
     in_ground_truth_group = any(p in gt_group and len(gt_group) == i for gt_group in GT_t)
     return 1 if in_detected_group and in_ground_truth_group else 0
 
+
+def HIC_stats(HIC):
+    """
+    Calculate various metrics from the given HIC matrix.
+
+    Args:
+        HIC (numpy.ndarray): The HIC confusion matrix.
+
+    Returns:
+        dict: A dictionary containing all calculated metrics.
+    """
+    # Matrix dimensions
+    N = HIC.shape[0]
+
+    # Cardinality level accuracy (A)
+    # A = np.sum(np.diag(HIC)) / np.sum(HIC)
+
+    # Cardinality precision, recall, and F1 score for each class
+    precision = []
+    recall = []
+    f1_scores = []
+    for C in range(N):
+        Pr = HIC[C, C] / np.sum(HIC[:, C]) if np.sum(HIC[:, C]) > 0 else 0
+        Re = HIC[C, C] / np.sum(HIC[C, :]) if np.sum(HIC[C, :]) > 0 else 0
+        F1 = (2 * Pr * Re) / (Pr + Re) if Pr + Re > 0 else 0
+        precision.append(Pr)
+        recall.append(Re)
+        f1_scores.append(F1)
+
+    # # Cardinality deviation (D)
+    # diagonal = np.diag(HIC)
+    # mu = np.mean(diagonal)
+    # D = np.sqrt(np.sum((diagonal - mu) ** 2) / N)
+    #
+    # # Upper-lower difference (UL)
+    # upper_sum = np.sum(HIC[np.triu_indices(N, k=1)])  # Sum of upper triangular elements
+    # lower_sum = np.sum(HIC[np.tril_indices(N, k=-1)])  # Sum of lower triangular elements
+    # UL = upper_sum - lower_sum
+    #
+    # # Weighted upper-lower difference (WUL)
+    # WUL_upper = np.sum([(j - i) * HIC[i, j] for i in range(N) for j in range(i + 1, N)])
+    # WUL_lower = np.sum([(i - j) * HIC[j, i] for i in range(N) for j in range(i + 1, N)])
+    # WUL = WUL_upper - WUL_lower
+
+    return {
+        # "Accuracy (A)": A,
+        "precision": np.array(precision).reshape(1, -1),
+        "recall": np.array(recall).reshape(1, -1),
+        "f1": np.array(f1_scores).reshape(1, -1),
+        # "Cardinality Deviation (D)": D,
+        # "Upper-Lower Difference (UL)": UL,
+        # "Weighted Upper-Lower Difference (WUL)": WUL,
+    }
+
+
 def main():
     # Example time instants (frames)
     T = [1, 2]

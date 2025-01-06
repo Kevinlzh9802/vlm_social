@@ -2,7 +2,7 @@ import os.path
 import re
 import json
 import pandas as pd
-from metrics import compute_HIC, get_all_elems
+from metrics import compute_HIC, get_all_elems, HIC_stats
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -88,14 +88,15 @@ def extract_info(input_file):
         if image_path and response:
             # Extract numbers and parentheses
             grouped_numbers = extract_group_in_response(response)
-            # grouped_numbers = clear_grouping(grouped_numbers)
+            cleared_groups = clear_grouping(grouped_numbers)
             # Append to results
             num = file_name.split('_')[0][-4:]
             results[num] = {
                 "file_name": file_name,
                 "image_path": image_path,
                 # "extraction_results": matches,
-                "grouped_numbers": grouped_numbers
+                "grouped_numbers": grouped_numbers,
+                "cleared_groups": cleared_groups
             }
 
     # Write to the output JSON file
@@ -177,26 +178,28 @@ def add_singletons(input_dict, img_folder):
 def evaluate_groups(result_folder, file_name):
     input_file_path = os.path.join(result_folder, file_name)
     if 'cgroup' in file_name:
-        gt_file = 'D:\\Desktop\\results\\conflab_cgroup.json'
-        # gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json'
+        # gt_file = 'D:\\Desktop\\results\\conflab_cgroup.json'
+        gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json'
     elif 'fform' in file_name:
-        gt_file = 'D:\\Desktop\\results\\conflab_fform.json'
-        # gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json'
+        # gt_file = 'D:\\Desktop\\results\\conflab_fform.json'
+        gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json'
     else:
-        gt_file = None
         return
 
     results = extract_info(input_file_path)
-    group_stats(results)
+    # group_stats(results)
+
+    with open(gt_file, 'r') as f:
+        gt = json.load(f)
+    common_keys = list(results.keys() & gt.keys())
+    common_keys.sort()
+    results = {x: results[x]['cleared_groups'] for x in common_keys}
+    gt = {x: gt[x] for x in common_keys}
+    all_detected = get_all_elems(list(results.values()))
+    hic = compute_HIC(common_keys, all_detected, results, gt)
+    hic_stats = HIC_stats(hic)
+    plot_hic_stats(result_folder, file_name, hic_stats)
     c = 9
-    # with open(gt_file, 'r') as f:
-    #     gt = json.load(f)
-    # common_keys = list(results.keys() & gt.keys())
-    # common_keys.sort()
-    # results = {x: results[x]['grouped_numbers'] for x in common_keys}
-    # gt = {x: gt[x] for x in common_keys}
-    # all_detected = get_all_elems(list(results.values()))
-    # hic = compute_HIC(common_keys, all_detected, results, gt)
     #
     # plt.clf()
     # plt.imshow(hic, cmap='viridis', interpolation='nearest')
@@ -212,14 +215,38 @@ def evaluate_groups(result_folder, file_name):
     # plt.close()
     # # Show the plot
     # # plt.show()
-def get_all_groups(results):
+
+def plot_hic_stats(result_folder, file_name, hic_stats):
+    # Create a figure and subplots
+    data1 = hic_stats['precision']
+    data2 = hic_stats['recall']
+    data3 = hic_stats['f1']
+    fig, axes = plt.subplots(3, 1, figsize=(15, 5), constrained_layout=True)
+
+    # Find the common color range across all heatmaps
+    vmin = min(data1.min(), data2.min(), data3.min())
+    vmax = max(data1.max(), data2.max(), data3.max())
+
+    # Plot each heatmap
+    heatmap1 = axes[0].imshow(data1, cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[0].set_title("precision")
+
+    heatmap2 = axes[1].imshow(data2, cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[1].set_title("recall")
+
+    heatmap3 = axes[2].imshow(data3, cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[2].set_title("f1")
+
+    # Add a single shared colorbar
+    cbar = fig.colorbar(heatmap1, ax=axes, orientation='vertical', fraction=0.02, pad=0.02)
+    cbar.set_label("Shared Colorbar")
+    plt.savefig(os.path.join(result_folder, file_name.split('.')[0] + '.png'), dpi=300, bbox_inches='tight')
+
+
+def group_stats(results):
     all_groups = []
     for x in results.values():
         all_groups += x['grouped_numbers']
-    return all_groups
-
-def group_stats(results):
-    all_groups = get_all_groups(results)
     long_groups = len([1 for x in all_groups if len(x) > 20])
     dup_groups = len([1 for x in all_groups if len(x) > len(set(x))])
     empty_groups = len([1 for x in all_groups if not x])
@@ -236,8 +263,8 @@ def main():
     # deal_annotation_xlsx(gt_original, 'D:\\Desktop\\results\\conflab_fform2.json',
     #                      tab='F-formation')
 
-    result_folder = 'D:\\Desktop\\results\\'
-    # result_folder = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/cluster_raw/results/'
+    # result_folder = 'D:\\Desktop\\results\\'
+    result_folder = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/cluster_raw/results/'
     for file in os.listdir(result_folder):
         if file.endswith('.txt'):
             print(file)
@@ -245,7 +272,6 @@ def main():
                 evaluate_groups(result_folder, file)
             except Exception as e:
                 print(e)
-                print(file)
 
     # # file = 'InternVL2-4B_conflab_gallery_fform_2024-12-13-21-15-48.txt'
     # file = 'InternVL2_5-1B_conflab_concat_cgroup_2024-12-13-21-15-48.txt'
