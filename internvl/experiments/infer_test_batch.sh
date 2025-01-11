@@ -35,6 +35,8 @@ done
 # module load cuda/12.4 cudnn/12-8.9.1.23 # Load certain versions of cuda and cudnn
 # srun bash infer_main.sh --model_name InternVL2_5-1B --visual_strat gallery --task locate # Computations should be started with 'srun'. For example:
 srun bash infer_main.sh --model_name "$model_name" --visual_strat "$visual_strat" --task "$task" # Computations should be started with 'srun'. For example:
+
+#bash infer_test_batch.sh --model_name InternVL2-8B --visual_strat concat --task locate
 # Measure GPU usage of your job (result)
 /usr/bin/nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"
 

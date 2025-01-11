@@ -17,7 +17,7 @@ def gen_prompt_general(args):
     scene_desc = (visual_strat_prompt[args.visual_strat]['modal_desc'] +
                   visual_strat_prompt[args.visual_strat]['scene_desc'] +
                   visual_strat_prompt[args.visual_strat]['task_desc'])
-    prompt_plain = scene_desc + basic + task_prompt['output_instruct'] + task_prompt['case_desc'] + prompts['img_token']
+    prompt_plain = scene_desc + basic + task_prompt['output_instruct'] + prompts['img_token']
     prompt_candidates = {
         'plain': prompt_plain,
         'role': task_prompt['role'] + prompt_plain,
