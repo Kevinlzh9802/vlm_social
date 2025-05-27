@@ -2,8 +2,18 @@ import os
 import json
 import cv2
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from conflab_utils import filter_kp_xy
+import matplotlib.pyplot as plt
+
+# Define COCO keypoint names for reference
+COCO_KEYPOINT_NAMES = [
+    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+    "left_wrist", "right_wrist", "left_hip", "right_hip",
+    "left_knee", "right_knee", "left_ankle", "right_ankle"
+]
 
 def process_csv_files(csv_folder, json_folder, video_folder, output_folder):
     """
@@ -108,16 +118,40 @@ def process_csv_files(csv_folder, json_folder, video_folder, output_folder):
                         if bbox:
                             # Draw bounding box on the frame
                             x, y, w, h = bbox
-                            # cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                            # cv2.putText(
-                            #     frame,
-                            #     f"ID: {person_id}",
-                            #     (x, y - 10),
-                            #     cv2.FONT_HERSHEY_SIMPLEX,
-                            #     0.5,
-                            #     (0, 255, 0),
-                            #     1
-                            # )
+                            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                            cv2.putText(
+                                frame,
+                                f"ID: {person_id}",
+                                (x, y - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.5,
+                                (0, 255, 0),
+                                1
+                            )
+
+                            plt.imshow(frame)
+                            plt.show()
+
+                            # Draw keypoints with their IDs and names
+                            for i in range(17):  # 17 keypoints
+                                x_ratio = keypoints[i * 2]
+                                y_ratio = keypoints[i * 2 + 1]
+                                
+                                if x_ratio is not None and y_ratio is not None:  # Only draw valid coordinates
+                                    # Convert ratio coordinates to pixel coordinates
+                                    x_pixel = int(x_ratio * frame_width)
+                                    y_pixel = int(y_ratio * frame_height)
+                                    
+                                    # Draw keypoint
+                                    cv2.circle(frame, (x_pixel, y_pixel), 3, (255, 0, 0), -1)
+                                    # Draw keypoint ID and name
+                                    label = f"{i}: "
+                                    cv2.putText(frame, label, (x_pixel, y_pixel - 5),
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+                            plt.imshow(frame)
+                            plt.show()
+                            
                             # Append bounding box to metadata
                             image_metadata["bounding_boxes"].append({
                                 "person_id": person_id,
@@ -208,21 +242,20 @@ def process_bounding_boxes(image_folder, metadata_json_path, output_folder):
 # Example usage
 
 
-
 def main():
     # Example usage
-    # csv_folder = "/home/zonghuan/tudelft/projects/datasets/modification/fformation_3_segments/"  # Folder containing CSV files
-    # json_folder = "/home/zonghuan/tudelft/projects/datasets/conflab/annotations/pose/coco/"  # Folder containing JSON annotations
-    # video_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_seg_custom"  # Folder containing videos
-    # output_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox"  # Folder to save output videos
-    #
-    # process_csv_files(csv_folder, json_folder, video_folder, output_folder)
+    csv_folder = "/home/zonghuan/tudelft/projects/datasets/modification/fformation_3_segments/"  # Folder containing CSV files
+    json_folder = "/home/zonghuan/tudelft/projects/datasets/conflab/annotations/pose/coco/"  # Folder containing JSON annotations
+    video_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/conflab_seg_custom"  # Folder containing videos
+    output_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/image/gallery_bbox_kp"  # Folder to save output videos
+    
+    process_csv_files(csv_folder, json_folder, video_folder, output_folder)
 
-    image_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox"  # Folder containing generated images
-    metadata_json_path = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_bbox/metadata.json"  # Path to the metadata JSON file
-    output_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_gallery"  # Folder to store cropped bounding box images
+    # image_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/image/gallery_bbox/"  # Folder containing generated images
+    # metadata_json_path = "/home/zonghuan/tudelft/projects/datasets/modification/conflab/image/gallery_bbox/metadata.json"  # Path to the metadata JSON file
+    # output_folder = "/home/zonghuan/tudelft/projects/datasets/modification/conflab_gallery"  # Folder to store cropped bounding box images
 
-    process_bounding_boxes(image_folder, metadata_json_path, output_folder)
+    # process_bounding_boxes(image_folder, metadata_json_path, output_folder)
 
 if __name__ == '__main__':
     main()
