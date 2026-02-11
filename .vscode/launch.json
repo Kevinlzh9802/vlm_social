@@ -11,6 +11,13 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Python Debugger: eyetrack_test.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/eyetrack/eyetrack_test.py",
+            "console": "integratedTerminal"
         }
     ]
 }
