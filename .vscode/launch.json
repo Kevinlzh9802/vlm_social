@@ -4,19 +4,25 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-    {"name":"Python Debugger: Current File","type":"debugpy","request":"launch","program":"${file}","console":"integratedTerminal"},
         {
-            "name": "Python Debugger: Current File",
+            "name": "Current File",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal"
         },
         {
-            "name": "Python Debugger: eyetrack_test.py",
+            "name": "eyetrack_test.py",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/eyetrack/eyetrack_test.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "video_utils.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/dataset/video_utils.py",
             "console": "integratedTerminal"
         }
     ]
