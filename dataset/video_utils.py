@@ -101,10 +101,10 @@ def cut_videos_in_folder(video_folder, output_folder, clip_length=0.5, cumulativ
 
 def main():
     # Example usage
-    video_folder = ('/home/zonghuan/tudelft/projects/datasets/MIntRec2.0/in-scope-20260223T102217Z-1-002'
+    video_folder = ('/home/zonghuan/tudelft/projects/datasets/MIntRec2.0/in-scope-20260223T102217Z-1-004'
                     '/in-scope/raw_data')
     output_folder = ('/home/zonghuan/tudelft/projects/datasets/MIntRec2.0/modification/'
-                     'in-scope-20260223T102217Z-1-002/in-scope/raw_data')
+                     'in-scope-20260223T102217Z-1-004/in-scope/raw_data')
     # save_last_frame(video_folder, output_folder)
     cut_videos_in_folder(video_folder, output_folder, clip_length=0.5, cumulative=True)
 
