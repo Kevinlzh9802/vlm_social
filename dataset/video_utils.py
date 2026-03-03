@@ -1,5 +1,6 @@
 import cv2
 import os
+import subprocess
 
 def save_last_frame(video_folder, output_folder):
     # Create the output folder if it doesn't exist
@@ -39,12 +40,23 @@ def save_last_frame(video_folder, output_folder):
             # Release the video capture object
             cap.release()
 
-def cut_video_into_clips(video_path, output_folder, clip_length=0.5, cumulative=True):
+def cut_video_into_clips(
+    video_path,
+    output_folder,
+    clip_length=0.5,
+    cumulative=True,
+    save_separate_audio=False,
+    video_include_audio=True,
+):
+    """
+    Cut video into clips. Optionally save separate WAV per clip and choose whether
+    the MP4 has audio (only when save_separate_audio is True).
+    """
     # Create the output folder if it doesn't exist
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    # Open the video file
+    # Open the video file to get properties
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
@@ -55,38 +67,62 @@ def cut_video_into_clips(video_path, output_folder, clip_length=0.5, cumulative=
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     clip_frames = int(clip_length * fps)
+    cap.release()
 
     # Calculate the number of clips
     num_clips = total_frames // clip_frames
 
     for i in range(num_clips):
-        # Set the video position to the start of the current clip
         if cumulative:
             start_frame = 0
             num_frames = (i + 1) * clip_frames
         else:
             start_frame = i * clip_frames
             num_frames = clip_frames
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        # Create a VideoWriter object to save the clip
+        start_sec = start_frame / fps
+        duration_sec = num_frames / fps
+
         output_clip_path = os.path.join(output_folder, f"clip_{i + 1}.mp4")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_clip_path, fourcc, fps, (int(cap.get(3)), int(cap.get(4))))
+        base_name = f"clip_{i + 1}"
+        output_wav_path = os.path.join(output_folder, f"{base_name}.wav")
 
-        for _ in range(num_frames):
-            ret, frame = cap.read()
-            if not ret:
-                break
-            out.write(frame)
+        # Build ffmpeg: input and segment
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-ss", str(start_sec),
+            "-t", str(duration_sec),
+        ]
+        # Video output: with or without audio depending on options
+        if save_separate_audio:
+            if video_include_audio:
+                ffmpeg_cmd += ["-map", "0:v", "-map", "0:a?", "-c:v", "libx264", "-c:a", "aac", "-shortest", output_clip_path]
+            else:
+                ffmpeg_cmd += ["-map", "0:v", "-c:v", "libx264", output_clip_path]
+            # Separate WAV (same base name, same folder)
+            ffmpeg_cmd += ["-map", "0:a?", "-c:a", "pcm_s16le", output_wav_path]
+        else:
+            # Single file: always video with audio
+            ffmpeg_cmd += ["-map", "0:v", "-map", "0:a?", "-c:v", "libx264", "-c:a", "aac", "-shortest", output_clip_path]
 
-        out.release()
-        print(f"Clip {i + 1} saved as {output_clip_path}")
+        ret = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+        if ret.returncode != 0:
+            print(f"  ffmpeg stderr: {ret.stderr[-500:] if ret.stderr else 'none'}")
+            print(f"Clip {i + 1} failed for {video_path}")
+        else:
+            print(f"Clip {i + 1} saved as {output_clip_path}")
+            if save_separate_audio:
+                print(f"  Audio saved as {output_wav_path}")
 
-    # Release the video capture object
-    cap.release()
-
-def cut_videos_in_folder(video_folder, output_folder, clip_length=0.5, cumulative=True):
+def cut_videos_in_folder(
+    video_folder,
+    output_folder,
+    clip_length=0.5,
+    cumulative=True,
+    save_separate_audio=False,
+    video_include_audio=True,
+):
     # Create the output folder if it doesn't exist
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -97,16 +133,23 @@ def cut_videos_in_folder(video_folder, output_folder, clip_length=0.5, cumulativ
         if video_file.endswith(('.mp4', '.avi', '.mov', '.mkv')):
             video_path = os.path.join(video_folder, video_file)
             output_subfolder = os.path.join(output_folder, os.path.splitext(video_file)[0])
-            cut_video_into_clips(video_path, output_subfolder, clip_length, cumulative)
+            cut_video_into_clips(
+                video_path,
+                output_subfolder,
+                clip_length,
+                cumulative,
+                save_separate_audio,
+                video_include_audio,
+            )
 
 def main():
+    dataset_path = '/home/zonghuan/tudelft/projects/datasets/MIntRec2.0'
     # Example usage
-    video_folder = ('/home/zonghuan/tudelft/projects/datasets/MIntRec2.0/in-scope-20260223T102217Z-1-004'
-                    '/in-scope/raw_data')
-    output_folder = ('/home/zonghuan/tudelft/projects/datasets/MIntRec2.0/modification/'
-                     'in-scope-20260223T102217Z-1-004/in-scope/raw_data')
+    video_folder = os.path.join(dataset_path, 'in-scope-20260223T102217Z-1-002', 'in-scope', 'raw_data')
+    output_folder = os.path.join(dataset_path, 'modification', 'in-scope-20260223T102217Z-1-002', 'in-scope', 'raw_data_segmented')
+
     # save_last_frame(video_folder, output_folder)
-    cut_videos_in_folder(video_folder, output_folder, clip_length=0.5, cumulative=True)
+    cut_videos_in_folder(video_folder, output_folder, clip_length=0.5, cumulative=True, save_separate_audio=True, video_include_audio=False)
 
 if __name__ == '__main__':
     main()
