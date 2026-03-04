@@ -30,7 +30,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/api_models/gemini.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
         }
     ]
 }
