@@ -24,6 +24,13 @@
             "request": "launch",
             "program": "${workspaceFolder}/dataset/video_utils.py",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "gemini test",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/api_models/gemini.py",
+            "console": "integratedTerminal"
         }
     ]
 }
