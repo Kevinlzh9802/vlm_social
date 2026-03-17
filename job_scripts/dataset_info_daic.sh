@@ -59,7 +59,7 @@ echo "Output dir: ${OUTPUT_DIR}"
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
-    --bind /scratch:/scratch \
+    --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
     "${SIF_PATH}" \
     python /workspace/dataset/dataset_info.py \
     "${INPUT_DIR}" \
