@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=64G
 #SBATCH --mail-type=END
-#SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
+#SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
 
 set -euo pipefail
 
