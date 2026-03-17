@@ -7,3 +7,4 @@
 .vscode/
 **/api_keys/
 data/
+**.sif
