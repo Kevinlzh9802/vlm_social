@@ -31,6 +31,13 @@
             "request": "launch",
             "program": "${workspaceFolder}/api_models/gemini.py",
             "console": "integratedTerminal",
+        },
+        {
+            "name": "main.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal"
         }
     ]
 }
