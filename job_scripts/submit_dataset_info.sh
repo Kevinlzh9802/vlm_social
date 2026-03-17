@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="dataset_info"
 #SBATCH --time=3:59:00
+#SBATCH --partition=compute-p1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem-per-cpu=4000M
