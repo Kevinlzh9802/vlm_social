@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name="dataset_info"
 #SBATCH --time=3:59:00
-#SBATCH --partition=compute-p1
+#SBATCH --partition=insy,general # Request partition. Default is 'general' 
+#SBATCH --qos=short         # Request Quality of Service. Default is 'short' (maximum run time: 4 hours)
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=20
-#SBATCH --mem-per-cpu=3000M
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=64G
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
 #SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
 #SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
 
