@@ -74,6 +74,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Scan input videos recursively.",
     )
+    parser.add_argument(
+        "--dialogue-range",
+        type=int,
+        default=None,
+        help="1-based thousand-range index. E.g. 1 → dialogues [0,1000), 4 → [3000,4000).",
+    )
     return parser.parse_args()
 
 
@@ -204,8 +210,17 @@ def materialize_group(
     group: PartitionGroup,
     output_parent: Path,
     clip_length: float,
-) -> dict[str, object]:
+) -> dict[str, object] | None:
     group_root = output_parent / GROUP_FOLDER_NAMES[group.group_size] / group.group_name
+
+    final_utterance_id = group.utterance_ids[-1]
+    final_label = utterance_label(group.dialogue_id, final_utterance_id)
+    clip_folder = group_root / final_label
+
+    # Skip if already materialized
+    if clip_folder.exists() and any(clip_folder.glob(f"{final_label}_clip*.mp4")):
+        return None
+
     group_root.mkdir(parents=True, exist_ok=True)
 
     copied_whole_videos: list[str] = []
@@ -215,9 +230,6 @@ def materialize_group(
         shutil.copy2(source_path, target_path)
         copied_whole_videos.append(str(target_path))
 
-    final_utterance_id = group.utterance_ids[-1]
-    final_label = utterance_label(group.dialogue_id, final_utterance_id)
-    clip_folder = group_root / final_label
     clip_folder.mkdir(parents=True, exist_ok=True)
 
     cut_video_into_clips(
@@ -418,6 +430,7 @@ def analyze_and_partition(
     output_parent: Path,
     clip_length: float,
     recursive: bool,
+    dialogue_range: int | None = None,
 ) -> dict[str, object]:
     if not video_folder.exists():
         raise FileNotFoundError(f"Input folder does not exist: {video_folder}")
@@ -425,6 +438,12 @@ def analyze_and_partition(
         raise NotADirectoryError(f"Input path is not a directory: {video_folder}")
 
     records, skipped_files = collect_video_records(video_folder, recursive=recursive)
+
+    if dialogue_range is not None:
+        lo = (dialogue_range - 1) * 1000
+        hi = dialogue_range * 1000
+        records = [r for r in records if lo <= r.dialogue_id < hi]
+
     if not records:
         raise ValueError(
             "No matching videos were found. Expected files named like dia{n}_utt{m}.mp4."
@@ -442,8 +461,9 @@ def analyze_and_partition(
         all_skipped_windows.extend(dialogue_skipped)
 
     materialized_groups = [
-        materialize_group(group, output_parent, clip_length)
+        result
         for group in all_groups
+        if (result := materialize_group(group, output_parent, clip_length)) is not None
     ]
 
     summary = build_summary(
@@ -467,6 +487,7 @@ def main() -> None:
         output_parent=args.output_parent,
         clip_length=args.clip_length,
         recursive=args.recursive,
+        dialogue_range=args.dialogue_range,
     )
 
     print(f"Matched videos: {summary['matched_video_count']}")

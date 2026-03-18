@@ -20,15 +20,17 @@ DEFAULT_OUTPUT_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_benc
 DEFAULT_CLIP_LENGTH="0.5"
 
 usage() {
-    echo "Usage: sbatch $0 [input_folder] [output_root] [clip_length]" >&2
+    echo "Usage: sbatch $0 [input_folder] [output_root] [clip_length] [dialogue_range]" >&2
     echo "  input_folder: folder name under ${DEFAULT_INPUT_ROOT}" >&2
     echo "  output_root: base results folder; final output becomes output_root/<input_folder>" >&2
     echo "  clip_length: clip length in seconds for cumulative clips of the last utterance" >&2
+    echo "  dialogue_range: 1-based thousand-range index, e.g. 1 → [0,1000), 4 → [3000,4000)" >&2
 }
 
 INPUT_FOLDER_NAME="${1:-${DEFAULT_INPUT_FOLDER}}"
 OUTPUT_ROOT="${2:-${DEFAULT_OUTPUT_ROOT}}"
 CLIP_LENGTH="${3:-${DEFAULT_CLIP_LENGTH}}"
+DIALOGUE_RANGE="${4:-}"
 INPUT_DIR="${DEFAULT_INPUT_ROOT}/${INPUT_FOLDER_NAME}"
 OUTPUT_DIR="${OUTPUT_ROOT}/${INPUT_FOLDER_NAME}"
 
@@ -60,6 +62,7 @@ echo "Input folder name: ${INPUT_FOLDER_NAME}"
 echo "Output root: ${OUTPUT_ROOT}"
 echo "Output dir: ${OUTPUT_DIR}"
 echo "Clip length: ${CLIP_LENGTH}"
+echo "Dialogue range: ${DIALOGUE_RANGE:-all}"
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
@@ -69,4 +72,5 @@ srun apptainer exec \
     "${INPUT_DIR}" \
     "${OUTPUT_DIR}" \
     --clip-length "${CLIP_LENGTH}" \
-    --recursive
+    --recursive \
+    ${DIALOGUE_RANGE:+--dialogue-range "${DIALOGUE_RANGE}"}
