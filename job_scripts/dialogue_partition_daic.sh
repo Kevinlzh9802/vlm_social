@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name="dialogue_partition"
-#SBATCH --time=3:59:00
+#SBATCH --time=34:00:00
 #SBATCH --partition=insy,general # Request partition. Default is 'general'
-#SBATCH --qos=short         # Request Quality of Service. Default is 'short' (maximum run time: 4 hours)
+#SBATCH --qos=medium         # Request Quality of Service. Default is 'short' (maximum run time: 4 hours)
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=64G
