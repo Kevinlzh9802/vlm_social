@@ -2,6 +2,53 @@ import cv2
 import os
 import subprocess
 
+
+def _build_ffmpeg_clip_command(
+    video_path,
+    start_sec,
+    duration_sec,
+    output_clip_path,
+    output_wav_path,
+    save_separate_audio,
+    video_include_audio,
+    video_codec,
+):
+    ffmpeg_cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-ss", str(start_sec),
+        "-t", str(duration_sec),
+    ]
+
+    if save_separate_audio:
+        if video_include_audio:
+            ffmpeg_cmd += [
+                "-map", "0:v",
+                "-map", "0:a?",
+                "-c:v", video_codec,
+                "-c:a", "aac",
+                "-shortest",
+                output_clip_path,
+            ]
+        else:
+            ffmpeg_cmd += [
+                "-map", "0:v",
+                "-c:v", video_codec,
+                output_clip_path,
+            ]
+        ffmpeg_cmd += ["-map", "0:a?", "-c:a", "pcm_s16le", output_wav_path]
+    else:
+        ffmpeg_cmd += [
+            "-map", "0:v",
+            "-map", "0:a?",
+            "-c:v", video_codec,
+            "-c:a", "aac",
+            "-shortest",
+            output_clip_path,
+        ]
+
+    return ffmpeg_cmd
+
 def save_last_frame(video_folder, output_folder):
     # Create the output folder if it doesn't exist
     if not os.path.exists(output_folder):
@@ -69,6 +116,10 @@ def cut_video_into_clips(
     clip_frames = int(clip_length * fps)
     cap.release()
 
+    if fps <= 0 or clip_frames <= 0:
+        print(f"Invalid FPS ({fps}) or clip length ({clip_length}) for {video_path}")
+        return
+
     # Calculate the number of clips
     num_clips = total_frames // clip_frames
 
@@ -87,32 +138,30 @@ def cut_video_into_clips(
         base_name = f"clip_{i + 1}"
         output_wav_path = os.path.join(output_folder, f"{base_name}.wav")
 
-        # Build ffmpeg: input and segment
-        ffmpeg_cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-ss", str(start_sec),
-            "-t", str(duration_sec),
-        ]
-        # Video output: with or without audio depending on options
-        if save_separate_audio:
-            if video_include_audio:
-                ffmpeg_cmd += ["-map", "0:v", "-map", "0:a?", "-c:v", "libx264", "-c:a", "aac", "-shortest", output_clip_path]
-            else:
-                ffmpeg_cmd += ["-map", "0:v", "-c:v", "libx264", output_clip_path]
-            # Separate WAV (same base name, same folder)
-            ffmpeg_cmd += ["-map", "0:a?", "-c:a", "pcm_s16le", output_wav_path]
-        else:
-            # Single file: always video with audio
-            ffmpeg_cmd += ["-map", "0:v", "-map", "0:a?", "-c:v", "libx264", "-c:a", "aac", "-shortest", output_clip_path]
+        ret = None
+        for video_codec in ("libx264", "mpeg4"):
+            ffmpeg_cmd = _build_ffmpeg_clip_command(
+                video_path=video_path,
+                start_sec=start_sec,
+                duration_sec=duration_sec,
+                output_clip_path=output_clip_path,
+                output_wav_path=output_wav_path,
+                save_separate_audio=save_separate_audio,
+                video_include_audio=video_include_audio,
+                video_codec=video_codec,
+            )
+            ret = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            if ret.returncode == 0:
+                break
+            if "Unknown encoder" not in (ret.stderr or ""):
+                break
 
-        ret = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
-        if ret.returncode != 0:
-            print(f"  ffmpeg stderr: {ret.stderr[-500:] if ret.stderr else 'none'}")
+        if ret is None or ret.returncode != 0:
+            print(f"  ffmpeg stderr: {ret.stderr[-500:] if ret and ret.stderr else 'none'}")
             print(f"Clip {i + 1} failed for {video_path}")
         else:
             print(f"Clip {i + 1} saved as {output_clip_path}")
-            if save_separate_audio:
+            if save_separate_audio and os.path.exists(output_wav_path):
                 print(f"  Audio saved as {output_wav_path}")
 
 def cut_videos_in_folder(
