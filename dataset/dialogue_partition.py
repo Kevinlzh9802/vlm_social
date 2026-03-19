@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
         "--dialogue-range",
         type=int,
         default=None,
-        help="1-based thousand-range index. E.g. 1 → dialogues [0,1000), 4 → [3000,4000).",
+        help="1-based hundred-range index. E.g. 1 \u2192 dialogues [0,100), 4 \u2192 [300,400).",
     )
     return parser.parse_args()
 
@@ -440,11 +440,14 @@ def analyze_and_partition(
     records, skipped_files = collect_video_records(video_folder, recursive=recursive)
 
     if dialogue_range is not None:
-        lo = (dialogue_range - 1) * 1000
-        hi = dialogue_range * 1000
+        lo = (dialogue_range - 1) * 100
+        hi = dialogue_range * 100
         records = [r for r in records if lo <= r.dialogue_id < hi]
 
     if not records:
+        if dialogue_range is not None:
+            print(f"No dialogues found in range [{lo}, {hi}). Nothing to do.")
+            return {}
         raise ValueError(
             "No matching videos were found. Expected files named like dia{n}_utt{m}.mp4."
         )
@@ -489,6 +492,9 @@ def main() -> None:
         recursive=args.recursive,
         dialogue_range=args.dialogue_range,
     )
+
+    if not summary:
+        return
 
     print(f"Matched videos: {summary['matched_video_count']}")
     print(f"Dialogues: {summary['dialogue_count']}")

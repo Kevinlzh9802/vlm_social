@@ -22,7 +22,7 @@ DEFAULT_CLIP_LENGTH="0.5"
 usage() {
     echo "Usage: sbatch $0 [input_folder] [dialogue_range] [output_root] [clip_length]" >&2
     echo "  input_folder: folder name under ${DEFAULT_INPUT_ROOT}" >&2
-    echo "  dialogue_range: 1-based thousand-range index, e.g. 1 → [0,1000), 4 → [3000,4000). Empty for all." >&2
+    echo "  dialogue_range: 1-based hundred-range index, e.g. 1 → [0,100), 4 → [300,400). Empty for all." >&2
     echo "  output_root: base results folder; final output becomes output_root/<input_folder>" >&2
     echo "  clip_length: clip length in seconds for cumulative clips of the last utterance" >&2
 }
