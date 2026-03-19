@@ -20,17 +20,17 @@ DEFAULT_OUTPUT_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_benc
 DEFAULT_CLIP_LENGTH="0.5"
 
 usage() {
-    echo "Usage: sbatch $0 [input_folder] [output_root] [clip_length] [dialogue_range]" >&2
+    echo "Usage: sbatch $0 [input_folder] [dialogue_range] [output_root] [clip_length]" >&2
     echo "  input_folder: folder name under ${DEFAULT_INPUT_ROOT}" >&2
+    echo "  dialogue_range: 1-based thousand-range index, e.g. 1 → [0,1000), 4 → [3000,4000). Empty for all." >&2
     echo "  output_root: base results folder; final output becomes output_root/<input_folder>" >&2
     echo "  clip_length: clip length in seconds for cumulative clips of the last utterance" >&2
-    echo "  dialogue_range: 1-based thousand-range index, e.g. 1 → [0,1000), 4 → [3000,4000)" >&2
 }
 
 INPUT_FOLDER_NAME="${1:-${DEFAULT_INPUT_FOLDER}}"
-OUTPUT_ROOT="${2:-${DEFAULT_OUTPUT_ROOT}}"
-CLIP_LENGTH="${3:-${DEFAULT_CLIP_LENGTH}}"
-DIALOGUE_RANGE="${4:-}"
+DIALOGUE_RANGE="${2:-}"
+OUTPUT_ROOT="${3:-${DEFAULT_OUTPUT_ROOT}}"
+CLIP_LENGTH="${4:-${DEFAULT_CLIP_LENGTH}}"
 INPUT_DIR="${DEFAULT_INPUT_ROOT}/${INPUT_FOLDER_NAME}"
 OUTPUT_DIR="${OUTPUT_ROOT}/${INPUT_FOLDER_NAME}"
 
