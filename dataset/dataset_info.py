@@ -147,7 +147,11 @@ def collect_video_records(video_folder: Path, recursive: bool) -> tuple[list[Vid
             continue
 
         dialogue_id, utterance_id = parsed
-        duration_seconds = get_video_duration_seconds(path)
+        try:
+            duration_seconds = get_video_duration_seconds(path)
+        except RuntimeError:
+            skipped_files.append(path.name)
+            continue
         records.append(
             VideoRecord(
                 dialogue_id=dialogue_id,
