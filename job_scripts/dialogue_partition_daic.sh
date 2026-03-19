@@ -14,29 +14,32 @@ set -euo pipefail
 
 PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
 SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/vlm_social.sif"
-DEFAULT_INPUT_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench/mintrec2"
-DEFAULT_INPUT_FOLDER="raw"
-DEFAULT_OUTPUT_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench/mintrec2/dialogue_partition"
+DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
+DEFAULT_INPUT_PATH="mintrec2/raw"
 DEFAULT_CLIP_LENGTH="0.5"
 
 usage() {
-    echo "Usage: sbatch $0 [input_folder] [dialogue_range] [output_root] [clip_length]" >&2
-    echo "  input_folder: folder name under ${DEFAULT_INPUT_ROOT}" >&2
+    echo "Usage: sbatch $0 [input_path] [dialogue_range] [clip_length]" >&2
+    echo "  input_path: 2-level path under ${DEFAULT_DATA_ROOT}, e.g. mintrec2/raw" >&2
     echo "  dialogue_range: 1-based hundred-range index, e.g. 1 → [0,100), 4 → [300,400). Empty for all." >&2
-    echo "  output_root: base results folder; final output becomes output_root/<input_folder>" >&2
     echo "  clip_length: clip length in seconds for cumulative clips of the last utterance" >&2
+    echo "  output is <data_root>/<dataset>/dialogue_partition/<subfolder>" >&2
 }
 
-INPUT_FOLDER_NAME="${1:-${DEFAULT_INPUT_FOLDER}}"
+INPUT_PATH="${1:-${DEFAULT_INPUT_PATH}}"
 DIALOGUE_RANGE="${2:-}"
-OUTPUT_ROOT="${3:-${DEFAULT_OUTPUT_ROOT}}"
-CLIP_LENGTH="${4:-${DEFAULT_CLIP_LENGTH}}"
-INPUT_DIR="${DEFAULT_INPUT_ROOT}/${INPUT_FOLDER_NAME}"
-OUTPUT_DIR="${OUTPUT_ROOT}/${INPUT_FOLDER_NAME}"
+CLIP_LENGTH="${3:-${DEFAULT_CLIP_LENGTH}}"
 
-if [[ -z "${INPUT_FOLDER_NAME}" || "${INPUT_FOLDER_NAME}" == "." ]]; then
+# Split input_path into dataset and subfolder: mintrec2/raw -> dataset=mintrec2, subfolder=raw
+DATASET="${INPUT_PATH%%/*}"
+SUBFOLDER="${INPUT_PATH#*/}"
+
+INPUT_DIR="${DEFAULT_DATA_ROOT}/${INPUT_PATH}"
+OUTPUT_DIR="${DEFAULT_DATA_ROOT}/${DATASET}/dialogue_partition/${SUBFOLDER}"
+
+if [[ -z "${INPUT_PATH}" || "${INPUT_PATH}" == "." || "${DATASET}" == "${SUBFOLDER}" ]]; then
     usage
-    echo "Invalid input folder name: ${INPUT_FOLDER_NAME}" >&2
+    echo "Invalid input path: ${INPUT_PATH} (must be 2-level like dataset/subfolder)" >&2
     exit 1
 fi
 
@@ -56,10 +59,9 @@ mkdir -p "${OUTPUT_DIR}"
 
 echo "Project root: ${PROJECT_ROOT}"
 echo "Apptainer image: ${SIF_PATH}"
-echo "Input root: ${DEFAULT_INPUT_ROOT}"
+echo "Data root: ${DEFAULT_DATA_ROOT}"
+echo "Input path: ${INPUT_PATH}"
 echo "Input dir: ${INPUT_DIR}"
-echo "Input folder name: ${INPUT_FOLDER_NAME}"
-echo "Output root: ${OUTPUT_ROOT}"
 echo "Output dir: ${OUTPUT_DIR}"
 echo "Clip length: ${CLIP_LENGTH}"
 echo "Dialogue range: ${DIALOGUE_RANGE:-all}"
