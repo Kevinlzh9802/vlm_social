@@ -14,24 +14,24 @@ set -euo pipefail
 
 PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
 SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/vlm_social.sif"
-DEFAULT_INPUT_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench/mintrec2"
-DEFAULT_INPUT_FOLDER="raw"
-DEFAULT_OUTPUT_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/dataset_info"
+DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
+DEFAULT_INPUT_PATH="mintrec2/raw"
+DEFAULT_OUTPUT_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench"
 
 usage() {
-    echo "Usage: sbatch $0 [input_folder] [output_root]" >&2
-    echo "  input_folder: folder name under ${DEFAULT_INPUT_ROOT}" >&2
-    echo "  output_root: base results folder; final output becomes output_root/<input_folder>" >&2
+    echo "Usage: sbatch $0 [input_path] [output_root]" >&2
+    echo "  input_path: 2-level path under ${DEFAULT_DATA_ROOT}, e.g. mintrec2/raw" >&2
+    echo "  output_root: base results folder; final output becomes output_root/<input_path>" >&2
 }
 
-INPUT_FOLDER_NAME="${1:-${DEFAULT_INPUT_FOLDER}}"
+INPUT_PATH="${1:-${DEFAULT_INPUT_PATH}}"
 OUTPUT_ROOT="${2:-${DEFAULT_OUTPUT_ROOT}}"
-INPUT_DIR="${DEFAULT_INPUT_ROOT}/${INPUT_FOLDER_NAME}"
-OUTPUT_DIR="${OUTPUT_ROOT}/${INPUT_FOLDER_NAME}"
+INPUT_DIR="${DEFAULT_DATA_ROOT}/${INPUT_PATH}"
+OUTPUT_DIR="${OUTPUT_ROOT}/${INPUT_PATH}"
 
-if [[ -z "${INPUT_FOLDER_NAME}" || "${INPUT_FOLDER_NAME}" == "." ]]; then
+if [[ -z "${INPUT_PATH}" || "${INPUT_PATH}" == "." ]]; then
     usage
-    echo "Invalid input folder name: ${INPUT_FOLDER_NAME}" >&2
+    echo "Invalid input path: ${INPUT_PATH}" >&2
     exit 1
 fi
 
@@ -51,9 +51,9 @@ mkdir -p "${OUTPUT_DIR}"
 
 echo "Project root: ${PROJECT_ROOT}"
 echo "Apptainer image: ${SIF_PATH}"
-echo "Input root: ${DEFAULT_INPUT_ROOT}"
+echo "Data root: ${DEFAULT_DATA_ROOT}"
+echo "Input path: ${INPUT_PATH}"
 echo "Input dir: ${INPUT_DIR}"
-echo "Input folder name: ${INPUT_FOLDER_NAME}"
 echo "Output root: ${OUTPUT_ROOT}"
 echo "Output dir: ${OUTPUT_DIR}"
 
