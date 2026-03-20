@@ -3,10 +3,13 @@ import csv
 import json
 import re
 import shutil
+import subprocess
+import tempfile
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import cv2
 from video_utils import cut_video_into_clips
 
 
@@ -18,6 +21,7 @@ GROUP_FOLDER_NAMES = {
     2: "2-utt_group",
     3: "3-utt_group",
 }
+MATERIALIZATION_MODES = ("nested", "context")
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,17 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="1-based hundred-range index. E.g. 1 \u2192 dialogues [0,100), 4 \u2192 [300,400).",
+    )
+    parser.add_argument(
+        "-mode",
+        "--mode",
+        choices=MATERIALIZATION_MODES,
+        default="nested",
+        help=(
+            "Output layout mode. 'nested' keeps the current structure. "
+            "'context' flattens each group folder and prepends prior utterances "
+            "to every generated clip."
+        ),
     )
     return parser.parse_args()
 
@@ -206,7 +221,137 @@ def rename_generated_clips(clip_folder: Path, prefix: str) -> dict[str, int]:
     return clip_counts
 
 
-def materialize_group(
+def get_video_properties(video_path: str | Path) -> tuple[float, int, float]:
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Error opening video file: {video_path}")
+
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        cap.release()
+
+    if fps <= 0:
+        raise RuntimeError(f"Invalid FPS ({fps}) for {video_path}")
+
+    return fps, total_frames, total_frames / fps
+
+
+def run_ffmpeg_with_video_codec_fallback(
+    command_builder,
+    context: str,
+) -> None:
+    last_command: list[str] | None = None
+    last_result = None
+
+    for video_codec in ("libx264", "mpeg4"):
+        command = command_builder(video_codec)
+        result = subprocess.run(command, capture_output=True, text=True)
+        last_command = command
+        last_result = result
+        if result.returncode == 0:
+            return
+        if "Unknown encoder" not in (result.stderr or ""):
+            break
+
+    stderr_tail = "none"
+    if last_result is not None and last_result.stderr:
+        stderr_tail = last_result.stderr[-1000:]
+
+    raise RuntimeError(
+        f"{context} failed.\n"
+        f"Command: {' '.join(last_command or [])}\n"
+        f"ffmpeg stderr: {stderr_tail}"
+    )
+
+
+def concatenate_group_video(source_paths: list[str], output_path: Path) -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as handle:
+        concat_list_path = Path(handle.name)
+        for source_path in source_paths:
+            handle.write(f"file {Path(source_path).resolve().as_posix()}\n")
+
+    try:
+        run_ffmpeg_with_video_codec_fallback(
+            lambda video_codec: [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list_path),
+                "-c:v",
+                video_codec,
+                "-c:a",
+                "aac",
+                str(output_path),
+            ],
+            context=f"Concatenating context video for {output_path.stem}",
+        )
+    finally:
+        concat_list_path.unlink(missing_ok=True)
+
+
+def cut_contextual_cumulative_clips(
+    video_path: Path,
+    final_source_path: str,
+    output_folder: Path,
+    clip_length: float,
+    prefix_duration_seconds: float,
+    clip_prefix: str,
+) -> dict[str, int]:
+    fps, total_frames, _ = get_video_properties(final_source_path)
+    clip_frames = int(clip_length * fps)
+
+    if clip_frames <= 0:
+        raise RuntimeError(
+            f"Invalid clip length ({clip_length}) or FPS ({fps}) for {final_source_path}"
+        )
+
+    num_clips = total_frames // clip_frames
+    clip_counts = {"mp4": 0, "wav": 0}
+
+    for clip_index in range(1, num_clips + 1):
+        duration_seconds = prefix_duration_seconds + (clip_index * clip_frames / fps)
+        output_clip_path = output_folder / f"{clip_prefix}_clip{clip_index}.mp4"
+        output_wav_path = output_folder / f"{clip_prefix}_clip{clip_index}.wav"
+
+        run_ffmpeg_with_video_codec_fallback(
+            lambda video_codec: [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(video_path),
+                "-ss",
+                "0",
+                "-t",
+                str(duration_seconds),
+                "-map",
+                "0:v",
+                "-c:v",
+                video_codec,
+                str(output_clip_path),
+                "-map",
+                "0:a?",
+                "-c:a",
+                "pcm_s16le",
+                str(output_wav_path),
+            ],
+            context=f"Generating contextual clip {clip_index} for {clip_prefix}",
+        )
+
+        if output_clip_path.exists():
+            clip_counts["mp4"] += 1
+        if output_wav_path.exists():
+            clip_counts["wav"] += 1
+
+    return clip_counts
+
+
+def materialize_group_nested(
     group: PartitionGroup,
     output_parent: Path,
     clip_length: float,
@@ -217,7 +362,6 @@ def materialize_group(
     final_label = utterance_label(group.dialogue_id, final_utterance_id)
     clip_folder = group_root / final_label
 
-    # Skip if already materialized
     if clip_folder.exists() and any(clip_folder.glob(f"{final_label}_clip*.mp4")):
         return None
 
@@ -247,11 +391,77 @@ def materialize_group(
         "group_size": group.group_size,
         "group_name": group.group_name,
         "utterance_ids": group.utterance_ids,
+        "mode": "nested",
         "whole_videos": copied_whole_videos,
-        "final_clip_folder": str(clip_folder),
+        "clip_output_folder": str(clip_folder),
         "clip_mp4_count": clip_counts["mp4"],
         "clip_wav_count": clip_counts["wav"],
     }
+
+
+def materialize_group_context(
+    group: PartitionGroup,
+    output_parent: Path,
+    clip_length: float,
+) -> dict[str, object] | None:
+    group_root = output_parent / GROUP_FOLDER_NAMES[group.group_size] / group.group_name
+    clip_prefix = group.group_name
+
+    if group_root.exists() and any(group_root.glob(f"{clip_prefix}_clip*.mp4")):
+        return None
+
+    group_root.mkdir(parents=True, exist_ok=True)
+
+    if group.group_size == 1:
+        cut_video_into_clips(
+            group.source_paths[-1],
+            str(group_root),
+            clip_length=clip_length,
+            cumulative=True,
+            save_separate_audio=True,
+            video_include_audio=False,
+        )
+        clip_counts = rename_generated_clips(group_root, clip_prefix)
+    else:
+        prefix_duration_seconds = sum(
+            get_video_properties(source_path)[2] for source_path in group.source_paths[:-1]
+        )
+        with tempfile.TemporaryDirectory(prefix=f"{group.group_name}_", dir=str(group_root)) as tmpdir:
+            concatenated_path = Path(tmpdir) / f"{group.group_name}_context.mp4"
+            concatenate_group_video(group.source_paths, concatenated_path)
+            clip_counts = cut_contextual_cumulative_clips(
+                video_path=concatenated_path,
+                final_source_path=group.source_paths[-1],
+                output_folder=group_root,
+                clip_length=clip_length,
+                prefix_duration_seconds=prefix_duration_seconds,
+                clip_prefix=clip_prefix,
+            )
+
+    return {
+        "dialogue_id": group.dialogue_id,
+        "group_size": group.group_size,
+        "group_name": group.group_name,
+        "utterance_ids": group.utterance_ids,
+        "mode": "context",
+        "whole_videos": [],
+        "clip_output_folder": str(group_root),
+        "clip_mp4_count": clip_counts["mp4"],
+        "clip_wav_count": clip_counts["wav"],
+    }
+
+
+def materialize_group(
+    group: PartitionGroup,
+    output_parent: Path,
+    clip_length: float,
+    mode: str,
+) -> dict[str, object] | None:
+    if mode == "nested":
+        return materialize_group_nested(group, output_parent, clip_length)
+    if mode == "context":
+        return materialize_group_context(group, output_parent, clip_length)
+    raise ValueError(f"Unsupported mode: {mode}")
 
 
 def build_summary(
@@ -263,6 +473,7 @@ def build_summary(
     skipped_windows: list[SkippedWindow],
     materialized_groups: list[dict[str, object]],
     clip_length: float,
+    mode: str,
 ) -> dict[str, object]:
     groups_by_size = defaultdict(int)
     clips_by_size = defaultdict(int)
@@ -305,6 +516,7 @@ def build_summary(
         "input_folder": str(video_folder.resolve()),
         "output_parent": str(output_parent.resolve()),
         "clip_length_seconds": clip_length,
+        "mode": mode,
         "matched_video_count": len(records),
         "skipped_file_count": len(skipped_files),
         "skipped_files": skipped_files,
@@ -334,6 +546,7 @@ def write_summary_files(summary: dict[str, object], output_parent: Path) -> None
         "",
         f"Input folder: {summary['input_folder']}",
         f"Output parent: {summary['output_parent']}",
+        f"Mode: {summary['mode']}",
         f"Matched videos: {summary['matched_video_count']}",
         f"Skipped files: {summary['skipped_file_count']}",
         f"Dialogues: {summary['dialogue_count']}",
@@ -430,6 +643,7 @@ def analyze_and_partition(
     output_parent: Path,
     clip_length: float,
     recursive: bool,
+    mode: str,
     dialogue_range: int | None = None,
 ) -> dict[str, object]:
     if not video_folder.exists():
@@ -466,7 +680,7 @@ def analyze_and_partition(
     materialized_groups = [
         result
         for group in all_groups
-        if (result := materialize_group(group, output_parent, clip_length)) is not None
+        if (result := materialize_group(group, output_parent, clip_length, mode)) is not None
     ]
 
     summary = build_summary(
@@ -478,6 +692,7 @@ def analyze_and_partition(
         skipped_windows=all_skipped_windows,
         materialized_groups=materialized_groups,
         clip_length=clip_length,
+        mode=mode,
     )
     write_summary_files(summary, output_parent)
     return summary
@@ -490,6 +705,7 @@ def main() -> None:
         output_parent=args.output_parent,
         clip_length=args.clip_length,
         recursive=args.recursive,
+        mode=args.mode,
         dialogue_range=args.dialogue_range,
     )
 
@@ -504,6 +720,7 @@ def main() -> None:
         f"{summary['group_counts']['2']}/"
         f"{summary['group_counts']['3']}"
     )
+    print(f"Mode: {summary['mode']}")
     print(f"Outputs written to: {args.output_parent.resolve()}")
 
 
