@@ -20,7 +20,9 @@ DEFAULT_CLIP_LENGTH="0.5"
 DEFAULT_MODE="nested"
 
 usage() {
-    echo "Usage: sbatch $0 [input_path] [dialogue_range] [clip_length] [mode]" >&2
+    echo "Usage:" >&2
+    echo "  sbatch $0 [input_path] [dialogue_range] [clip_length] [mode]" >&2
+    echo "  sbatch $0 [--input-path PATH] [--dialogue-range N] [--clip-length SEC] [--mode nested|context]" >&2
     echo "  input_path: 2-level path under ${DEFAULT_DATA_ROOT}, e.g. mintrec2/raw" >&2
     echo "  dialogue_range: 1-based hundred-range index, e.g. 1 → [0,100), 4 → [300,400). Empty for all." >&2
     echo "  clip_length: clip length in seconds for cumulative clips of the last utterance" >&2
@@ -28,10 +30,67 @@ usage() {
     echo "  output is <data_root>/<dataset>/dialogue_partition/<subfolder>" >&2
 }
 
-INPUT_PATH="${1:-${DEFAULT_INPUT_PATH}}"
-DIALOGUE_RANGE="${2:-}"
-CLIP_LENGTH="${3:-${DEFAULT_CLIP_LENGTH}}"
-MODE="${4:-${DEFAULT_MODE}}"
+INPUT_PATH="${DEFAULT_INPUT_PATH}"
+DIALOGUE_RANGE=""
+CLIP_LENGTH="${DEFAULT_CLIP_LENGTH}"
+MODE="${DEFAULT_MODE}"
+POSITIONAL_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --input-path)
+            INPUT_PATH="${2:?Missing value for --input-path}"
+            shift 2
+            ;;
+        --dialogue-range)
+            DIALOGUE_RANGE="${2:?Missing value for --dialogue-range}"
+            shift 2
+            ;;
+        --clip-length)
+            CLIP_LENGTH="${2:?Missing value for --clip-length}"
+            shift 2
+            ;;
+        --mode)
+            MODE="${2:?Missing value for --mode}"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --*)
+            usage
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            POSITIONAL_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ ${#POSITIONAL_ARGS[@]} -gt 0 ]]; then
+    INPUT_PATH="${POSITIONAL_ARGS[0]}"
+fi
+
+if [[ ${#POSITIONAL_ARGS[@]} -gt 1 ]]; then
+    DIALOGUE_RANGE="${POSITIONAL_ARGS[1]}"
+fi
+
+if [[ ${#POSITIONAL_ARGS[@]} -gt 2 ]]; then
+    CLIP_LENGTH="${POSITIONAL_ARGS[2]}"
+fi
+
+if [[ ${#POSITIONAL_ARGS[@]} -gt 3 ]]; then
+    MODE="${POSITIONAL_ARGS[3]}"
+fi
+
+if [[ ${#POSITIONAL_ARGS[@]} -gt 4 ]]; then
+    usage
+    echo "Too many positional arguments." >&2
+    exit 1
+fi
 
 # Split input_path into dataset and subfolder: mintrec2/raw -> dataset=mintrec2, subfolder=raw
 DATASET="${INPUT_PATH%%/*}"
