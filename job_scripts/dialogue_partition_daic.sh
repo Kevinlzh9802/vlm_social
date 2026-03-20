@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name="dialogue_partition"
-#SBATCH --time=34:00:00
+#SBATCH --time=12:00:00
 #SBATCH --partition=insy,general # Request partition. Default is 'general'
 #SBATCH --qos=medium         # Request Quality of Service. Default is 'short' (maximum run time: 4 hours)
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=64G
+#SBATCH --mem=48G
 #SBATCH --mail-type=END
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
