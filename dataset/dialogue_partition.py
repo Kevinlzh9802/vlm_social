@@ -50,6 +50,24 @@ class SkippedWindow:
     missing_utterance_ids: list[int]
 
 
+@dataclass(frozen=True)
+class GroupTriplet:
+    """Three PartitionGroups (1-utt, 2-utt, 3-utt) that share the same
+    aligned 3-utterance window.  They must succeed or fail as a unit."""
+    dialogue_id: int
+    utterance_ids: list[int]          # the full [u_n, u_{n+1}, u_{n+2}]
+    groups: list[PartitionGroup]      # always length 3, ordered by group_size
+
+
+@dataclass(frozen=True)
+class FailedTriplet:
+    """Records a triplet that was discarded because one of its groups failed."""
+    dialogue_id: int
+    utterance_ids: list[int]
+    failed_group_name: str
+    error: str
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -92,6 +110,17 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Output layout mode. 'context' flattens each group folder and prepends "
             "prior utterances to every generated clip. 'nested' keeps the current structure."
+        ),
+    )
+    parser.add_argument(
+        "--stride",
+        type=int,
+        default=2,
+        help=(
+            "Number of utterances to skip between consecutive 3-utterance windows. "
+            "After processing a window [u_n, u_n+1, u_n+2], the next window starts "
+            "at u_n+3+stride.  E.g. stride=0 → no gap (back-to-back), stride=2 "
+            "(default) → skip 2 utterances between windows."
         ),
     )
     return parser.parse_args()
@@ -155,13 +184,16 @@ def collect_video_records(video_folder: Path, recursive: bool) -> tuple[list[Vid
     return records, skipped_files
 
 
-def partition_dialogue(records: list[VideoRecord]) -> tuple[list[PartitionGroup], list[SkippedWindow]]:
+def partition_dialogue(
+    records: list[VideoRecord],
+    stride: int = 2,
+) -> tuple[list[GroupTriplet], list[SkippedWindow]]:
     record_by_utterance = {record.utterance_id: record for record in records}
     min_utterance_id = min(record_by_utterance)
     max_utterance_id = max(record_by_utterance)
     cursor = min_utterance_id
 
-    groups: list[PartitionGroup] = []
+    triplets: list[GroupTriplet] = []
     skipped: list[SkippedWindow] = []
 
     while cursor <= max_utterance_id:
@@ -178,11 +210,12 @@ def partition_dialogue(records: list[VideoRecord]) -> tuple[list[PartitionGroup]
                 expected_ids[1:],
                 expected_ids,
             )
+            groups_in_triplet: list[PartitionGroup] = []
             for utterance_ids in group_definitions:
                 source_paths = [
                     record_by_utterance[utterance_id].path for utterance_id in utterance_ids
                 ]
-                groups.append(
+                groups_in_triplet.append(
                     PartitionGroup(
                         dialogue_id=records[0].dialogue_id,
                         group_size=len(utterance_ids),
@@ -191,6 +224,13 @@ def partition_dialogue(records: list[VideoRecord]) -> tuple[list[PartitionGroup]
                         group_name=group_label(records[0].dialogue_id, utterance_ids),
                     )
                 )
+            triplets.append(
+                GroupTriplet(
+                    dialogue_id=records[0].dialogue_id,
+                    utterance_ids=expected_ids,
+                    groups=groups_in_triplet,
+                )
+            )
         else:
             skipped.append(
                 SkippedWindow(
@@ -202,9 +242,9 @@ def partition_dialogue(records: list[VideoRecord]) -> tuple[list[PartitionGroup]
                 )
             )
 
-        cursor += 3
+        cursor += 3 + stride
 
-    return groups, skipped
+    return triplets, skipped
 
 
 def rename_generated_clips(clip_folder: Path, prefix: str) -> dict[str, int]:
@@ -287,6 +327,8 @@ def concatenate_group_video(source_paths: list[str], output_path: Path) -> None:
                 "0",
                 "-i",
                 str(concat_list_path),
+                "-fflags",
+                "+genpts",
                 "-c:v",
                 video_codec,
                 "-c:a",
@@ -323,29 +365,44 @@ def cut_contextual_cumulative_clips(
         output_clip_path = output_folder / f"{clip_prefix}_clip{clip_index}.mp4"
         output_wav_path = output_folder / f"{clip_prefix}_clip{clip_index}.wav"
 
+        # Video: use -t as an *input* option (before -i) so ffmpeg only
+        # demuxes the first ``duration_seconds`` of the concatenated file.
+        # This avoids timestamp issues that can arise when -t is placed
+        # after -i on files produced by the concat demuxer.
         run_ffmpeg_with_video_codec_fallback(
-            lambda video_codec: [
+            lambda video_codec, _vp=video_path, _d=duration_seconds, _op=output_clip_path: [
                 "ffmpeg",
                 "-y",
-                "-i",
-                str(video_path),
-                "-ss",
-                "0",
                 "-t",
-                str(duration_seconds),
+                str(_d),
+                "-i",
+                str(_vp),
                 "-map",
                 "0:v",
                 "-c:v",
                 video_codec,
-                str(output_clip_path),
-                "-map",
-                "0:a?",
-                "-c:a",
-                "pcm_s16le",
-                str(output_wav_path),
+                "-an",
+                str(_op),
             ],
-            context=f"Generating contextual clip {clip_index} for {clip_prefix}",
+            context=f"Generating contextual video clip {clip_index} for {clip_prefix}",
         )
+
+        # Audio: likewise use -t before -i to limit input duration.
+        # Ignores failure when the source has no audio track.
+        audio_cmd = [
+            "ffmpeg",
+            "-y",
+            "-t",
+            str(duration_seconds),
+            "-i",
+            str(video_path),
+            "-map",
+            "0:a",
+            "-c:a",
+            "pcm_s16le",
+            str(output_wav_path),
+        ]
+        subprocess.run(audio_cmd, capture_output=True, text=True)
 
         if output_clip_path.exists():
             clip_counts["mp4"] += 1
@@ -468,21 +525,134 @@ def materialize_group(
     raise ValueError(f"Unsupported mode: {mode}")
 
 
+def validate_materialized_group(result: dict[str, object]) -> None:
+    """Raise if the materialized group is missing any mp4 or wav clips.
+
+    Every generated clip must have both a .mp4 and a .wav counterpart so that
+    all 1/2/3-utt groups contain both video and audio for every segment.
+    """
+    mp4_count = result.get("clip_mp4_count", 0)
+    wav_count = result.get("clip_wav_count", 0)
+
+    if mp4_count == 0:
+        raise RuntimeError(
+            f"Group {result['group_name']}: no mp4 clips were generated."
+        )
+    if wav_count == 0:
+        raise RuntimeError(
+            f"Group {result['group_name']}: no wav clips were generated."
+        )
+    if mp4_count != wav_count:
+        raise RuntimeError(
+            f"Group {result['group_name']}: mp4/wav count mismatch "
+            f"({mp4_count} mp4 vs {wav_count} wav)."
+        )
+
+
+def _output_folder_for_group(
+    group: PartitionGroup,
+    output_parent: Path,
+    mode: str,
+) -> Path:
+    """Return the root output folder that would be created for *group*."""
+    group_root = output_parent / GROUP_FOLDER_NAMES[group.group_size] / group.group_name
+    if mode == "nested":
+        final_label = utterance_label(group.dialogue_id, group.utterance_ids[-1])
+        return group_root / final_label
+    return group_root
+
+
+def _cleanup_group_folder(
+    group: PartitionGroup,
+    output_parent: Path,
+    mode: str,
+) -> None:
+    """Remove the output folder tree created for *group*, if it exists."""
+    folder = _output_folder_for_group(group, output_parent, mode)
+    # For nested mode the clip_folder is a child of group_root; remove the
+    # whole group_root so that copied whole-video files are also deleted.
+    if mode == "nested":
+        folder = folder.parent
+    if folder.exists():
+        shutil.rmtree(folder)
+
+
+def materialize_triplet(
+    triplet: GroupTriplet,
+    output_parent: Path,
+    clip_length: float,
+    mode: str,
+) -> tuple[list[dict[str, object]], FailedTriplet | None]:
+    """Materialize all groups in a triplet atomically.
+
+    If any single group raises an exception or fails validation (missing
+    video/audio), every folder created for the triplet is removed and a
+    ``FailedTriplet`` is returned.
+
+    Returns ``(materialized_results, None)`` on success, or
+    ``([], FailedTriplet)`` on failure.
+    """
+    results: list[dict[str, object]] = []
+
+    for group in triplet.groups:
+        try:
+            result = materialize_group(group, output_parent, clip_length, mode)
+            if result is None:
+                # Already existed from a prior run – still need to validate.
+                folder = _output_folder_for_group(group, output_parent, mode)
+                mp4_clips = list(folder.glob("*.mp4")) if folder.exists() else []
+                wav_clips = list(folder.glob("*.wav")) if folder.exists() else []
+                result = {
+                    "dialogue_id": group.dialogue_id,
+                    "group_size": group.group_size,
+                    "group_name": group.group_name,
+                    "utterance_ids": group.utterance_ids,
+                    "mode": mode,
+                    "whole_videos": [],
+                    "clip_output_folder": str(folder),
+                    "clip_mp4_count": len(mp4_clips),
+                    "clip_wav_count": len(wav_clips),
+                    "reused": True,
+                }
+            validate_materialized_group(result)
+            results.append(result)
+        except Exception as exc:
+            # Roll back every group folder in this triplet.
+            for rollback_group in triplet.groups:
+                _cleanup_group_folder(rollback_group, output_parent, mode)
+
+            return [], FailedTriplet(
+                dialogue_id=triplet.dialogue_id,
+                utterance_ids=triplet.utterance_ids,
+                failed_group_name=group.group_name,
+                error=str(exc),
+            )
+
+    return results, None
+
+
 def build_summary(
     video_folder: Path,
     output_parent: Path,
     records: list[VideoRecord],
     skipped_files: list[str],
-    groups: list[PartitionGroup],
+    triplets: list[GroupTriplet],
     skipped_windows: list[SkippedWindow],
     materialized_groups: list[dict[str, object]],
+    failed_triplets: list[FailedTriplet],
     clip_length: float,
     mode: str,
+    stride: int = 2,
 ) -> dict[str, object]:
     groups_by_size = defaultdict(int)
     clips_by_size = defaultdict(int)
     wavs_by_size = defaultdict(int)
     dialogues_by_id: dict[int, dict[str, object]] = {}
+
+    # Flatten triplets into a list of all groups for counting.
+    all_groups: list[PartitionGroup] = []
+    for triplet in triplets:
+        all_groups.extend(triplet.groups)
 
     for record in records:
         dialogues_by_id.setdefault(
@@ -496,13 +666,15 @@ def build_summary(
                 "group_3_count": 0,
                 "skipped_window_count": 0,
                 "skipped_windows": [],
+                "failed_triplet_count": 0,
+                "failed_triplets": [],
             },
         )
         dialogue_info = dialogues_by_id[record.dialogue_id]
         dialogue_info["available_utterance_count"] += 1
         dialogue_info["max_utterance_id"] = max(dialogue_info["max_utterance_id"], record.utterance_id)
 
-    for group in groups:
+    for group in all_groups:
         groups_by_size[group.group_size] += 1
         dialogue_info = dialogues_by_id[group.dialogue_id]
         dialogue_info[f"group_{group.group_size}_count"] += 1
@@ -512,6 +684,11 @@ def build_summary(
         dialogue_info["skipped_window_count"] += 1
         dialogue_info["skipped_windows"].append(asdict(skipped))
 
+    for failed in failed_triplets:
+        dialogue_info = dialogues_by_id[failed.dialogue_id]
+        dialogue_info["failed_triplet_count"] += 1
+        dialogue_info["failed_triplets"].append(asdict(failed))
+
     for materialized in materialized_groups:
         clips_by_size[materialized["group_size"]] += materialized["clip_mp4_count"]
         wavs_by_size[materialized["group_size"]] += materialized["clip_wav_count"]
@@ -520,17 +697,22 @@ def build_summary(
         "input_folder": str(video_folder.resolve()),
         "output_parent": str(output_parent.resolve()),
         "clip_length_seconds": clip_length,
+        "stride": stride,
         "mode": mode,
         "matched_video_count": len(records),
         "skipped_file_count": len(skipped_files),
         "skipped_files": skipped_files,
         "dialogue_count": len(dialogues_by_id),
+        "triplet_count": len(triplets),
+        "successful_triplet_count": len(triplets) - len(failed_triplets),
+        "failed_triplet_count": len(failed_triplets),
         "group_counts": {str(size): groups_by_size[size] for size in GROUP_SEQUENCE},
         "clip_mp4_counts": {str(size): clips_by_size[size] for size in GROUP_SEQUENCE},
         "clip_wav_counts": {str(size): wavs_by_size[size] for size in GROUP_SEQUENCE},
         "skipped_window_count": len(skipped_windows),
-        "groups": [asdict(group) for group in groups],
+        "groups": [asdict(group) for group in all_groups],
         "materialized_groups": materialized_groups,
+        "failed_triplets": [asdict(ft) for ft in failed_triplets],
         "dialogues": [dialogues_by_id[dialogue_id] for dialogue_id in sorted(dialogues_by_id)],
         "skipped_windows": [asdict(skipped) for skipped in skipped_windows],
     }
@@ -555,6 +737,13 @@ def write_summary_files(summary: dict[str, object], output_parent: Path) -> None
         f"Skipped files: {summary['skipped_file_count']}",
         f"Dialogues: {summary['dialogue_count']}",
         f"Clip length (seconds): {summary['clip_length_seconds']}",
+        f"Stride (utterances skipped between windows): {summary['stride']}",
+        "",
+        "Triplets",
+        "--------",
+        f"Total triplets: {summary['triplet_count']}",
+        f"Successful triplets: {summary['successful_triplet_count']}",
+        f"Failed triplets: {summary['failed_triplet_count']}",
         "",
         "Successful Group Counts",
         "-----------------------",
@@ -573,9 +762,20 @@ def write_summary_files(summary: dict[str, object], output_parent: Path) -> None
         "",
         f"Skipped windows: {summary['skipped_window_count']}",
         "",
-        "Per-Dialogue",
-        "------------",
     ]
+
+    if summary["failed_triplets"]:
+        lines.append("Failed Triplets")
+        lines.append("---------------")
+        for ft in summary["failed_triplets"]:
+            lines.append(
+                f"dia{ft['dialogue_id']} utts={ft['utterance_ids']}: "
+                f"failed on {ft['failed_group_name']} — {ft['error']}"
+            )
+        lines.append("")
+
+    lines.append("Per-Dialogue")
+    lines.append("------------")
 
     for dialogue in summary["dialogues"]:
         lines.append(
@@ -583,7 +783,8 @@ def write_summary_files(summary: dict[str, object], output_parent: Path) -> None
             f"available={dialogue['available_utterance_count']}, "
             f"max_utt={dialogue['max_utterance_id']}, "
             f"groups(1/2/3)=({dialogue['group_1_count']}/{dialogue['group_2_count']}/{dialogue['group_3_count']}), "
-            f"skipped={dialogue['skipped_window_count']}"
+            f"skipped={dialogue['skipped_window_count']}, "
+            f"failed_triplets={dialogue['failed_triplet_count']}"
         )
 
     (output_parent / "partition_summary.txt").write_text(
@@ -625,6 +826,7 @@ def write_summary_files(summary: dict[str, object], output_parent: Path) -> None
                 "group_2_count",
                 "group_3_count",
                 "skipped_window_count",
+                "failed_triplet_count",
             ],
         )
         writer.writeheader()
@@ -638,6 +840,7 @@ def write_summary_files(summary: dict[str, object], output_parent: Path) -> None
                     "group_2_count": dialogue["group_2_count"],
                     "group_3_count": dialogue["group_3_count"],
                     "skipped_window_count": dialogue["skipped_window_count"],
+                    "failed_triplet_count": dialogue["failed_triplet_count"],
                 }
             )
 
@@ -649,6 +852,7 @@ def analyze_and_partition(
     recursive: bool,
     mode: str,
     dialogue_range: int | None = None,
+    stride: int = 2,
 ) -> dict[str, object]:
     if not video_folder.exists():
         raise FileNotFoundError(f"Input folder does not exist: {video_folder}")
@@ -674,29 +878,45 @@ def analyze_and_partition(
     for record in records:
         records_by_dialogue[record.dialogue_id].append(record)
 
-    all_groups: list[PartitionGroup] = []
+    all_triplets: list[GroupTriplet] = []
     all_skipped_windows: list[SkippedWindow] = []
     for dialogue_id in sorted(records_by_dialogue):
-        dialogue_groups, dialogue_skipped = partition_dialogue(records_by_dialogue[dialogue_id])
-        all_groups.extend(dialogue_groups)
+        dialogue_triplets, dialogue_skipped = partition_dialogue(
+            records_by_dialogue[dialogue_id], stride=stride,
+        )
+        all_triplets.extend(dialogue_triplets)
         all_skipped_windows.extend(dialogue_skipped)
 
-    materialized_groups = [
-        result
-        for group in all_groups
-        if (result := materialize_group(group, output_parent, clip_length, mode)) is not None
-    ]
+    # Materialize each triplet atomically: if any group in a triplet fails
+    # (exception or missing video/audio), all three group folders are removed.
+    materialized_groups: list[dict[str, object]] = []
+    failed_triplets: list[FailedTriplet] = []
+    successful_triplets: list[GroupTriplet] = []
+
+    for triplet in all_triplets:
+        results, failure = materialize_triplet(triplet, output_parent, clip_length, mode)
+        if failure is not None:
+            failed_triplets.append(failure)
+            print(
+                f"[WARN] Discarded triplet dia{failure.dialogue_id} "
+                f"utts={failure.utterance_ids}: {failure.error}"
+            )
+        else:
+            materialized_groups.extend(results)
+            successful_triplets.append(triplet)
 
     summary = build_summary(
         video_folder=video_folder,
         output_parent=output_parent,
         records=records,
         skipped_files=skipped_files,
-        groups=all_groups,
+        triplets=successful_triplets,
         skipped_windows=all_skipped_windows,
         materialized_groups=materialized_groups,
+        failed_triplets=failed_triplets,
         clip_length=clip_length,
         mode=mode,
+        stride=stride,
     )
     write_summary_files(summary, output_parent)
     return summary
@@ -711,6 +931,7 @@ def main() -> None:
         recursive=args.recursive,
         mode=args.mode,
         dialogue_range=args.dialogue_range,
+        stride=args.stride,
     )
 
     if not summary:
@@ -718,6 +939,10 @@ def main() -> None:
 
     print(f"Matched videos: {summary['matched_video_count']}")
     print(f"Dialogues: {summary['dialogue_count']}")
+    print(
+        f"Triplets: {summary['successful_triplet_count']} successful, "
+        f"{summary['failed_triplet_count']} failed"
+    )
     print(
         "Groups (1/2/3): "
         f"{summary['group_counts']['1']}/"

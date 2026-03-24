@@ -34,7 +34,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/api_models/gemini.py",
-            "console": "integratedTerminal",
+            "console": "integratedTerminal"
         },
         {
             "name": "main.py",
@@ -42,6 +42,51 @@
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "seamless_construct_interaction.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/dataset/seamless_construct_interaction.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--data-root",
+                "/home/zonghuan/datasets/seamless_interaction/naturalistic/train",
+                "--filelist",
+                "/home/zonghuan/tudelft/projects/seamless_interaction/assets/filelist.csv",
+                "--interactions",
+                "/home/zonghuan/tudelft/projects/seamless_interaction/assets/interactions.csv",
+                "--label",
+                "naturalistic",
+                "--batches",
+                "0", "1", "2",
+                "--out-root",
+                "/home/zonghuan/datasets/seamless_interaction/grouped_interaction",
+                "--link-mode",
+                "copy",
+                "--strict-two-person",
+                "--write-transcript-json"
+            ]
+        },
+        {
+            "name": "seamless_construct_utterance",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/dataset/seamless_construct_utterance.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--grouped-root",
+                "/home/zonghuan/datasets/seamless_interaction/grouped_interaction",
+                "--out-root",
+                "/home/zonghuan/datasets/seamless_interaction/utterance_level",
+                "--mode",
+                "transcript",
+                "--padding",
+                "0.0",
+                "--min-duration",
+                "0.05"
+            ]
         }
     ]
 }
