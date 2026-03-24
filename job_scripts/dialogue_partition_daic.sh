@@ -5,7 +5,7 @@
 #SBATCH --qos=medium         # Request Quality of Service. Default is 'short' (maximum run time: 4 hours)
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=48G
+#SBATCH --mem=32G
 #SBATCH --mail-type=END
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
@@ -17,7 +17,7 @@ SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/vlm_social.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_INPUT_PATH="mintrec2/raw"
 DEFAULT_CLIP_LENGTH="0.5"
-DEFAULT_MODE="nested"
+DEFAULT_MODE="context"
 
 usage() {
     echo "Usage:" >&2

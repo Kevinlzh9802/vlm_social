@@ -53,8 +53,8 @@ class SkippedWindow:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Partition dialogue utterances into alternating 1/2/3-utterance groups "
-            "and materialize grouped outputs."
+            "Partition dialogue utterances into aligned 3-utterance blocks and "
+            "materialize 1/2/3-utterance groups that share the same ending utterance."
         ),
     )
     parser.add_argument(
@@ -88,11 +88,10 @@ def parse_args() -> argparse.Namespace:
         "-mode",
         "--mode",
         choices=MATERIALIZATION_MODES,
-        default="nested",
+        default="context",
         help=(
-            "Output layout mode. 'nested' keeps the current structure. "
-            "'context' flattens each group folder and prepends prior utterances "
-            "to every generated clip."
+            "Output layout mode. 'context' flattens each group folder and prepends "
+            "prior utterances to every generated clip. 'nested' keeps the current structure."
         ),
     )
     return parser.parse_args()
@@ -158,16 +157,15 @@ def collect_video_records(video_folder: Path, recursive: bool) -> tuple[list[Vid
 
 def partition_dialogue(records: list[VideoRecord]) -> tuple[list[PartitionGroup], list[SkippedWindow]]:
     record_by_utterance = {record.utterance_id: record for record in records}
+    min_utterance_id = min(record_by_utterance)
     max_utterance_id = max(record_by_utterance)
-    cursor = 0
-    group_index = 0
+    cursor = min_utterance_id
 
     groups: list[PartitionGroup] = []
     skipped: list[SkippedWindow] = []
 
     while cursor <= max_utterance_id:
-        group_size = GROUP_SEQUENCE[group_index]
-        expected_ids = list(range(cursor, cursor + group_size))
+        expected_ids = list(range(cursor, cursor + 3))
         missing_ids = [
             utterance_id
             for utterance_id in expected_ids
@@ -175,30 +173,36 @@ def partition_dialogue(records: list[VideoRecord]) -> tuple[list[PartitionGroup]
         ]
 
         if not missing_ids:
-            utterance_ids = expected_ids
-            source_paths = [record_by_utterance[utterance_id].path for utterance_id in utterance_ids]
-            groups.append(
-                PartitionGroup(
-                    dialogue_id=records[0].dialogue_id,
-                    group_size=group_size,
-                    utterance_ids=utterance_ids,
-                    source_paths=source_paths,
-                    group_name=group_label(records[0].dialogue_id, utterance_ids),
-                )
+            group_definitions = (
+                expected_ids[2:],
+                expected_ids[1:],
+                expected_ids,
             )
-            group_index = (group_index + 1) % len(GROUP_SEQUENCE)
+            for utterance_ids in group_definitions:
+                source_paths = [
+                    record_by_utterance[utterance_id].path for utterance_id in utterance_ids
+                ]
+                groups.append(
+                    PartitionGroup(
+                        dialogue_id=records[0].dialogue_id,
+                        group_size=len(utterance_ids),
+                        utterance_ids=utterance_ids,
+                        source_paths=source_paths,
+                        group_name=group_label(records[0].dialogue_id, utterance_ids),
+                    )
+                )
         else:
             skipped.append(
                 SkippedWindow(
                     dialogue_id=records[0].dialogue_id,
-                    group_size=group_size,
+                    group_size=3,
                     start_utterance_id=cursor,
                     expected_utterance_ids=expected_ids,
                     missing_utterance_ids=missing_ids,
                 )
             )
 
-        cursor += group_size
+        cursor += 3
 
     return groups, skipped
 
