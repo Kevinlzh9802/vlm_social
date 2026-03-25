@@ -1,14 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name="seamless_utt"
 #SBATCH --time=12:00:00
-#SBATCH --partition=insy,general
-#SBATCH --qos=medium
+#SBATCH --partition=compute-p1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=4G
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --account=research-eemcs-insy
+#SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
+#SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
 
 set -euo pipefail
 
