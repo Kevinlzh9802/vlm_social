@@ -4,7 +4,7 @@
 #SBATCH --partition=compute-p1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=6
-#SBATCH --mem-per-cpu=4G
+#SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
 #SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
