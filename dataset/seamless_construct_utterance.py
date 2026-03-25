@@ -17,14 +17,16 @@ Input structure (from the previous grouping step):
 
 Output structure:
 <out_root>/
-  V00_S0032_I00000486/
-    dia1_utt1.mp4
-    dia1_utt1.wav
-    dia1_utt2.mp4
-    dia1_utt2.wav
-    ...
+  dialogue_info/
     dia1.json
-    interaction_index.json
+    dia2.json
+    ...
+  dia1_utt1.mp4
+  dia1_utt2.mp4
+  ...
+  dia2_utt1.mp4
+  ...
+  _utterance_split_summary.json
 
 Default behavior:
 - transcript-based segmentation
@@ -32,7 +34,9 @@ Default behavior:
 - utterances across both participants are ordered globally by start time
 - numbering dia{n}_utt{m} uses the 1-based conversation index for n and the
   conversation timeline order for m
-- per-utterance metadata is combined into one dia{n}.json file per conversation
+- each output MP4 contains both video and audio (muxed)
+- all clips are placed flat under out_root; per-dialogue metadata JSONs go
+  into out_root/dialogue_info/
 
 Requires:
 - ffmpeg installed and available on PATH
@@ -51,12 +55,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import shutil
 import subprocess
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 
 # ---------- Data structures ----------
@@ -104,6 +107,35 @@ def find_single_file(folder: Path, suffixes: Tuple[str, ...]) -> Optional[Path]:
     return matches[0]
 
 
+def _detect_h264_encoder() -> Tuple[str, List[str]]:
+    """Return (encoder_name, extra_flags) for the best available H.264 encoder."""
+    candidates = [
+        ("libx264", ["-preset", "fast", "-crf", "18"]),
+        ("libopenh264", []),
+    ]
+    for name, flags in candidates:
+        result = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True, text=True,
+        )
+        if name in result.stdout:
+            return name, flags
+    raise RuntimeError(
+        "No supported H.264 encoder found in ffmpeg "
+        "(need libx264 or libopenh264)"
+    )
+
+
+_H264_ENCODER: Optional[Tuple[str, List[str]]] = None
+
+
+def get_h264_encoder() -> Tuple[str, List[str]]:
+    global _H264_ENCODER
+    if _H264_ENCODER is None:
+        _H264_ENCODER = _detect_h264_encoder()
+    return _H264_ENCODER
+
+
 def ffprobe_duration(path: Path) -> float:
     cmd = [
         "ffprobe",
@@ -116,57 +148,56 @@ def ffprobe_duration(path: Path) -> float:
     return float(result.stdout.strip())
 
 
-def run_ffmpeg_trim(
-    src: Path,
+def run_ffmpeg_trim_av(
+    video_src: Path,
+    audio_src: Path,
     dst: Path,
     start: float,
     end: float,
     reencode: bool = True,
-    media_type: str = "video",
 ) -> None:
-    """
-    Trim media using ffmpeg.
-    For robustness and accurate cut points, default is re-encode.
+    """Trim video and audio from separate source files and mux into one MP4.
+
+    When *reencode* is True (the default), ``-ss`` is placed *after* both
+    ``-i`` inputs (output-side seek).  ffmpeg decodes every frame from the
+    start of each file so every packet has a valid PTS — no mosaic artifacts
+    and no timestamp errors.  Audio is encoded to AAC for MP4 compatibility.
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
     duration = max(0.0, end - start)
 
     if reencode:
-        if media_type == "video":
-            cmd = [
-                "ffmpeg", "-y",
-                "-ss", f"{start:.6f}",
-                "-i", str(src),
-                "-t", f"{duration:.6f}",
-                "-map", "0:v:0",
-                "-an",
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "18",
-                "-pix_fmt", "yuv420p",
-                str(dst),
-            ]
-        elif media_type == "audio":
-            cmd = [
-                "ffmpeg", "-y",
-                "-ss", f"{start:.6f}",
-                "-i", str(src),
-                "-t", f"{duration:.6f}",
-                "-map", "0:a:0",
-                "-vn",
-                "-c:a", "pcm_s16le",
-                str(dst),
-            ]
-        else:
-            raise ValueError(f"Unsupported media_type: {media_type}")
+        enc_name, enc_flags = get_h264_encoder()
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(video_src),
+            "-i", str(audio_src),
+            "-ss", f"{start:.6f}",
+            "-t", f"{duration:.6f}",
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", enc_name,
+            *enc_flags,
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            str(dst),
+        ]
     else:
-        # Faster but less accurate
+        # Stream-copy video; audio must still be encoded for MP4 container
+        # (source is PCM WAV which MP4 cannot hold as-is).
         cmd = [
             "ffmpeg", "-y",
             "-ss", f"{start:.6f}",
-            "-i", str(src),
+            "-i", str(video_src),
+            "-ss", f"{start:.6f}",
+            "-i", str(audio_src),
             "-t", f"{duration:.6f}",
-            "-c", "copy",
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "128k",
             str(dst),
         ]
 
@@ -323,6 +354,62 @@ def assign_global_order(utterances: List[Utterance]) -> List[Utterance]:
     return utterances_sorted
 
 
+def merge_contiguous_utterances(utterances: List[Utterance]) -> List[Utterance]:
+    """Merge consecutive utterances from the same speaker into one.
+
+    The input list must already be sorted in global timeline order (i.e. the
+    output of ``assign_global_order``).  Two utterances are considered
+    *contiguous* when they are adjacent in the sorted list **and** belong to
+    the same ``speaker_role`` (which also implies the same source files).
+
+    Merged utterances take the earliest ``start``, latest ``end``,
+    concatenated ``transcript`` (space-separated), and combined ``words``
+    lists.  ``local_index`` is set to the first constituent's value and
+    ``global_index`` is reassigned afterwards.
+    """
+    if not utterances:
+        return []
+
+    merged: List[Utterance] = []
+    current = utterances[0]
+
+    for nxt in utterances[1:]:
+        if nxt.speaker_role == current.speaker_role:
+            # Merge nxt into current.
+            new_end = max(current.end, nxt.end)
+            new_start = min(current.start, nxt.start)
+            combined_transcript = " ".join(
+                t for t in (current.transcript, nxt.transcript) if t
+            )
+            combined_words = current.words + nxt.words
+            current = Utterance(
+                interaction_id=current.interaction_id,
+                speaker_role=current.speaker_role,
+                speaker_file_id=current.speaker_file_id,
+                local_index=current.local_index,
+                global_index=-1,
+                start=new_start,
+                end=new_end,
+                duration=new_end - new_start,
+                transcript=combined_transcript,
+                words=combined_words,
+                source_video=current.source_video,
+                source_audio=current.source_audio,
+                source_json=current.source_json,
+            )
+        else:
+            merged.append(current)
+            current = nxt
+
+    merged.append(current)
+
+    # Reassign global indices.
+    for idx, utt in enumerate(merged, start=1):
+        utt.global_index = idx
+
+    return merged
+
+
 # ---------- Per-interaction processing ----------
 
 def process_interaction(
@@ -334,10 +421,11 @@ def process_interaction(
     min_duration: float,
     reencode: bool,
     overwrite: bool,
+    merge_contiguous: bool = True,
 ) -> dict:
     interaction_id = interaction_dir.name
-    out_dir = out_root / interaction_id
-    out_dir.mkdir(parents=True, exist_ok=True)
+    dialogue_info_dir = out_root / "dialogue_info"
+    dialogue_info_dir.mkdir(parents=True, exist_ok=True)
 
     participants = []
     for role in ("p1", "p2"):
@@ -349,7 +437,6 @@ def process_interaction(
         audio_path = find_single_file(person_dir, (".wav",))
         json_path = None
 
-        # Prefer original sample json over derived transcript/vad json
         candidate_jsons = [
             p for p in person_dir.glob("*.json")
             if p.name not in {"transcript.json", "vad.json"}
@@ -419,6 +506,12 @@ def process_interaction(
 
     all_utts = assign_global_order(all_utts)
 
+    if merge_contiguous:
+        pre_merge_count = len(all_utts)
+        all_utts = merge_contiguous_utterances(all_utts)
+    else:
+        pre_merge_count = len(all_utts)
+
     # Cache media durations
     durations = {}
     for p in participants:
@@ -426,22 +519,19 @@ def process_interaction(
         durations[str(p["audio"])] = ffprobe_duration(p["audio"])
 
     utterance_index = []
-    dialogue_json_out = out_dir / build_dialogue_json_name(dialogue_id)
+    dialogue_json_out = dialogue_info_dir / build_dialogue_json_name(dialogue_id)
 
     for utt in all_utts:
         tag = build_utterance_tag(dialogue_id, utt.global_index)
-        video_out = out_dir / f"{tag}.mp4"
-        audio_out = out_dir / f"{tag}.wav"
+        clip_out = out_root / f"{tag}.mp4"
 
-        if (video_out.exists() or audio_out.exists()) and not overwrite:
+        if clip_out.exists() and not overwrite:
             utterance_index.append(
                 {
                     "tag": tag,
                     "dialogue_id": dialogue_id,
                     **asdict(utt),
-                    "video_out": str(video_out),
-                    "audio_out": str(audio_out),
-                    "dialogue_json_out": str(dialogue_json_out),
+                    "clip_out": str(clip_out),
                     "status": "exists_skipped",
                 }
             )
@@ -452,25 +542,17 @@ def process_interaction(
 
         video_max = durations[utt.source_video]
         audio_max = durations[utt.source_audio]
+        clip_max = min(video_max, audio_max)
 
-        vstart, vend = clamp_interval(padded_start, padded_end, video_max)
-        astart, aend = clamp_interval(padded_start, padded_end, audio_max)
+        clip_start, clip_end = clamp_interval(padded_start, padded_end, clip_max)
 
-        run_ffmpeg_trim(
-            src=Path(utt.source_video),
-            dst=video_out,
-            start=vstart,
-            end=vend,
+        run_ffmpeg_trim_av(
+            video_src=Path(utt.source_video),
+            audio_src=Path(utt.source_audio),
+            dst=clip_out,
+            start=clip_start,
+            end=clip_end,
             reencode=reencode,
-            media_type="video",
-        )
-        run_ffmpeg_trim(
-            src=Path(utt.source_audio),
-            dst=audio_out,
-            start=astart,
-            end=aend,
-            reencode=reencode,
-            media_type="audio",
         )
 
         utterance_index.append(
@@ -478,13 +560,9 @@ def process_interaction(
                 "tag": tag,
                 "dialogue_id": dialogue_id,
                 **asdict(utt),
-                "video_clip_start": vstart,
-                "video_clip_end": vend,
-                "audio_clip_start": astart,
-                "audio_clip_end": aend,
-                "video_out": str(video_out),
-                "audio_out": str(audio_out),
-                "dialogue_json_out": str(dialogue_json_out),
+                "clip_start": clip_start,
+                "clip_end": clip_end,
+                "clip_out": str(clip_out),
                 "status": "written",
             }
         )
@@ -497,28 +575,21 @@ def process_interaction(
             "mode": mode,
             "padding": padding,
             "min_duration": min_duration,
+            "merge_contiguous": merge_contiguous,
+            "num_utterances_pre_merge": pre_merge_count,
+            "num_utterances_total": len(all_utts),
+            "participants": participant_summaries,
             "utterances": utterance_index,
         },
     )
-
-    interaction_index = {
-        "interaction_id": interaction_id,
-        "dialogue_id": dialogue_id,
-        "dialogue_json": str(dialogue_json_out),
-        "mode": mode,
-        "padding": padding,
-        "min_duration": min_duration,
-        "participants": participant_summaries,
-        "num_utterances_total": len(all_utts),
-        "utterances": utterance_index,
-    }
-    write_json(out_dir / "interaction_index.json", interaction_index)
 
     return {
         "interaction_id": interaction_id,
         "dialogue_id": dialogue_id,
         "dialogue_json": str(dialogue_json_out),
         "status": "ok",
+        "merge_contiguous": merge_contiguous,
+        "utterances_pre_merge": pre_merge_count,
         "utterances_written": sum(1 for x in utterance_index if x["status"] == "written"),
         "utterances_total": len(all_utts),
     }
@@ -550,9 +621,14 @@ def main() -> None:
         help="Skip utterances shorter than this duration in seconds",
     )
     parser.add_argument(
-        "--reencode",
+        "--no-reencode",
         action="store_true",
-        help="Re-encode clips for more accurate cutting",
+        default=False,
+        help=(
+            "Use stream-copy instead of re-encoding. Much faster but cuts "
+            "can only land on keyframes, which typically causes mosaic "
+            "artifacts at the start of each clip."
+        ),
     )
     parser.add_argument(
         "--overwrite",
@@ -564,6 +640,16 @@ def main() -> None:
         type=str,
         default="V*_S*_I*",
         help="Glob pattern for interaction folders under grouped-root",
+    )
+    parser.add_argument(
+        "--no-merge-contiguous",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable merging of contiguous utterances from the same speaker. "
+            "By default consecutive same-speaker segments are merged into one "
+            "utterance."
+        ),
     )
     args = parser.parse_args()
 
@@ -584,7 +670,8 @@ def main() -> None:
         "mode": args.mode,
         "padding": args.padding,
         "min_duration": args.min_duration,
-        "reencode": args.reencode,
+        "reencode": not args.no_reencode,
+        "merge_contiguous": not args.no_merge_contiguous,
         "num_interactions_seen": len(interaction_dirs),
         "results": [],
     }
@@ -599,8 +686,9 @@ def main() -> None:
                 mode=args.mode,
                 padding=args.padding,
                 min_duration=args.min_duration,
-                reencode=args.reencode,
+                reencode=not args.no_reencode,
                 overwrite=args.overwrite,
+                merge_contiguous=not args.no_merge_contiguous,
             )
         except Exception as e:
             result = {
