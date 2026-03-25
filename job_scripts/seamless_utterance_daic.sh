@@ -7,7 +7,6 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=24G
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
 
