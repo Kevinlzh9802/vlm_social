@@ -85,7 +85,24 @@
                 "--padding",
                 "0.0",
                 "--min-duration",
-                "0.05"
+                "0.05",
+                "--filter-json",
+                "/home/zonghuan/datasets/seamless_interaction/overlap_analysis/filtered_interactions.json"
+            ]
+        },
+        {
+            "name": "overlap_check",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/dataset/overlap_check.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--grouped-root",
+                "/home/zonghuan/datasets/seamless_interaction/grouped_interaction",
+                "--out-dir",
+                "/home/zonghuan/datasets/seamless_interaction/overlap_analysis",
+                "--flag-threshold",
+                "4.0"
             ]
         }
     ]

@@ -419,6 +419,7 @@ def process_interaction(
     mode: str,
     padding: float,
     min_duration: float,
+    min_clip_duration: float,
     reencode: bool,
     overwrite: bool,
     merge_contiguous: bool = True,
@@ -546,6 +547,21 @@ def process_interaction(
 
         clip_start, clip_end = clamp_interval(padded_start, padded_end, clip_max)
 
+        if clip_end - clip_start < min_clip_duration:
+            utterance_index.append(
+                {
+                    "tag": tag,
+                    "dialogue_id": dialogue_id,
+                    **asdict(utt),
+                    "clip_start": clip_start,
+                    "clip_end": clip_end,
+                    "clip_duration": round(clip_end - clip_start, 6),
+                    "clip_out": None,
+                    "status": "too_short",
+                }
+            )
+            continue
+
         run_ffmpeg_trim_av(
             video_src=Path(utt.source_video),
             audio_src=Path(utt.source_audio),
@@ -591,6 +607,7 @@ def process_interaction(
         "merge_contiguous": merge_contiguous,
         "utterances_pre_merge": pre_merge_count,
         "utterances_written": sum(1 for x in utterance_index if x["status"] == "written"),
+        "utterances_too_short": sum(1 for x in utterance_index if x["status"] == "too_short"),
         "utterances_total": len(all_utts),
     }
 
@@ -619,6 +636,16 @@ def main() -> None:
         type=float,
         default=0.05,
         help="Skip utterances shorter than this duration in seconds",
+    )
+    parser.add_argument(
+        "--min-clip-duration",
+        type=float,
+        default=1.5,
+        help=(
+            "Skip utterances whose clip duration (after padding+clamping) is "
+            "shorter than this many seconds. Utterance numbering stays the "
+            "same (gaps are allowed). Default 1.5."
+        ),
     )
     parser.add_argument(
         "--no-reencode",
@@ -651,6 +678,16 @@ def main() -> None:
             "utterance."
         ),
     )
+    parser.add_argument(
+        "--filter-json",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a filtered_interactions.json produced by overlap_check.py. "
+            "Only interactions listed in its 'interaction_ids' array will be "
+            "processed; all others are skipped."
+        ),
+    )
     args = parser.parse_args()
 
     if shutil.which("ffmpeg") is None:
@@ -664,14 +701,27 @@ def main() -> None:
         [p for p in args.grouped_root.glob(args.interaction_glob) if p.is_dir()]
     )
 
+    # Optional whitelist from overlap_check.py
+    whitelist = None
+    if args.filter_json is not None:
+        with args.filter_json.open("r", encoding="utf-8") as f:
+            filter_data = json.load(f)
+        whitelist = set(filter_data["interaction_ids"])
+        print(f"Filter loaded: {len(whitelist)} interactions whitelisted "
+              f"from {args.filter_json}")
+        interaction_dirs = [d for d in interaction_dirs if d.name in whitelist]
+        print(f"After filtering: {len(interaction_dirs)} interactions to process.")
+
     summary = {
         "grouped_root": str(args.grouped_root),
         "out_root": str(args.out_root),
         "mode": args.mode,
         "padding": args.padding,
         "min_duration": args.min_duration,
+        "min_clip_duration": args.min_clip_duration,
         "reencode": not args.no_reencode,
         "merge_contiguous": not args.no_merge_contiguous,
+        "filter_json": str(args.filter_json) if args.filter_json else None,
         "num_interactions_seen": len(interaction_dirs),
         "results": [],
     }
@@ -686,6 +736,7 @@ def main() -> None:
                 mode=args.mode,
                 padding=args.padding,
                 min_duration=args.min_duration,
+                min_clip_duration=args.min_clip_duration,
                 reencode=not args.no_reencode,
                 overwrite=args.overwrite,
                 merge_contiguous=not args.no_merge_contiguous,
