@@ -13,7 +13,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="/home/zli33/projects/vlm_social"
-SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/vlm_social.sif"
+SIF_PATH="/scratch/zli33/apptainers/vlm_social.sif"
 GROUPED_ROOT="/scratch/zli33/data/gestalt_bench/seamless_interaction/grouped_interaction"
 OUT_ROOT="/scratch/zli33/data/gestalt_bench/seamless_interaction/utterance_level"
 
