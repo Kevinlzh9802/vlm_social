@@ -8,8 +8,6 @@ def _build_ffmpeg_clip_command(
     start_sec,
     duration_sec,
     output_clip_path,
-    output_wav_path,
-    save_separate_audio,
     video_include_audio,
     video_codec,
 ):
@@ -20,24 +18,7 @@ def _build_ffmpeg_clip_command(
         "-t", str(duration_sec),
     ]
 
-    if save_separate_audio:
-        if video_include_audio:
-            ffmpeg_cmd += [
-                "-map", "0:v",
-                "-map", "0:a?",
-                "-c:v", video_codec,
-                "-c:a", "aac",
-                "-shortest",
-                output_clip_path,
-            ]
-        else:
-            ffmpeg_cmd += [
-                "-map", "0:v",
-                "-c:v", video_codec,
-                output_clip_path,
-            ]
-        ffmpeg_cmd += ["-map", "0:a?", "-c:a", "pcm_s16le", output_wav_path]
-    else:
+    if video_include_audio:
         ffmpeg_cmd += [
             "-map", "0:v",
             "-map", "0:a?",
@@ -46,8 +27,31 @@ def _build_ffmpeg_clip_command(
             "-shortest",
             output_clip_path,
         ]
+    else:
+        ffmpeg_cmd += [
+            "-map", "0:v",
+            "-c:v", video_codec,
+            output_clip_path,
+        ]
 
     return ffmpeg_cmd
+
+
+def _build_ffmpeg_wav_command(
+    video_path,
+    start_sec,
+    duration_sec,
+    output_wav_path,
+):
+    return [
+        "ffmpeg", "-y",
+        "-ss", str(start_sec),
+        "-t", str(duration_sec),
+        "-i", video_path,
+        "-map", "0:a?",
+        "-c:a", "pcm_s16le",
+        output_wav_path,
+    ]
 
 def save_last_frame(video_folder, output_folder):
     # Create the output folder if it doesn't exist
@@ -145,8 +149,6 @@ def cut_video_into_clips(
                 start_sec=start_sec,
                 duration_sec=duration_sec,
                 output_clip_path=output_clip_path,
-                output_wav_path=output_wav_path,
-                save_separate_audio=save_separate_audio,
                 video_include_audio=video_include_audio,
                 video_codec=video_codec,
             )
@@ -161,8 +163,25 @@ def cut_video_into_clips(
             print(f"Clip {i + 1} failed for {video_path}")
         else:
             print(f"Clip {i + 1} saved as {output_clip_path}")
-            if save_separate_audio and os.path.exists(output_wav_path):
-                print(f"  Audio saved as {output_wav_path}")
+            if save_separate_audio:
+                audio_ret = subprocess.run(
+                    _build_ffmpeg_wav_command(
+                        video_path=video_path,
+                        start_sec=start_sec,
+                        duration_sec=duration_sec,
+                        output_wav_path=output_wav_path,
+                    ),
+                    capture_output=True,
+                    text=True,
+                )
+                if audio_ret.returncode != 0:
+                    print(
+                        "  audio ffmpeg stderr: "
+                        f"{audio_ret.stderr[-500:] if audio_ret.stderr else 'none'}"
+                    )
+                    print(f"  Audio extraction failed for clip {i + 1} of {video_path}")
+                elif os.path.exists(output_wav_path):
+                    print(f"  Audio saved as {output_wav_path}")
 
 def cut_videos_in_folder(
     video_folder,
