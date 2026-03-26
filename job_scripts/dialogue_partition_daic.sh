@@ -22,11 +22,12 @@ DEFAULT_MODE="context"
 usage() {
     echo "Usage:" >&2
     echo "  sbatch $0 [input_path] [dialogue_range] [clip_length] [mode]" >&2
-    echo "  sbatch $0 [--input-path PATH] [--dialogue-range N] [--clip-length SEC] [--mode nested|context]" >&2
+    echo "  sbatch $0 [--input-path PATH] [--dialogue-range N] [--clip-length SEC] [--mode nested|context] [--overwrite-1utt]" >&2
     echo "  input_path: 2-level path under ${DEFAULT_DATA_ROOT}, e.g. mintrec2/raw" >&2
     echo "  dialogue_range: 1-based hundred-range index, e.g. 1 → [0,100), 4 → [300,400). Empty for all." >&2
     echo "  clip_length: clip length in seconds for cumulative clips of the last utterance" >&2
     echo "  mode: nested (current layout) or context (prepend prior utterances to every clip)" >&2
+    echo "  --overwrite-1utt: overwrite existing 1-utt outputs while reusing existing 2/3-utt outputs" >&2
     echo "  output is <data_root>/<dataset>/dialogue_partition/<subfolder>" >&2
 }
 
@@ -34,6 +35,7 @@ INPUT_PATH="${DEFAULT_INPUT_PATH}"
 DIALOGUE_RANGE=""
 CLIP_LENGTH="${DEFAULT_CLIP_LENGTH}"
 MODE="${DEFAULT_MODE}"
+OVERWRITE_1UTT=0
 POSITIONAL_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -53,6 +55,10 @@ while [[ $# -gt 0 ]]; do
         --mode)
             MODE="${2:?Missing value for --mode}"
             shift 2
+            ;;
+        --overwrite-1utt)
+            OVERWRITE_1UTT=1
+            shift
             ;;
         -h|--help)
             usage
@@ -141,15 +147,27 @@ echo "Output dir: ${OUTPUT_DIR}"
 echo "Clip length: ${CLIP_LENGTH}"
 echo "Dialogue range: ${DIALOGUE_RANGE:-all}"
 echo "Mode: ${MODE}"
+echo "Overwrite 1-utt groups: ${OVERWRITE_1UTT}"
+
+PYTHON_ARGS=(
+    python /workspace/dataset/dialogue_partition.py
+    "${INPUT_DIR}"
+    "${OUTPUT_DIR}"
+    --clip-length "${CLIP_LENGTH}"
+    --mode "${MODE}"
+    --recursive
+)
+
+if [[ -n "${DIALOGUE_RANGE}" ]]; then
+    PYTHON_ARGS+=(--dialogue-range "${DIALOGUE_RANGE}")
+fi
+
+if [[ "${OVERWRITE_1UTT}" == "1" ]]; then
+    PYTHON_ARGS+=(--overwrite-1utt)
+fi
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
     --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
     "${SIF_PATH}" \
-    python /workspace/dataset/dialogue_partition.py \
-    "${INPUT_DIR}" \
-    "${OUTPUT_DIR}" \
-    --clip-length "${CLIP_LENGTH}" \
-    --mode "${MODE}" \
-    --recursive \
-    ${DIALOGUE_RANGE:+--dialogue-range "${DIALOGUE_RANGE}"}
+    "${PYTHON_ARGS[@]}"

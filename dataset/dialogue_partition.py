@@ -123,6 +123,14 @@ def parse_args() -> argparse.Namespace:
             "(default) → skip 2 utterances between windows."
         ),
     )
+    parser.add_argument(
+        "--overwrite-1utt",
+        action="store_true",
+        help=(
+            "Regenerate 1-utterance groups even when their output folders already exist. "
+            "2-utterance and 3-utterance groups still reuse existing outputs."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -416,6 +424,7 @@ def materialize_group_nested(
     group: PartitionGroup,
     output_parent: Path,
     clip_length: float,
+    overwrite_existing: bool = False,
 ) -> dict[str, object] | None:
     group_root = output_parent / GROUP_FOLDER_NAMES[group.group_size] / group.group_name
 
@@ -424,7 +433,9 @@ def materialize_group_nested(
     clip_folder = group_root / final_label
 
     if clip_folder.exists() and any(clip_folder.glob(f"{final_label}_clip*.mp4")):
-        return None
+        if not overwrite_existing:
+            return None
+        shutil.rmtree(group_root)
 
     group_root.mkdir(parents=True, exist_ok=True)
 
@@ -464,12 +475,15 @@ def materialize_group_context(
     group: PartitionGroup,
     output_parent: Path,
     clip_length: float,
+    overwrite_existing: bool = False,
 ) -> dict[str, object] | None:
     group_root = output_parent / GROUP_FOLDER_NAMES[group.group_size] / group.group_name
     clip_prefix = group.group_name
 
     if group_root.exists() and any(group_root.glob(f"{clip_prefix}_clip*.mp4")):
-        return None
+        if not overwrite_existing:
+            return None
+        shutil.rmtree(group_root)
 
     group_root.mkdir(parents=True, exist_ok=True)
 
@@ -517,11 +531,12 @@ def materialize_group(
     output_parent: Path,
     clip_length: float,
     mode: str,
+    overwrite_existing: bool = False,
 ) -> dict[str, object] | None:
     if mode == "nested":
-        return materialize_group_nested(group, output_parent, clip_length)
+        return materialize_group_nested(group, output_parent, clip_length, overwrite_existing)
     if mode == "context":
-        return materialize_group_context(group, output_parent, clip_length)
+        return materialize_group_context(group, output_parent, clip_length, overwrite_existing)
     raise ValueError(f"Unsupported mode: {mode}")
 
 
@@ -582,6 +597,7 @@ def materialize_triplet(
     output_parent: Path,
     clip_length: float,
     mode: str,
+    overwrite_1utt: bool = False,
 ) -> tuple[list[dict[str, object]], FailedTriplet | None]:
     """Materialize all groups in a triplet atomically.
 
@@ -593,10 +609,22 @@ def materialize_triplet(
     ``([], FailedTriplet)`` on failure.
     """
     results: list[dict[str, object]] = []
+    touched_groups: list[PartitionGroup] = []
+    ordered_groups = sorted(
+        triplet.groups,
+        key=lambda group: (overwrite_1utt and group.group_size == 1, group.group_size),
+    )
 
-    for group in triplet.groups:
+    for group in ordered_groups:
         try:
-            result = materialize_group(group, output_parent, clip_length, mode)
+            overwrite_existing = overwrite_1utt and group.group_size == 1
+            result = materialize_group(
+                group,
+                output_parent,
+                clip_length,
+                mode,
+                overwrite_existing=overwrite_existing,
+            )
             if result is None:
                 # Already existed from a prior run – still need to validate.
                 folder = _output_folder_for_group(group, output_parent, mode)
@@ -614,11 +642,15 @@ def materialize_triplet(
                     "clip_wav_count": len(wav_clips),
                     "reused": True,
                 }
+            else:
+                if overwrite_existing:
+                    result["overwritten"] = True
+                touched_groups.append(group)
             validate_materialized_group(result)
             results.append(result)
         except Exception as exc:
-            # Roll back every group folder in this triplet.
-            for rollback_group in triplet.groups:
+            # Roll back only folders created or overwritten in this run.
+            for rollback_group in touched_groups:
                 _cleanup_group_folder(rollback_group, output_parent, mode)
 
             return [], FailedTriplet(
@@ -628,6 +660,7 @@ def materialize_triplet(
                 error=str(exc),
             )
 
+    results.sort(key=lambda result: result["group_size"])
     return results, None
 
 
@@ -853,6 +886,7 @@ def analyze_and_partition(
     mode: str,
     dialogue_range: int | None = None,
     stride: int = 2,
+    overwrite_1utt: bool = False,
 ) -> dict[str, object]:
     if not video_folder.exists():
         raise FileNotFoundError(f"Input folder does not exist: {video_folder}")
@@ -894,7 +928,13 @@ def analyze_and_partition(
     successful_triplets: list[GroupTriplet] = []
 
     for triplet in all_triplets:
-        results, failure = materialize_triplet(triplet, output_parent, clip_length, mode)
+        results, failure = materialize_triplet(
+            triplet,
+            output_parent,
+            clip_length,
+            mode,
+            overwrite_1utt=overwrite_1utt,
+        )
         if failure is not None:
             failed_triplets.append(failure)
             print(
@@ -932,6 +972,7 @@ def main() -> None:
         mode=args.mode,
         dialogue_range=args.dialogue_range,
         stride=args.stride,
+        overwrite_1utt=args.overwrite_1utt,
     )
 
     if not summary:
