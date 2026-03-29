@@ -124,6 +124,11 @@ if [[ ! -f "${SIF_PATH}" ]]; then
     exit 1
 fi
 
+_retries=5
+until [[ -d "${INPUT_DIR}" ]] || (( --_retries == 0 )); do
+    echo "Waiting for input directory to become accessible: ${INPUT_DIR}" >&2
+    sleep 5
+done
 if [[ ! -d "${INPUT_DIR}" ]]; then
     usage
     echo "Input directory does not exist: ${INPUT_DIR}" >&2
