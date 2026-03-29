@@ -14,7 +14,7 @@ set -euo pipefail
 
 PROJECT_ROOT="/home/zli33/projects/vlm_social"
 SIF_PATH="/scratch/zli33/apptainers/vlm_social.sif"
-DEFAULT_DATA_ROOT="/scratch/zli33/data/gestalt_bench/gestalt_bench"
+DEFAULT_DATA_ROOT="/scratch/zli33/data/gestalt_bench"
 DEFAULT_INPUT_PATH="mintrec2/raw"
 DEFAULT_CLIP_LENGTH="0.5"
 DEFAULT_MODE="context"
@@ -28,7 +28,7 @@ usage() {
     echo "  clip_length: clip length in seconds for cumulative clips of the last utterance" >&2
     echo "  mode: nested (current layout) or context (prepend prior utterances to every clip)" >&2
     echo "  --overwrite-1utt: overwrite existing 1-utt outputs while reusing existing 2/3-utt outputs" >&2
-    echo "  output is <data_root>/<dataset>/dialogue_partition/<subfolder>" >&2
+    echo "  output is <data_root>/<dataset>/<mode>/<subfolder>" >&2
 }
 
 INPUT_PATH="${DEFAULT_INPUT_PATH}"
@@ -104,19 +104,13 @@ SUBFOLDER="${INPUT_PATH#*/}"
 
 INPUT_DIR="${DEFAULT_DATA_ROOT}/${INPUT_PATH}"
 
-case "${MODE}" in
-    nested)
-        OUTPUT_DIR="${DEFAULT_DATA_ROOT}/${DATASET}/dialogue_partition/${SUBFOLDER}"
-        ;;
-    context)
-        OUTPUT_DIR="${DEFAULT_DATA_ROOT}/${DATASET}/dialogue_partition_cont/${SUBFOLDER}"
-        ;;
-    *)
-        usage
-        echo "Invalid mode: ${MODE} (must be 'nested' or 'context')" >&2
-        exit 1
-        ;;
-esac
+if [[ "${MODE}" != "nested" && "${MODE}" != "context" ]]; then
+    usage
+    echo "Invalid mode: ${MODE} (must be 'nested' or 'context')" >&2
+    exit 1
+fi
+
+OUTPUT_DIR="${DEFAULT_DATA_ROOT}/${DATASET}/${MODE}/${SUBFOLDER}"
 
 if [[ -z "${INPUT_PATH}" || "${INPUT_PATH}" == "." || "${DATASET}" == "${SUBFOLDER}" ]]; then
     usage
