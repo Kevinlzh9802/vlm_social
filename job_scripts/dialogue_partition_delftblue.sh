@@ -101,7 +101,6 @@ fi
 # Split input_path into dataset and subfolder: mintrec2/raw -> dataset=mintrec2, subfolder=raw
 DATASET="${INPUT_PATH%%/*}"
 SUBFOLDER="${INPUT_PATH#*/}"
-
 INPUT_DIR="${DEFAULT_DATA_ROOT}/${INPUT_PATH}"
 
 if [[ "${MODE}" != "nested" && "${MODE}" != "context" ]]; then
