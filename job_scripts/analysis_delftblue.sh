@@ -16,16 +16,23 @@ PROJECT_ROOT="/home/zli33/projects/vlm_social"
 SIF_PATH="/scratch/zli33/apptainers/analysis.sif"
 DEFAULT_RESULTS_ROOT="/scratch/zli33/data/gestalt_bench/results/qwen2.5"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
+DEFAULT_MODEL_PATH="/scratch/zli33/models/all-MiniLM-L6-v2"
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--model MODEL_NAME]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--model MODEL_NAME] [--model-path PATH]" >&2
     echo "  results-root: path to results/qwen2.5 (default: ${DEFAULT_RESULTS_ROOT})" >&2
-    echo "  model: SentenceTransformer model name (default: ${DEFAULT_MODEL})" >&2
+    echo "  model: SentenceTransformer model name, used only for download (default: ${DEFAULT_MODEL})" >&2
+    echo "  model-path: local directory with pre-downloaded model (default: ${DEFAULT_MODEL_PATH})" >&2
+    echo "" >&2
+    echo "Pre-download the model on a login node before submitting:" >&2
+    echo "  apptainer exec --bind /scratch/zli33:/scratch/zli33 ${SIF_PATH} \\" >&2
+    echo "    python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('${DEFAULT_MODEL}').save('${DEFAULT_MODEL_PATH}')\"" >&2
 }
 
 RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
 MODEL="${DEFAULT_MODEL}"
+MODEL_PATH="${DEFAULT_MODEL_PATH}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -35,6 +42,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --model)
             MODEL="${2:?Missing value for --model}"
+            shift 2
+            ;;
+        --model-path)
+            MODEL_PATH="${2:?Missing value for --model-path}"
             shift 2
             ;;
         -h|--help)
@@ -65,17 +76,26 @@ if [[ ! -d "${RESULTS_ROOT}" ]]; then
     exit 1
 fi
 
+if [[ ! -d "${MODEL_PATH}" ]]; then
+    echo "Pre-downloaded model not found: ${MODEL_PATH}" >&2
+    echo "Download it on a login node first (network is unavailable on compute nodes):" >&2
+    echo "  apptainer exec --bind /scratch/zli33:/scratch/zli33 ${SIF_PATH} \\" >&2
+    echo "    python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('${MODEL}').save('${MODEL_PATH}')\"" >&2
+    exit 1
+fi
+
 mkdir -p "$(dirname "${RESULTS_ROOT}")"
 
-echo "Project root:  ${PROJECT_ROOT}"
+echo "Project root:    ${PROJECT_ROOT}"
 echo "Apptainer image: ${SIF_PATH}"
-echo "Results root:  ${RESULTS_ROOT}"
-echo "Embedding model: ${MODEL}"
+echo "Results root:    ${RESULTS_ROOT}"
+echo "Model name:      ${MODEL}"
+echo "Model path:      ${MODEL_PATH}"
 
 PYTHON_ARGS=(
     python /workspace/experiments/analysis/main.py
     --results-root "${RESULTS_ROOT}"
-    --model "${MODEL}"
+    --model-path "${MODEL_PATH}"
 )
 
 srun apptainer exec \

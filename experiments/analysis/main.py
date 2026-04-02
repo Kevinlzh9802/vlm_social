@@ -36,7 +36,17 @@ def parse_args() -> argparse.Namespace:
         "--model",
         type=str,
         default="all-MiniLM-L6-v2",
-        help="SentenceTransformer model used to embed clip texts.",
+        help="SentenceTransformer model name (used when --model-path is not set).",
+    )
+    parser.add_argument(
+        "--model-path",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a local directory containing a pre-downloaded "
+            "SentenceTransformer model. When set, --model is ignored and the "
+            "model is loaded offline from this path (no network required)."
+        ),
     )
     return parser.parse_args()
 
@@ -232,8 +242,13 @@ def main() -> None:
     args = parse_args()
     results_root = resolve_results_root(args.results_root)
 
-    print(f"[INFO] Loading embedding model: {args.model}")
-    model = SentenceTransformer(args.model)
+    if args.model_path is not None:
+        model_loc = str(args.model_path.expanduser().resolve())
+        print(f"[INFO] Loading embedding model from local path: {model_loc}")
+    else:
+        model_loc = args.model
+        print(f"[INFO] Loading embedding model by name: {model_loc}")
+    model = SentenceTransformer(model_loc)
 
     for dataset_name in DATASET_NAMES:
         dataset_root = results_root / dataset_name
