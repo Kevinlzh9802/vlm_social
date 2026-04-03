@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="zip_3utt_ctx"
-#SBATCH --time=02:00:00
+#SBATCH --time=10:00:00
 #SBATCH --partition=compute-p1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
