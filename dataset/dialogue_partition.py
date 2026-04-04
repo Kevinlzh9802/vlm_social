@@ -68,6 +68,34 @@ class FailedTriplet:
     error: str
 
 
+def parse_utt_group_selection(raw_value: str | None) -> tuple[int, ...]:
+    if raw_value is None or not raw_value.strip():
+        return GROUP_SEQUENCE
+
+    parsed_values: list[int] = []
+    for chunk in raw_value.split(","):
+        token = chunk.strip()
+        if not token:
+            continue
+        try:
+            group_size = int(token)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid --utt value '{raw_value}'. Expected a comma-separated list like '1,2' or '3'."
+            ) from exc
+        if group_size not in GROUP_SEQUENCE:
+            raise ValueError(
+                f"Invalid utterance group size {group_size}. Allowed values are 1, 2, 3."
+            )
+        if group_size not in parsed_values:
+            parsed_values.append(group_size)
+
+    if not parsed_values:
+        raise ValueError("--utt must specify at least one of 1,2,3.")
+
+    return tuple(sorted(parsed_values))
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -129,6 +157,25 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Regenerate 1-utterance groups even when their output folders already exist. "
             "2-utterance and 3-utterance groups still reuse existing outputs."
+        ),
+    )
+    parser.add_argument(
+        "--cut",
+        type=int,
+        default=None,
+        help=(
+            "Optional maximum length in seconds for the last utterance before clipping. "
+            "If the last utterance is longer than this value, trim it to the first "
+            "N seconds before generating cumulative clips."
+        ),
+    )
+    parser.add_argument(
+        "--utt",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated utterance-group sizes to materialize from each 3-utterance "
+            "window, e.g. '1,2', '3', or '1,2,3' (default: all)."
         ),
     )
     return parser.parse_args()
@@ -349,6 +396,44 @@ def concatenate_group_video(source_paths: list[str], output_path: Path) -> None:
         concat_list_path.unlink(missing_ok=True)
 
 
+def maybe_cut_target_video(
+    source_path: str,
+    cut_seconds: int | None,
+    temp_dir: Path,
+    output_stem: str,
+) -> str:
+    if cut_seconds is None:
+        return source_path
+
+    _, _, duration_seconds = get_video_properties(source_path)
+    if duration_seconds <= cut_seconds:
+        return source_path
+
+    output_path = temp_dir / f"{output_stem}_cut{cut_seconds}s.mp4"
+    run_ffmpeg_with_video_codec_fallback(
+        lambda video_codec: [
+            "ffmpeg",
+            "-y",
+            "-t",
+            str(cut_seconds),
+            "-i",
+            str(source_path),
+            "-map",
+            "0:v",
+            "-map",
+            "0:a?",
+            "-c:v",
+            video_codec,
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(output_path),
+        ],
+        context=f"Cutting target video for {output_stem}",
+    )
+    return str(output_path)
+
+
 def cut_contextual_cumulative_clips(
     video_path: Path,
     final_source_path: str,
@@ -424,6 +509,7 @@ def materialize_group_nested(
     group: PartitionGroup,
     output_parent: Path,
     clip_length: float,
+    cut: int | None = None,
     overwrite_existing: bool = False,
 ) -> dict[str, object] | None:
     group_root = output_parent / GROUP_FOLDER_NAMES[group.group_size] / group.group_name
@@ -448,14 +534,21 @@ def materialize_group_nested(
 
     clip_folder.mkdir(parents=True, exist_ok=True)
 
-    cut_video_into_clips(
-        group.source_paths[-1],
-        str(clip_folder),
-        clip_length=clip_length,
-        cumulative=True,
-        save_separate_audio=True,
-        video_include_audio=False,
-    )
+    with tempfile.TemporaryDirectory(prefix=f"{group.group_name}_") as tmpdir:
+        target_source_path = maybe_cut_target_video(
+            source_path=group.source_paths[-1],
+            cut_seconds=cut,
+            temp_dir=Path(tmpdir),
+            output_stem=final_label,
+        )
+        cut_video_into_clips(
+            target_source_path,
+            str(clip_folder),
+            clip_length=clip_length,
+            cumulative=True,
+            save_separate_audio=True,
+            video_include_audio=False,
+        )
     clip_counts = rename_generated_clips(clip_folder, final_label)
 
     return {
@@ -475,6 +568,7 @@ def materialize_group_context(
     group: PartitionGroup,
     output_parent: Path,
     clip_length: float,
+    cut: int | None = None,
     overwrite_existing: bool = False,
 ) -> dict[str, object] | None:
     group_root = output_parent / GROUP_FOLDER_NAMES[group.group_size] / group.group_name
@@ -488,25 +582,39 @@ def materialize_group_context(
     group_root.mkdir(parents=True, exist_ok=True)
 
     if group.group_size == 1:
-        cut_video_into_clips(
-            group.source_paths[-1],
-            str(group_root),
-            clip_length=clip_length,
-            cumulative=True,
-            save_separate_audio=True,
-            video_include_audio=False,
-        )
+        with tempfile.TemporaryDirectory(prefix=f"{group.group_name}_") as tmpdir:
+            target_source_path = maybe_cut_target_video(
+                source_path=group.source_paths[-1],
+                cut_seconds=cut,
+                temp_dir=Path(tmpdir),
+                output_stem=clip_prefix,
+            )
+            cut_video_into_clips(
+                target_source_path,
+                str(group_root),
+                clip_length=clip_length,
+                cumulative=True,
+                save_separate_audio=True,
+                video_include_audio=False,
+            )
         clip_counts = rename_generated_clips(group_root, clip_prefix)
     else:
-        prefix_duration_seconds = sum(
-            get_video_properties(source_path)[2] for source_path in group.source_paths[:-1]
-        )
         with tempfile.TemporaryDirectory(prefix=f"{group.group_name}_", dir=str(group_root)) as tmpdir:
+            target_source_path = maybe_cut_target_video(
+                source_path=group.source_paths[-1],
+                cut_seconds=cut,
+                temp_dir=Path(tmpdir),
+                output_stem=clip_prefix,
+            )
+            contextual_source_paths = [*group.source_paths[:-1], target_source_path]
+            prefix_duration_seconds = sum(
+                get_video_properties(source_path)[2] for source_path in contextual_source_paths[:-1]
+            )
             concatenated_path = Path(tmpdir) / f"{group.group_name}_context.mp4"
-            concatenate_group_video(group.source_paths, concatenated_path)
+            concatenate_group_video(contextual_source_paths, concatenated_path)
             clip_counts = cut_contextual_cumulative_clips(
                 video_path=concatenated_path,
-                final_source_path=group.source_paths[-1],
+                final_source_path=target_source_path,
                 output_folder=group_root,
                 clip_length=clip_length,
                 prefix_duration_seconds=prefix_duration_seconds,
@@ -531,12 +639,13 @@ def materialize_group(
     output_parent: Path,
     clip_length: float,
     mode: str,
+    cut: int | None = None,
     overwrite_existing: bool = False,
 ) -> dict[str, object] | None:
     if mode == "nested":
-        return materialize_group_nested(group, output_parent, clip_length, overwrite_existing)
+        return materialize_group_nested(group, output_parent, clip_length, cut, overwrite_existing)
     if mode == "context":
-        return materialize_group_context(group, output_parent, clip_length, overwrite_existing)
+        return materialize_group_context(group, output_parent, clip_length, cut, overwrite_existing)
     raise ValueError(f"Unsupported mode: {mode}")
 
 
@@ -597,6 +706,8 @@ def materialize_triplet(
     output_parent: Path,
     clip_length: float,
     mode: str,
+    cut: int | None = None,
+    selected_group_sizes: tuple[int, ...] = GROUP_SEQUENCE,
     overwrite_1utt: bool = False,
 ) -> tuple[list[dict[str, object]], FailedTriplet | None]:
     """Materialize all groups in a triplet atomically.
@@ -610,8 +721,11 @@ def materialize_triplet(
     """
     results: list[dict[str, object]] = []
     touched_groups: list[PartitionGroup] = []
+    selected_groups = [
+        group for group in triplet.groups if group.group_size in selected_group_sizes
+    ]
     ordered_groups = sorted(
-        triplet.groups,
+        selected_groups,
         key=lambda group: (overwrite_1utt and group.group_size == 1, group.group_size),
     )
 
@@ -623,6 +737,7 @@ def materialize_triplet(
                 output_parent,
                 clip_length,
                 mode,
+                cut,
                 overwrite_existing=overwrite_existing,
             )
             if result is None:
@@ -675,6 +790,8 @@ def build_summary(
     failed_triplets: list[FailedTriplet],
     clip_length: float,
     mode: str,
+    cut: int | None = None,
+    selected_group_sizes: tuple[int, ...] = GROUP_SEQUENCE,
     stride: int = 2,
 ) -> dict[str, object]:
     groups_by_size = defaultdict(int)
@@ -685,7 +802,9 @@ def build_summary(
     # Flatten triplets into a list of all groups for counting.
     all_groups: list[PartitionGroup] = []
     for triplet in triplets:
-        all_groups.extend(triplet.groups)
+        all_groups.extend(
+            group for group in triplet.groups if group.group_size in selected_group_sizes
+        )
 
     for record in records:
         dialogues_by_id.setdefault(
@@ -730,6 +849,8 @@ def build_summary(
         "input_folder": str(video_folder.resolve()),
         "output_parent": str(output_parent.resolve()),
         "clip_length_seconds": clip_length,
+        "cut_seconds": cut,
+        "selected_group_sizes": list(selected_group_sizes),
         "stride": stride,
         "mode": mode,
         "matched_video_count": len(records),
@@ -770,6 +891,8 @@ def write_summary_files(summary: dict[str, object], output_parent: Path) -> None
         f"Skipped files: {summary['skipped_file_count']}",
         f"Dialogues: {summary['dialogue_count']}",
         f"Clip length (seconds): {summary['clip_length_seconds']}",
+        f"Cut target utterance to first N seconds: {summary['cut_seconds']}",
+        f"Selected group sizes: {summary['selected_group_sizes']}",
         f"Stride (utterances skipped between windows): {summary['stride']}",
         "",
         "Triplets",
@@ -886,12 +1009,17 @@ def analyze_and_partition(
     mode: str,
     dialogue_range: int | None = None,
     stride: int = 2,
+    cut: int | None = None,
+    utt: str | None = None,
     overwrite_1utt: bool = False,
 ) -> dict[str, object]:
     if not video_folder.exists():
         raise FileNotFoundError(f"Input folder does not exist: {video_folder}")
     if not video_folder.is_dir():
         raise NotADirectoryError(f"Input path is not a directory: {video_folder}")
+    if cut is not None and cut <= 0:
+        raise ValueError("--cut must be greater than 0 when provided.")
+    selected_group_sizes = parse_utt_group_selection(utt)
 
     records, skipped_files = collect_video_records(video_folder, recursive=recursive)
 
@@ -933,6 +1061,8 @@ def analyze_and_partition(
             output_parent,
             clip_length,
             mode,
+            cut=cut,
+            selected_group_sizes=selected_group_sizes,
             overwrite_1utt=overwrite_1utt,
         )
         if failure is not None:
@@ -956,6 +1086,8 @@ def analyze_and_partition(
         failed_triplets=failed_triplets,
         clip_length=clip_length,
         mode=mode,
+        cut=cut,
+        selected_group_sizes=selected_group_sizes,
         stride=stride,
     )
     write_summary_files(summary, output_parent)
@@ -972,6 +1104,8 @@ def main() -> None:
         mode=args.mode,
         dialogue_range=args.dialogue_range,
         stride=args.stride,
+        cut=args.cut,
+        utt=args.utt,
         overwrite_1utt=args.overwrite_1utt,
     )
 
@@ -990,6 +1124,7 @@ def main() -> None:
         f"{summary['group_counts']['2']}/"
         f"{summary['group_counts']['3']}"
     )
+    print(f"Selected group sizes: {summary['selected_group_sizes']}")
     print(f"Mode: {summary['mode']}")
     print(f"Outputs written to: {args.output_parent.resolve()}")
 

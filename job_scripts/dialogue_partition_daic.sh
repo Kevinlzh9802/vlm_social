@@ -18,15 +18,19 @@ DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_INPUT_PATH="mintrec2/raw"
 DEFAULT_CLIP_LENGTH="0.5"
 DEFAULT_MODE="context"
+CUT=""
+UTT=""
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [input_path] [dialogue_range] [clip_length] [mode]" >&2
-    echo "  sbatch $0 [--input-path PATH] [--dialogue-range N] [--clip-length SEC] [--mode nested|context] [--overwrite-1utt]" >&2
+    echo "  sbatch $0 [input_path] [dialogue_range] [clip_length] [mode] [cut] [utt]" >&2
+    echo "  sbatch $0 [--input-path PATH] [--dialogue-range N] [--clip-length SEC] [--mode nested|context] [--cut SEC] [--utt 1,2,3] [--overwrite-1utt]" >&2
     echo "  input_path: 2-level path under ${DEFAULT_DATA_ROOT}, e.g. mintrec2/raw" >&2
     echo "  dialogue_range: 1-based hundred-range index, e.g. 1 → [0,100), 4 → [300,400). Empty for all." >&2
     echo "  clip_length: clip length in seconds for cumulative clips of the last utterance" >&2
     echo "  mode: nested (current layout) or context (prepend prior utterances to every clip)" >&2
+    echo "  cut: optional max length in seconds for the final utterance before clipping" >&2
+    echo "  utt: comma-separated group sizes to write, e.g. 1,2 or 3 (default: all)" >&2
     echo "  --overwrite-1utt: overwrite existing 1-utt outputs while reusing existing 2/3-utt outputs" >&2
     echo "  output is <data_root>/<dataset>/<mode>/<subfolder>" >&2
 }
@@ -54,6 +58,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --mode)
             MODE="${2:?Missing value for --mode}"
+            shift 2
+            ;;
+        --cut)
+            CUT="${2:?Missing value for --cut}"
+            shift 2
+            ;;
+        --utt)
+            UTT="${2:?Missing value for --utt}"
             shift 2
             ;;
         --overwrite-1utt)
@@ -93,6 +105,14 @@ if [[ ${#POSITIONAL_ARGS[@]} -gt 3 ]]; then
 fi
 
 if [[ ${#POSITIONAL_ARGS[@]} -gt 4 ]]; then
+    CUT="${POSITIONAL_ARGS[4]}"
+fi
+
+if [[ ${#POSITIONAL_ARGS[@]} -gt 5 ]]; then
+    UTT="${POSITIONAL_ARGS[5]}"
+fi
+
+if [[ ${#POSITIONAL_ARGS[@]} -gt 6 ]]; then
     usage
     echo "Too many positional arguments." >&2
     exit 1
@@ -147,6 +167,8 @@ echo "Output dir: ${OUTPUT_DIR}"
 echo "Clip length: ${CLIP_LENGTH}"
 echo "Dialogue range: ${DIALOGUE_RANGE:-all}"
 echo "Mode: ${MODE}"
+echo "Cut final utterance to first N seconds: ${CUT:-none}"
+echo "Selected group sizes: ${UTT:-all}"
 echo "Overwrite 1-utt groups: ${OVERWRITE_1UTT}"
 
 PYTHON_ARGS=(
@@ -160,6 +182,14 @@ PYTHON_ARGS=(
 
 if [[ -n "${DIALOGUE_RANGE}" ]]; then
     PYTHON_ARGS+=(--dialogue-range "${DIALOGUE_RANGE}")
+fi
+
+if [[ -n "${CUT}" ]]; then
+    PYTHON_ARGS+=(--cut "${CUT}")
+fi
+
+if [[ -n "${UTT}" ]]; then
+    PYTHON_ARGS+=(--utt "${UTT}")
 fi
 
 if [[ "${OVERWRITE_1UTT}" == "1" ]]; then
