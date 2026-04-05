@@ -5,7 +5,7 @@
 #SBATCH --qos=short
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=32G
+#SBATCH --mem=16G
 #SBATCH --mail-type=END
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
