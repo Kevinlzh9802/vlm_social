@@ -7,7 +7,6 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=32G
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.out
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.err
 
