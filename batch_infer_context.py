@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
+from prompt_utils import PROMPT_CONFIG_PATH, build_prompt_variant_key, load_prompt_templates
 from qwen_omni_utils import process_mm_info
 from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
 
@@ -152,25 +153,6 @@ def infer_turn(
     return response[0] if response else ""
 
 
-def load_prompt_templates(prompt_choice: str) -> Dict[str, str]:
-    """Load the first-turn and follow-up prompt templates for a prompt choice."""
-    prompt_dir = Path("prompts")
-    prompt_paths = {
-        "first": prompt_dir / f"{prompt_choice}_1.txt",
-        "after": prompt_dir / f"{prompt_choice}_after.txt",
-    }
-
-    missing = [str(path) for path in prompt_paths.values() if not path.is_file()]
-    if missing:
-        missing_text = ", ".join(missing)
-        raise FileNotFoundError(f"Prompt file(s) not found: {missing_text}")
-
-    return {
-        key: path.read_text(encoding="utf-8").strip()
-        for key, path in prompt_paths.items()
-    }
-
-
 def is_error_response(response: str) -> bool:
     """Return whether a model response represents a failed inference."""
     return response.startswith("[ERROR]")
@@ -247,7 +229,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--prompt-choice",
         required=True,
-        help="Prompt file prefix under prompts/, e.g. 'plain' or 'intention'.",
+        help="Prompt family under prompts/prompts.json, e.g. 'intention' or 'affordance'.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("context",),
+        default="context",
+        help="Inference layout mode. This script only supports 'context'.",
+    )
+    parser.add_argument(
+        "--utt-count",
+        type=int,
+        choices=(1, 2, 3),
+        required=True,
+        help="Utterance count used to select the single_utt or multi_utt prompt variant.",
     )
     parser.add_argument(
         "--conversation-mode",
@@ -286,9 +281,23 @@ def main() -> None:
     args = parse_args()
 
     # --- Load prompt templates ---
-    prompt_templates = load_prompt_templates(args.prompt_choice)
-    print(f"[INFO] First-turn prompt ({args.prompt_choice}_1.txt):\n{prompt_templates['first']}\n")
-    print(f"[INFO] Follow-up prompt ({args.prompt_choice}_after.txt):\n{prompt_templates['after']}\n")
+    prompt_variant_key = build_prompt_variant_key(args.prompt_choice, args.utt_count)
+    prompt_templates = load_prompt_templates(
+        prompt_choice=args.prompt_choice,
+        conversation_mode=args.conversation_mode,
+        utt_count=args.utt_count,
+    )
+    print(
+        f"[INFO] Prompt config: {PROMPT_CONFIG_PATH} "
+        f"(mode: {args.mode}, conversation_mode: {args.conversation_mode}, "
+        f"choice: {args.prompt_choice}, variant: {prompt_variant_key})"
+    )
+    if args.conversation_mode == "single-turn":
+        print(f"[INFO] Prompt text:\n{prompt_templates['text']}\n")
+    else:
+        print(f"[INFO] First-turn prompt:\n{prompt_templates['first']}\n")
+        print(f"[INFO] Follow-up prompt:\n{prompt_templates['after']}\n")
+    print(f"[INFO] Utterance count: {args.utt_count}")
     print(f"[INFO] Conversation mode: {args.conversation_mode}\n")
 
     # --- Collect all video/audio pairs ---
@@ -324,9 +333,12 @@ def main() -> None:
         ]
         for pair_index, pair in enumerate(sorted_pairs):
             processed += 1
-            prompt_template = (
-                prompt_templates["first"] if pair_index == 0 else prompt_templates["after"]
-            )
+            if args.conversation_mode == "single-turn":
+                prompt_template = prompt_templates["text"]
+            else:
+                prompt_template = (
+                    prompt_templates["first"] if pair_index == 0 else prompt_templates["after"]
+                )
             print(
                 f"[{processed}/{total_pairs}] {subfolder_name}/{pair['stem']}  ...",
                 flush=True,
