@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name="gemini-batch-api"
-#SBATCH --partition=insy,general # Request partition. Default is 'general' 
-#SBATCH --time=12:00:00
-#SBATCH --qos=medium         # Request Quality of Service. Default is 'short' (maximum run time: 4 hours)
+#SBATCH --job-name="gemini-submit"
+#SBATCH --partition=insy,general
+#SBATCH --time=01:00:00
+#SBATCH --qos=short
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=32G
@@ -10,12 +10,12 @@
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.out
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.err
 
-# Gemini Batch API inference via Apptainer.
+# Submit a Gemini Batch API job (upload-only, exits immediately).
+# Use gemini_retrieve_daic.sh to collect results afterwards.
 #
-# Submit from the project folder:
+# Examples:
 #   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention
 #   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --gemini-mode 2.5-flash
-#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec6 --utt 3 --batch 5 --prompt intention --poll-interval 60
 
 set -euo pipefail
 
@@ -27,7 +27,6 @@ prompt_choice=""
 utt_count=""
 batch_number=""
 gemini_mode="2.5-flash"
-poll_interval=30
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -49,9 +48,6 @@ while [ "$#" -gt 0 ]; do
         --gemini-mode)
             if [ "$#" -lt 2 ]; then echo "[ERROR] Missing value for $1" >&2; exit 1; fi
             gemini_mode="$2"; shift 2 ;;
-        --poll-interval)
-            if [ "$#" -lt 2 ]; then echo "[ERROR] Missing value for $1" >&2; exit 1; fi
-            poll_interval="$2"; shift 2 ;;
         -h|--help)
             echo "Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --utt <1|2|3> --batch <number> --prompt <prompt_choice> [--gemini-mode <mode>] [--poll-interval <seconds>]" >&2
             exit 0 ;;
@@ -109,6 +105,7 @@ output_json="${output_dir}/batch${batch_id}.json"
 inference_script="api_models/gemini_batch.py"
 prompt_config="${project_dir}/api_models/configs/prompts.json"
 api_key_file=/home/nfs/zli33/keys/gemini_api.txt
+registry_file="${results_root}/gemini/gemini_registry.json"
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -155,8 +152,8 @@ echo "[INFO] data_parent    = $data_parent"
 echo "[INFO] gemini_mode    = $gemini_mode"
 echo "[INFO] prompt_config  = $prompt_config"
 echo "[INFO] prompt_choice  = $prompt_choice"
-echo "[INFO] poll_interval  = $poll_interval"
 echo "[INFO] inference_script = $inference_script"
+echo "[INFO] registry       = $registry_file"
 echo "[INFO] output_json    = $output_json"
 echo ""
 
@@ -174,8 +171,10 @@ apptainer exec \
         --prompts-config "api_models/configs/prompts.json" \
         --utt-count "$utt_count" \
         --mode "$gemini_mode" \
-        --poll-interval "$poll_interval" \
-        --api-key-path "$api_key_file"
+        --api-key-path "$api_key_file" \
+        --dataset "$dataset_name" \
+        --batch-id "batch${batch_id}" \
+        --registry "$registry_file"
 
 echo ""
-echo "[INFO] Gemini batch inference completed. Results saved to $output_json"
+echo "[INFO] Batch job submitted. Run gemini_retrieve_daic.sh to download results later."

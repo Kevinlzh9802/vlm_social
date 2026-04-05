@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Batch Gemini inference over a folder of videos using the Gemini Batch API.
+"""Submit a Gemini Batch API job for a folder of videos.
+
+This script is **submit-only**: it uploads videos, creates the batch job,
+and registers the job in a shared registry JSON file — then exits.
+Use ``gemini_retrieve.py`` to scan the registry and download results for
+all completed jobs.
 
 Expected data layout
 ====================
@@ -10,31 +15,34 @@ Expected data layout
     subfolder_B/
         ...
 
-The script discovers every .mp4 file inside each immediate subfolder of
-*data_root*, uploads them via the File API, builds a JSONL batch request
-referencing the uploaded files, submits a single asynchronous batch job,
-polls until completion, and writes results to a JSON file.
+Registry JSON (``--registry``)
+==============================
+A single JSON file (list of entries) shared across all experiments::
 
-The Batch API runs at 50% of standard pricing with a target 24-hour
-turnaround (often much faster).
-
-Output JSON structure
-=====================
-{
-    "__summary__": { ... },
-    "subfolder_A": [
-        {"file": "d1u1-u2_clip_01", "prompt": "...", "response": "..."},
+    [
+        {
+            "run_id": "intention_1utt_batch01_20260405T143012_a3f2",
+            "job_name": "batches/123456789",
+            "status": "pending",
+            "submitted_at": "2026-04-05T14:30:12",
+            "dataset": "mintrec2",
+            "prompt_choice": "intention",
+            "utt_count": 1,
+            "gemini_mode": "2.5-flash",
+            "model_name": "gemini-2.5-flash",
+            "output_json": "/path/to/batch01.json",
+            "video_map": { ... }
+        },
         ...
-    ],
-    ...
-}
+    ]
 """
 
 import argparse
 import json
+import os
 import socket
 import sys
-import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -74,12 +82,7 @@ from gemini import (
 )
 
 
-COMPLETED_STATES = {
-    "JOB_STATE_SUCCEEDED",
-    "JOB_STATE_FAILED",
-    "JOB_STATE_CANCELLED",
-    "JOB_STATE_EXPIRED",
-}
+DEFAULT_REGISTRY_PATH = Path(__file__).resolve().parent / "gemini_registry.json"
 
 
 # ---------------------------------------------------------------------------
@@ -222,117 +225,70 @@ def submit_batch_job(
     return batch_job
 
 
-def poll_batch_job(
-    client: Any,
+# ---------------------------------------------------------------------------
+# Run-ID generation
+# ---------------------------------------------------------------------------
+
+def generate_run_id(prompt_choice: str, utt_count: int, batch_id: str) -> str:
+    """Build a unique, human-readable run identifier.
+
+    Format: ``<prompt>_<utt>utt_<batch>_<timestamp>_<random4>``
+    e.g.  ``intention_1utt_batch01_20260405T143012_a3f2``
+    """
+    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+    rand = os.urandom(2).hex()  # 4 hex chars
+    return f"{prompt_choice}_{utt_count}utt_{batch_id}_{ts}_{rand}"
+
+
+# ---------------------------------------------------------------------------
+# Registry helpers
+# ---------------------------------------------------------------------------
+
+def load_registry(registry_path: Path) -> List[dict]:
+    """Load the shared registry, returning an empty list if absent."""
+    if not registry_path.exists():
+        return []
+    return json.loads(registry_path.read_text(encoding="utf-8"))
+
+
+def save_registry(registry_path: Path, entries: List[dict]) -> None:
+    """Write the registry atomically-ish (write-then-rename)."""
+    tmp = registry_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(registry_path)
+
+
+def append_registry_entry(
+    registry_path: Path,
+    run_id: str,
     job_name: str,
-    poll_interval: int = 30,
-) -> Any:
-    """Poll until the batch job reaches a terminal state."""
-    print(f"[INFO] Polling job: {job_name}")
-    while True:
-        job = client.batches.get(name=job_name)
-        state = job.state.name
-        if state in COMPLETED_STATES:
-            print(f"[INFO] Job finished: {state}")
-            return job
-        print(f"[INFO] State: {state} — waiting {poll_interval}s ...")
-        time.sleep(poll_interval)
-
-
-def download_results(client: Any, job: Any) -> List[dict]:
-    """Download and parse the result JSONL from a succeeded batch job."""
-    if job.state.name != "JOB_STATE_SUCCEEDED":
-        raise RuntimeError(
-            f"Batch job did not succeed. Final state: {job.state.name}. "
-            f"Error: {getattr(job, 'error', 'N/A')}"
-        )
-
-    results: List[dict] = []
-
-    # File-based output
-    if job.dest and job.dest.file_name:
-        print(f"[INFO] Downloading result file: {job.dest.file_name}")
-        content_bytes = client.files.download(file=job.dest.file_name)
-        for line in content_bytes.decode("utf-8").splitlines():
-            if line.strip():
-                results.append(json.loads(line))
-
-    # Inline output fallback
-    elif job.dest and job.dest.inlined_responses:
-        for resp in job.dest.inlined_responses:
-            entry: Dict[str, Any] = {}
-            if resp.response:
-                try:
-                    entry["text"] = resp.response.text
-                except AttributeError:
-                    entry["text"] = str(resp.response)
-            if resp.error:
-                entry["error"] = str(resp.error)
-            results.append(entry)
-    else:
-        print("[WARN] No results found in batch job output.")
-
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Result formatting
-# ---------------------------------------------------------------------------
-
-def format_results(
-    raw_results: List[dict],
+    dataset: str,
+    prompt_choice: str,
+    utt_count: int,
+    gemini_mode: str,
+    model_name: str,
+    output_json: str,
+    data_root: str,
     video_map: Dict[str, List[dict]],
-) -> Dict[str, Any]:
-    """Reshape raw JSONL results into the subfolder-grouped output format."""
-    # Build a lookup from key -> response text
-    key_to_response: Dict[str, str] = {}
-    key_to_error: Dict[str, str] = {}
-
-    for entry in raw_results:
-        key = entry.get("key", "")
-        resp = entry.get("response")
-        if resp:
-            # JSONL result: response is a GenerateContentResponse dict
-            try:
-                text = resp["candidates"][0]["content"]["parts"][0]["text"]
-            except (KeyError, IndexError, TypeError):
-                text = str(resp)
-            key_to_response[key] = text
-        if entry.get("error"):
-            key_to_error[key] = str(entry["error"])
-        # Inline results already have "text"
-        if "text" in entry and not key:
-            key_to_response[key] = entry["text"]
-
-    grouped: Dict[str, list] = {}
-    total_files = 0
-    total_errors = 0
-
-    for subfolder, entries in video_map.items():
-        subfolder_results = []
-        for e in entries:
-            key = f"{subfolder}/{e['stem']}"
-            response = key_to_response.get(key, "")
-            error = key_to_error.get(key)
-            total_files += 1
-            if error or not response:
-                total_errors += 1
-            subfolder_results.append({
-                "file": e["stem"],
-                "response": response,
-                **({"error": error} if error else {}),
-            })
-        grouped[subfolder] = subfolder_results
-
-    summary = {
-        "overall": {
-            "files": total_files,
-            "errors": total_errors,
-            "error_ratio": (total_errors / total_files) if total_files else 0.0,
-        },
-    }
-
-    return {"__summary__": summary, **grouped}
+) -> None:
+    """Append a new entry to the shared registry."""
+    entries = load_registry(registry_path)
+    entries.append({
+        "run_id": run_id,
+        "job_name": job_name,
+        "status": "pending",
+        "submitted_at": datetime.now().isoformat(timespec="seconds"),
+        "dataset": dataset,
+        "prompt_choice": prompt_choice,
+        "utt_count": utt_count,
+        "gemini_mode": gemini_mode,
+        "model_name": model_name,
+        "output_json": output_json,
+        "data_root": data_root,
+        "video_map": video_map,
+    })
+    save_registry(registry_path, entries)
+    print(f"[INFO] Registered run '{run_id}' in {registry_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +297,7 @@ def format_results(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Batch Gemini inference over a folder of videos (Batch API)."
+        description="Upload videos and submit a Gemini Batch API job (submit-only).",
     )
     parser.add_argument(
         "--data-root",
@@ -351,7 +307,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         default="results_gemini_batch.json",
-        help="Path to the output JSON file.",
+        help="Path where the final results JSON should eventually be written.",
     )
     parser.add_argument(
         "--prompt",
@@ -405,12 +361,6 @@ def parse_args() -> argparse.Namespace:
         help="System instruction for all requests.",
     )
     parser.add_argument(
-        "--poll-interval",
-        type=int,
-        default=30,
-        help="Seconds between status polls (default: 30).",
-    )
-    parser.add_argument(
         "--api-key-path",
         type=Path,
         default=DEFAULT_API_KEY_PATH,
@@ -421,6 +371,24 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Path to write the intermediate JSONL file. Defaults to <output>.requests.jsonl.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        default=DEFAULT_REGISTRY_PATH,
+        help="Path to the shared registry JSON file.",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="",
+        help="Dataset name (stored in registry for bookkeeping).",
+    )
+    parser.add_argument(
+        "--batch-id",
+        type=str,
+        default="",
+        help="Batch identifier string (stored in registry and used in run_id).",
     )
     return parser.parse_args()
 
@@ -466,29 +434,38 @@ def main() -> None:
     print(f"[INFO] Wrote {len(jsonl_lines)} request(s) to {jsonl_path}")
 
     # --- Submit batch job ---
+    batch_id_label = args.batch_id or Path(args.output).stem
+    run_id = generate_run_id(
+        prompt_choice=args.prompt_choice or "custom",
+        utt_count=args.utt_count or 0,
+        batch_id=batch_id_label,
+    )
+
     batch_job = submit_batch_job(
         client=client,
         jsonl_path=jsonl_path,
         model_name=model_name,
+        display_name=run_id,
     )
 
-    # --- Poll ---
-    completed_job = poll_batch_job(
-        client=client,
+    # --- Register in shared registry ---
+    append_registry_entry(
+        registry_path=args.registry,
+        run_id=run_id,
         job_name=batch_job.name,
-        poll_interval=args.poll_interval,
+        dataset=args.dataset,
+        prompt_choice=args.prompt_choice or "",
+        utt_count=args.utt_count or 0,
+        gemini_mode=args.mode,
+        model_name=model_name,
+        output_json=str(Path(args.output).resolve()),
+        data_root=args.data_root,
+        video_map=video_map,
     )
 
-    # --- Retrieve results ---
-    raw_results = download_results(client, completed_job)
-    output = format_results(raw_results, video_map)
-
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    print(f"\n[INFO] Results saved to {output_path.resolve()}")
+    print(f"\n[INFO] Batch job submitted: {batch_job.name}")
+    print(f"[INFO] Run ID: {run_id}")
+    print(f"[INFO] Use gemini_retrieve.py --registry {args.registry} to collect results later.")
 
 
 if __name__ == "__main__":
