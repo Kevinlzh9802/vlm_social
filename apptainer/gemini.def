@@ -1,0 +1,57 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Author zonghuan
+    Description Lightweight environment for Gemini Batch API inference (gemini_batch.py)
+
+%help
+    Build from the apptainer directory:
+        cd apptainer
+        apptainer build gemini.sif gemini.def
+
+    Example usage (bind the repo root as /workspace):
+        apptainer exec --bind ..:/workspace gemini.sif \
+            python /workspace/api_models/gemini_batch.py --help
+
+%files
+    requirements_gemini.txt /opt/requirements_gemini.txt
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    export PYTHONUNBUFFERED=1
+    export PYTHONDONTWRITEBYTECODE=1
+    export PIP_NO_CACHE_DIR=1
+    export XDG_CACHE_HOME=/tmp
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Verify requirements file was copied by %files
+    if [ ! -f /opt/requirements_gemini.txt ]; then
+        echo "ERROR: /opt/requirements_gemini.txt not found."
+        echo "Make sure to build from the apptainer/ directory:"
+        echo "    cd apptainer && apptainer build gemini.sif gemini.def"
+        exit 1
+    fi
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        python3 \
+        python3-pip \
+        python3-venv
+    rm -rf /var/lib/apt/lists/*
+
+    ln -sf /usr/bin/python3 /usr/local/bin/python
+    python -m pip install --upgrade pip setuptools wheel
+    python -m pip install -r /opt/requirements_gemini.txt
+
+    mkdir -p /workspace
+
+%runscript
+    exec "$@"
+
+%test
+    python -c "from google import genai; from google.genai import types; print('google-genai OK')"
