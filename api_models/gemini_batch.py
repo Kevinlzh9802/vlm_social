@@ -32,9 +32,30 @@ Output JSON structure
 
 import argparse
 import json
+import socket
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+def check_network(host: str = "generativelanguage.googleapis.com", port: int = 443, timeout: int = 10) -> None:
+    """Verify outbound connectivity before doing any real work."""
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+        print(f"[INFO] Network check passed ({host}:{port} reachable).")
+    except OSError as exc:
+        print(
+            f"[ERROR] Network check failed — cannot reach {host}:{port}: {exc}\n"
+            f"  The Gemini Batch API requires internet access. "
+            f"Make sure the job runs on a node with outbound connectivity.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+check_network()
 
 from google import genai
 from google.genai import types as genai_types
