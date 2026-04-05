@@ -98,7 +98,7 @@ batch_id=$(printf "%02d" "$batch_number")
 # Paths
 # ---------------------------------------------------------------------------
 project_dir="${SLURM_SUBMIT_DIR:-.}"
-sif_file=/tudelft.net/staff-umbrella/neon/apptainer/vlm_social.sif
+sif_file=/tudelft.net/staff-umbrella/neon/apptainer/gemini.sif
 gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
 results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench
 
