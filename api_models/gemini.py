@@ -103,17 +103,25 @@ def load_prompt_templates(
         )
 
     config = _load_prompt_config(prompt_config_path)
-    prompt_family = config.get(prompt_choice)
-    if not isinstance(prompt_family, dict):
+
+    section_map = {"single-turn": "single_turn_prompts", "multi-turn": "multi_turn_prompts"}
+    section_name = section_map.get(conversation_mode)
+    if section_name is None:
+        raise ValueError(f"Unsupported conversation mode: {conversation_mode}")
+
+    prompt_section = config.get(section_name)
+    if not isinstance(prompt_section, dict):
         raise KeyError(
-            f"Prompt choice '{prompt_choice}' was not found in {prompt_config_path}."
+            f"Section '{section_name}' was not found in {prompt_config_path}."
         )
 
     variant_key = build_prompt_variant_key(prompt_choice=prompt_choice, utt_count=utt_count)
-    variant_config = prompt_family.get(variant_key)
+    variant_config = prompt_section.get(variant_key)
     if variant_config is None:
+        available = ", ".join(sorted(prompt_section)) or "none"
         raise KeyError(
-            f"Prompt variant '{variant_key}' was not found under '{prompt_choice}'."
+            f"Prompt variant '{variant_key}' was not found under '{section_name}' "
+            f"in {prompt_config_path}. Available: {available}"
         )
 
     if conversation_mode == "single-turn":
