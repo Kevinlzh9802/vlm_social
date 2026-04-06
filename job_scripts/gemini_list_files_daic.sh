@@ -50,6 +50,7 @@ echo "y" | apptainer exec \
     "$sif_file" \
     python "api_models/gemini_list_files.py" \
         --api-key-path "$api_key_file" \
+        --count-only \
         --delete-all
 
 echo ""

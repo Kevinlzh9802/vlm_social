@@ -59,6 +59,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Delete every file returned by the list (use with caution).",
     )
+    parser.add_argument(
+        "--count-only",
+        action="store_true",
+        help="Only print the file count, skip the full listing.",
+    )
     return parser.parse_args()
 
 
@@ -73,7 +78,9 @@ def main() -> None:
         print("No files found.")
         return
 
-    if args.as_json:
+    if args.count_only:
+        print(f"Total: {len(files)} file(s)")
+    elif args.as_json:
         records = []
         for f in files:
             records.append({
