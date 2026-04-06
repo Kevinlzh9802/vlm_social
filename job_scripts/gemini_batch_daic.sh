@@ -2,7 +2,7 @@
 #SBATCH --job-name="gemini-submit"
 #SBATCH --partition=insy,general
 #SBATCH --time=06:00:00
-#SBATCH --qos=short
+#SBATCH --qos=medium
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
