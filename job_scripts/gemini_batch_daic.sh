@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name="gemini-submit"
 #SBATCH --partition=insy,general
-#SBATCH --time=01:00:00
+#SBATCH --time=06:00:00
 #SBATCH --qos=short
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=32G
+#SBATCH --mem=16G
 #SBATCH --mail-type=END
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.out
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.err
