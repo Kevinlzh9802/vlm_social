@@ -104,6 +104,18 @@
                 "--flag-threshold",
                 "4.0"
             ]
+        },
+        {
+            "name": "gemini_list_files",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/api_models/gemini_list_files.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--api-key-path", "C:\\Users\\zongh\\Desktop\\personal\\gemini_api.txt",
+                "--delete-all"
+            ]
+        
         }
     ]
 }
