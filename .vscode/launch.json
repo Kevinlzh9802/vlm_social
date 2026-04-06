@@ -112,7 +112,8 @@
             "program": "${workspaceFolder}/api_models/gemini_list_files.py",
             "console": "integratedTerminal",
             "args": [
-                "--api-key-path", "C:\\Users\\zongh\\Desktop\\personal\\gemini_api.txt",
+                // "--api-key-path", "C:\\Users\\zongh\\Desktop\\personal\\gemini_api.txt",
+                "--api-key-path", "D:\\Desktop\\personal\\gemini_api.txt",
                 "--delete-all"
             ]
         
