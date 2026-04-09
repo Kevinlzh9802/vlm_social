@@ -11,7 +11,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sentence_transformers import SentenceTransformer
 
-from metrics import TURNOVER_THRESHOLD, UtteranceMetrics, compute_utterance_metrics
+from metrics import (
+    DEFAULT_TURNOVER_THRESHOLDS,
+    UtteranceMetrics,
+    compute_semantic_turnover_ratio,
+    compute_utterance_metrics,
+)
 
 
 DATASET_NAMES = ("mintrec2", "seamless_interaction")
@@ -48,12 +53,13 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--turnover-threshold",
+        "--turnover-thresholds",
         type=float,
-        default=TURNOVER_THRESHOLD,
+        nargs="+",
+        default=list(DEFAULT_TURNOVER_THRESHOLDS),
         help=(
-            "Semantic turnover threshold t. Neighboring similarity below t counts "
-            "as one turnover event."
+            "Semantic turnover thresholds t. Neighboring similarity below t counts "
+            "as one turnover event. Default: 0.3 0.5 0.7 0.9."
         ),
     )
     return parser.parse_args()
@@ -231,13 +237,20 @@ def plot_neighbor_similarity_by_clip_count(
 
 def plot_semantic_turnover_by_clip_count(
     utterance_metrics: Sequence[UtteranceMetrics],
+    turnover_threshold: float,
     title: str,
     output_path: Path,
 ) -> None:
     grouped_turnover: dict[int, list[float]] = defaultdict(list)
 
     for metrics in utterance_metrics:
-        grouped_turnover[metrics.clip_count].append(metrics.semantic_turnover_ratio)
+        grouped_turnover[metrics.clip_count].append(
+            compute_semantic_turnover_ratio(
+                clip_count=metrics.clip_count,
+                neighboring_similarities=metrics.neighboring_similarities,
+                turnover_threshold=turnover_threshold,
+            )
+        )
 
     if not grouped_turnover:
         return
@@ -270,7 +283,6 @@ def plot_semantic_turnover_by_clip_count(
 def analyze_result_folder(
     model: SentenceTransformer,
     result_folder: Path,
-    turnover_threshold: float,
 ) -> List[UtteranceMetrics]:
     utterance_metrics: List[UtteranceMetrics] = []
     json_paths = sorted(
@@ -282,11 +294,7 @@ def analyze_result_folder(
         payload = load_json(json_path)
         for dialogue_key, dialogue_value in find_dialogue_entries(payload):
             ordered_clips = extract_ordered_clips(dialogue_key, dialogue_value)
-            metrics = compute_utterance_metrics(
-                model=model,
-                ordered_clips=ordered_clips,
-                turnover_threshold=turnover_threshold,
-            )
+            metrics = compute_utterance_metrics(model=model, ordered_clips=ordered_clips)
             if metrics is not None:
                 utterance_metrics.append(metrics)
 
@@ -296,7 +304,7 @@ def analyze_result_folder(
 def analyze_dataset(
     model: SentenceTransformer,
     dataset_root: Path,
-    turnover_threshold: float,
+    turnover_thresholds: Sequence[float],
 ) -> None:
     result_folders = iter_result_folders(dataset_root)
     if not result_folders:
@@ -307,7 +315,6 @@ def analyze_dataset(
         utterance_metrics = analyze_result_folder(
             model=model,
             result_folder=result_folder,
-            turnover_threshold=turnover_threshold,
         )
         if not utterance_metrics:
             print(f"[WARN] No usable utterances found in {result_folder}")
@@ -332,13 +339,19 @@ def analyze_dataset(
         )
         print(f"[INFO] Saved {neighbor_path}")
 
-        turnover_path = dataset_root / f"{base_name}_semantic_turnover_by_clip_count.png"
-        plot_semantic_turnover_by_clip_count(
-            utterance_metrics=utterance_metrics,
-            title=f"{title} | Semantic Turnover by Clip Count (t={turnover_threshold:.2f})",
-            output_path=turnover_path,
-        )
-        print(f"[INFO] Saved {turnover_path}")
+        for turnover_threshold in turnover_thresholds:
+            threshold_tag = f"{turnover_threshold:.2f}".replace(".", "p")
+            turnover_path = (
+                dataset_root
+                / f"{base_name}_semantic_turnover_by_clip_count_t{threshold_tag}.png"
+            )
+            plot_semantic_turnover_by_clip_count(
+                utterance_metrics=utterance_metrics,
+                turnover_threshold=turnover_threshold,
+                title=f"{title} | Semantic Turnover by Clip Count (t={turnover_threshold:.2f})",
+                output_path=turnover_path,
+            )
+            print(f"[INFO] Saved {turnover_path}")
 
 
 def main() -> None:
@@ -362,7 +375,7 @@ def main() -> None:
         analyze_dataset(
             model=model,
             dataset_root=dataset_root,
-            turnover_threshold=args.turnover_threshold,
+            turnover_thresholds=args.turnover_thresholds,
         )
 
 

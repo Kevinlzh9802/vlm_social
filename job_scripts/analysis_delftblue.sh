@@ -17,13 +17,15 @@ SIF_PATH="/scratch/zli33/apptainers/analysis.sif"
 DEFAULT_RESULTS_ROOT="/scratch/zli33/data/gestalt_bench/results/qwen2.5"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
 DEFAULT_MODEL_PATH="/scratch/zli33/models/all-MiniLM-L6-v2"
+DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--model MODEL_NAME] [--model-path PATH]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...]" >&2
     echo "  results-root: path to results/qwen2.5 (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  model: SentenceTransformer model name, used only for download (default: ${DEFAULT_MODEL})" >&2
     echo "  model-path: local directory with pre-downloaded model (default: ${DEFAULT_MODEL_PATH})" >&2
+    echo "  turnover-thresholds: semantic-turnover thresholds (default: ${DEFAULT_THRESHOLDS[*]})" >&2
     echo "" >&2
     echo "Pre-download the model on a login node before submitting:" >&2
     echo "  apptainer exec --bind /scratch/zli33:/scratch/zli33 ${SIF_PATH} \\" >&2
@@ -33,6 +35,7 @@ usage() {
 RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
 MODEL="${DEFAULT_MODEL}"
 MODEL_PATH="${DEFAULT_MODEL_PATH}"
+THRESHOLDS=("${DEFAULT_THRESHOLDS[@]}")
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -47,6 +50,18 @@ while [[ $# -gt 0 ]]; do
         --model-path)
             MODEL_PATH="${2:?Missing value for --model-path}"
             shift 2
+            ;;
+        --turnover-thresholds)
+            THRESHOLDS=()
+            shift
+            while [[ $# -gt 0 && "$1" != --* ]]; do
+                THRESHOLDS+=("$1")
+                shift
+            done
+            if [[ ${#THRESHOLDS[@]} -eq 0 ]]; then
+                echo "Missing value(s) for --turnover-thresholds" >&2
+                exit 1
+            fi
             ;;
         -h|--help)
             usage
@@ -91,11 +106,13 @@ echo "Apptainer image: ${SIF_PATH}"
 echo "Results root:    ${RESULTS_ROOT}"
 echo "Model name:      ${MODEL}"
 echo "Model path:      ${MODEL_PATH}"
+echo "Thresholds:      ${THRESHOLDS[*]}"
 
 PYTHON_ARGS=(
     python /workspace/experiments/analysis/main.py
     --results-root "${RESULTS_ROOT}"
     --model-path "${MODEL_PATH}"
+    --turnover-thresholds "${THRESHOLDS[@]}"
 )
 
 srun apptainer exec \

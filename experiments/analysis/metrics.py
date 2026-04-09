@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-TURNOVER_THRESHOLD = 0.8
+DEFAULT_TURNOVER_THRESHOLDS = (0.3, 0.5, 0.7, 0.9)
 
 
 @dataclass(frozen=True)
@@ -13,8 +13,6 @@ class UtteranceMetrics:
     clip_count: int
     clip_to_final_similarities: list[float]
     neighboring_similarities: list[float]
-    semantic_turnover: int
-    semantic_turnover_ratio: float
 
 
 def is_error_text(text: str) -> bool:
@@ -32,7 +30,6 @@ def filter_valid_texts(ordered_clips: Sequence[tuple[int, str]]) -> list[str]:
 def compute_utterance_metrics(
     model: SentenceTransformer,
     ordered_clips: Sequence[tuple[int, str]],
-    turnover_threshold: float = TURNOVER_THRESHOLD,
 ) -> UtteranceMetrics | None:
     texts = filter_valid_texts(ordered_clips)
     if len(texts) < 2:
@@ -42,16 +39,29 @@ def compute_utterance_metrics(
     final_embedding = embeddings[-1].reshape(1, -1)
     clip_to_final = cosine_similarity(embeddings, final_embedding).ravel().tolist()
     neighboring = cosine_similarity(embeddings[:-1], embeddings[1:]).diagonal().tolist()
-
-    semantic_turnover = sum(
-        1 for similarity in neighboring if similarity < turnover_threshold
-    )
     clip_count = len(texts)
 
     return UtteranceMetrics(
         clip_count=clip_count,
         clip_to_final_similarities=[float(value) for value in clip_to_final],
         neighboring_similarities=[float(value) for value in neighboring],
-        semantic_turnover=semantic_turnover,
-        semantic_turnover_ratio=float(semantic_turnover / clip_count),
     )
+
+
+def compute_semantic_turnover(
+    neighboring_similarities: Sequence[float],
+    turnover_threshold: float,
+) -> int:
+    return sum(1 for similarity in neighboring_similarities if similarity < turnover_threshold)
+
+
+def compute_semantic_turnover_ratio(
+    clip_count: int,
+    neighboring_similarities: Sequence[float],
+    turnover_threshold: float,
+) -> float:
+    semantic_turnover = compute_semantic_turnover(
+        neighboring_similarities=neighboring_similarities,
+        turnover_threshold=turnover_threshold,
+    )
+    return float(semantic_turnover / clip_count)
