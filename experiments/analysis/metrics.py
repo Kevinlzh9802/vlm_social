@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import re
 from typing import Sequence
 
 from sentence_transformers import SentenceTransformer
@@ -6,6 +7,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 
 DEFAULT_TURNOVER_THRESHOLDS = (0.3, 0.5, 0.7, 0.9)
+CUDA_OOM_PATTERN = re.compile(
+    r"(cuda.*out of memory|outofmemoryerror|torch\.cuda\..*outofmemory|cuda out of memory)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -16,7 +21,12 @@ class UtteranceMetrics:
 
 
 def is_error_text(text: str) -> bool:
-    return text.startswith("[ERROR]")
+    normalized = text.strip()
+    return normalized.startswith("[ERROR]") or CUDA_OOM_PATTERN.search(normalized) is not None
+
+
+def has_error_clip(ordered_clips: Sequence[tuple[int, str]]) -> bool:
+    return any(is_error_text(text) for _, text in ordered_clips)
 
 
 def filter_valid_texts(ordered_clips: Sequence[tuple[int, str]]) -> list[str]:
@@ -31,6 +41,9 @@ def compute_utterance_metrics(
     model: SentenceTransformer,
     ordered_clips: Sequence[tuple[int, str]],
 ) -> UtteranceMetrics | None:
+    if has_error_clip(ordered_clips):
+        return None
+
     texts = filter_valid_texts(ordered_clips)
     if len(texts) < 2:
         return None
