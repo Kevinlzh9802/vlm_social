@@ -14,7 +14,7 @@ set -euo pipefail
 
 PROJECT_ROOT="/home/zli33/projects/vlm_social"
 SIF_PATH="/scratch/zli33/apptainers/analysis.sif"
-DEFAULT_RESULTS_ROOT="/scratch/zli33/data/gestalt_bench/results/qwen2.5"
+DEFAULT_RESULTS_ROOT="/scratch/zli33/data/gestalt_bench/results"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
 DEFAULT_MODEL_PATH="/scratch/zli33/models/all-MiniLM-L6-v2"
 DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
@@ -22,7 +22,7 @@ DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 usage() {
     echo "Usage:" >&2
     echo "  sbatch $0 [--results-root PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...]" >&2
-    echo "  results-root: path to results/qwen2.5 (default: ${DEFAULT_RESULTS_ROOT})" >&2
+    echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  model: SentenceTransformer model name, used only for download (default: ${DEFAULT_MODEL})" >&2
     echo "  model-path: local directory with pre-downloaded model (default: ${DEFAULT_MODEL_PATH})" >&2
     echo "  turnover-thresholds: semantic-turnover thresholds (default: ${DEFAULT_THRESHOLDS[*]})" >&2

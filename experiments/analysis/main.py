@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -19,7 +20,7 @@ from metrics import (
 )
 
 
-DATASET_NAMES = ("mintrec2", "seamless_interaction")
+DATASET_NAMES = ("mintrec2", "meld", "seamless_interaction")
 DIALOGUE_KEY_PATTERN = re.compile(r"^d\d+u\d+$")
 FILE_CLIP_PATTERN = re.compile(r"^(?P<prefix>d\d+u\d+)_clip(?P<index>\d+)$")
 
@@ -74,17 +75,32 @@ def resolve_results_root(explicit_root: Path | None) -> Path:
 
     repo_root = Path(__file__).resolve().parents[2]
     candidates = (
-        repo_root / "results" / "qwen2.5",
-        repo_root.parent / "results" / "qwen2.5",
-        repo_root / "gestalt_bench" / "results" / "qwen2.5",
+        repo_root / "results",
+        repo_root.parent / "results",
+        repo_root / "gestalt_bench" / "results",
     )
     for candidate in candidates:
         if candidate.is_dir():
             return candidate.resolve()
 
     raise FileNotFoundError(
-        "Could not find results/qwen2.5 automatically. Pass --results-root explicitly."
+        "Could not find results automatically. Pass --results-root explicitly."
     )
+
+
+def has_dataset_structure(root: Path) -> bool:
+    return any((root / dataset_name).is_dir() for dataset_name in DATASET_NAMES)
+
+
+def iter_model_roots(results_root: Path) -> List[Path]:
+    if has_dataset_structure(results_root):
+        return [results_root]
+
+    model_roots: List[Path] = []
+    for path in sorted(results_root.iterdir()):
+        if path.is_dir() and has_dataset_structure(path):
+            model_roots.append(path)
+    return model_roots
 
 
 def iter_result_folders(dataset_root: Path) -> List[Path]:
@@ -127,9 +143,10 @@ def sort_key_for_clip_identifier(identifier: str) -> Tuple[int, str]:
 def extract_assistant_text(value: object) -> str | None:
     if not isinstance(value, dict):
         return None
-    assistant = value.get("assistant")
-    if isinstance(assistant, str) and assistant.strip():
-        return assistant.strip()
+    for field_name in ("assistant", "response", "response_text"):
+        field_value = value.get(field_name)
+        if isinstance(field_value, str) and field_value.strip():
+            return field_value.strip()
     return None
 
 
@@ -166,6 +183,11 @@ def build_base_figure_name(result_folder: Path, dataset_root: Path) -> str:
     return "__".join(result_folder.relative_to(dataset_root).parts)
 
 
+def build_plot_title(model_root: Path, dataset_root: Path, result_folder: Path) -> str:
+    relative_path = str(result_folder.relative_to(dataset_root)).replace("\\", " / ")
+    return f"{model_root.name} | {relative_path}"
+
+
 def plot_clip_to_final_scatter(
     utterance_metrics: Sequence[UtteranceMetrics],
     title: str,
@@ -173,25 +195,63 @@ def plot_clip_to_final_scatter(
 ) -> None:
     x_values: list[float] = []
     y_values: list[float] = []
+    grouped_values: dict[float, list[float]] = defaultdict(list)
 
     for metrics in utterance_metrics:
-        x_values.extend(
-            position / metrics.clip_count
-            for position in range(1, metrics.clip_count + 1)
-        )
-        y_values.extend(metrics.clip_to_final_similarities)
+        for position, similarity in enumerate(
+            metrics.clip_to_final_similarities, start=1
+        ):
+            progress_ratio = position / metrics.clip_count
+            x_values.append(progress_ratio)
+            y_values.append(similarity)
+            grouped_values[progress_ratio].append(similarity)
 
     if not x_values:
         return
 
     plt.figure(figsize=(8, 6))
     plt.scatter(x_values, y_values, s=18, alpha=0.65, edgecolors="none")
+
+    sorted_ratios = sorted(grouped_values)
+    percentile_25 = [
+        float(np.percentile(grouped_values[ratio], 25)) for ratio in sorted_ratios
+    ]
+    percentile_50 = [
+        float(np.percentile(grouped_values[ratio], 50)) for ratio in sorted_ratios
+    ]
+    percentile_75 = [
+        float(np.percentile(grouped_values[ratio], 75)) for ratio in sorted_ratios
+    ]
+
+    plt.plot(
+        sorted_ratios,
+        percentile_25,
+        color="#E45756",
+        linewidth=1.8,
+        label="25th percentile",
+    )
+    plt.plot(
+        sorted_ratios,
+        percentile_50,
+        color="#4C78A8",
+        linewidth=1.8,
+        label="50th percentile",
+    )
+    plt.plot(
+        sorted_ratios,
+        percentile_75,
+        color="#72B7B2",
+        linewidth=1.8,
+        label="75th percentile",
+    )
+
     plt.title(title)
     plt.xlabel("Observed clip ratio")
     plt.ylabel("Cosine similarity to final clip")
     plt.xlim(0.0, 1.02)
     plt.ylim(-0.05, 1.05)
     plt.grid(True, alpha=0.25)
+    plt.legend()
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
     plt.close()
@@ -303,6 +363,7 @@ def analyze_result_folder(
 
 def analyze_dataset(
     model: SentenceTransformer,
+    model_root: Path,
     dataset_root: Path,
     turnover_thresholds: Sequence[float],
 ) -> None:
@@ -321,7 +382,7 @@ def analyze_dataset(
             continue
 
         base_name = build_base_figure_name(result_folder, dataset_root)
-        title = str(result_folder.relative_to(dataset_root)).replace("\\", " / ")
+        title = build_plot_title(model_root=model_root, dataset_root=dataset_root, result_folder=result_folder)
 
         clip_to_final_path = dataset_root / f"{base_name}_clip_to_final_similarity.png"
         plot_clip_to_final_scatter(
@@ -366,17 +427,26 @@ def main() -> None:
         print(f"[INFO] Loading embedding model by name: {model_loc}")
     model = SentenceTransformer(model_loc)
 
-    for dataset_name in DATASET_NAMES:
-        dataset_root = results_root / dataset_name
-        if not dataset_root.is_dir():
-            print(f"[WARN] Dataset folder not found, skipping: {dataset_root}")
-            continue
-        print(f"[INFO] Processing dataset: {dataset_root}")
-        analyze_dataset(
-            model=model,
-            dataset_root=dataset_root,
-            turnover_thresholds=args.turnover_thresholds,
+    model_roots = iter_model_roots(results_root)
+    if not model_roots:
+        raise FileNotFoundError(
+            f"No model result folders with dataset structure found under {results_root}"
         )
+
+    for model_root in model_roots:
+        print(f"[INFO] Processing model: {model_root}")
+        for dataset_name in DATASET_NAMES:
+            dataset_root = model_root / dataset_name
+            if not dataset_root.is_dir():
+                print(f"[WARN] Dataset folder not found, skipping: {dataset_root}")
+                continue
+            print(f"[INFO] Processing dataset: {dataset_root}")
+            analyze_dataset(
+                model=model,
+                model_root=model_root,
+                dataset_root=dataset_root,
+                turnover_thresholds=args.turnover_thresholds,
+            )
 
 
 if __name__ == "__main__":
