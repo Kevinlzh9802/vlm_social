@@ -95,8 +95,11 @@ batch_id=$(printf "%02d" "$batch_number")
 # ---------------------------------------------------------------------------
 project_dir="${SLURM_SUBMIT_DIR:-.}"
 sif_file=/tudelft.net/staff-umbrella/neon/apptainer/gemini.sif
-gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
-results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench
+# gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
+# results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench
+
+gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench/human_eval/samples
+results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval
 
 data_parent="${gestalt_root}/${dataset_name}/context/${utt_count}-utt_group/batch${batch_id}"
 output_dir="${results_root}/gemini/${dataset_name}/context/${utt_count}-utt_group/${gemini_mode}_${prompt_choice}_single-turn"
