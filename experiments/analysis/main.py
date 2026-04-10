@@ -1,4 +1,5 @@
 import argparse
+import csv
 import json
 import re
 from collections import defaultdict
@@ -17,12 +18,17 @@ from metrics import (
     UtteranceMetrics,
     compute_semantic_turnover_ratio,
     compute_utterance_metrics,
+    compute_weighted_average_st_position,
 )
 
 
 DATASET_NAMES = ("mintrec2", "meld", "seamless_interaction")
+TASK_NAMES = ("affordance", "intention")
+UTTERANCE_GROUP_SIZES = (1, 2, 3)
 DIALOGUE_KEY_PATTERN = re.compile(r"^d\d+u\d+$")
 FILE_CLIP_PATTERN = re.compile(r"^(?P<prefix>d\d+u\d+)_clip(?P<index>\d+)$")
+UTT_GROUP_PATTERN = re.compile(r"^(?P<size>[123])-utt_group$")
+MODEL_SIZE_PATTERN = re.compile(r"(?P<size>\d+[Bb])(?:[_-]|$)")
 DEFAULT_PROGRESS_PARTITIONS = 20
 
 
@@ -72,6 +78,11 @@ def parse_args() -> argparse.Namespace:
             "Number of fixed x-axis partitions for clip-progress aggregation in "
             "clip-to-final plots. Default: 20."
         ),
+    )
+    parser.add_argument(
+        "--no-scatter",
+        action="store_true",
+        help="Skip scatter points in per-folder clip-to-final plots and draw percentile lines only.",
     )
     return parser.parse_args()
 
@@ -218,10 +229,54 @@ def build_plot_output_dir(
     return output_dir
 
 
+def parse_group_size(result_folder: Path) -> int | None:
+    for part in result_folder.parts:
+        match = UTT_GROUP_PATTERN.fullmatch(part)
+        if match:
+            return int(match.group("size"))
+    return None
+
+
+def parse_task_name(result_folder: Path) -> str | None:
+    leaf_name = result_folder.name.lower()
+    for task_name in TASK_NAMES:
+        if task_name in leaf_name:
+            return task_name
+    return None
+
+
+def build_model_label(model_root: Path, result_folder: Path) -> str:
+    model_name = model_root.name
+    if "ming-lite-omni" in model_name.lower():
+        return model_name
+
+    size_match = MODEL_SIZE_PATTERN.search(result_folder.name)
+    if size_match is not None:
+        return f"{model_name}-{size_match.group('size').upper()}"
+    return model_name
+
+
 def quantize_progress_ratio(progress_ratio: float, partitions: int) -> float:
     bucket_index = round(progress_ratio * partitions)
     bucket_index = max(1, min(partitions, bucket_index))
     return bucket_index / partitions
+
+
+def collect_clip_to_final_bins(
+    utterance_metrics: Sequence[UtteranceMetrics],
+    progress_partitions: int,
+) -> dict[float, list[float]]:
+    grouped_values: dict[float, list[float]] = defaultdict(list)
+    for metrics in utterance_metrics:
+        for position, similarity in enumerate(
+            metrics.clip_to_final_similarities, start=1
+        ):
+            progress_ratio = quantize_progress_ratio(
+                position / metrics.clip_count,
+                partitions=progress_partitions,
+            )
+            grouped_values[progress_ratio].append(similarity)
+    return grouped_values
 
 
 def plot_clip_to_final_scatter(
@@ -233,7 +288,10 @@ def plot_clip_to_final_scatter(
 ) -> None:
     x_values: list[float] = []
     y_values: list[float] = []
-    grouped_values: dict[float, list[float]] = defaultdict(list)
+    grouped_values = collect_clip_to_final_bins(
+        utterance_metrics=utterance_metrics,
+        progress_partitions=progress_partitions,
+    )
 
     for metrics in utterance_metrics:
         for position, similarity in enumerate(
@@ -245,7 +303,6 @@ def plot_clip_to_final_scatter(
             )
             x_values.append(progress_ratio)
             y_values.append(similarity)
-            grouped_values[progress_ratio].append(similarity)
 
     if not x_values:
         return
@@ -297,6 +354,60 @@ def plot_clip_to_final_scatter(
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
     plt.close()
+
+
+def plot_combined_clip_to_final_percentile_lines(
+    case_metrics: dict[str, list[UtteranceMetrics]],
+    percentile: int,
+    utt_group_size: int,
+    task_name: str,
+    progress_partitions: int,
+    output_path: Path,
+) -> bool:
+    plt.figure(figsize=(8, 6))
+    plotted_any = False
+
+    for model_label in sorted(case_metrics):
+        grouped_values = collect_clip_to_final_bins(
+            utterance_metrics=case_metrics[model_label],
+            progress_partitions=progress_partitions,
+        )
+        if not grouped_values:
+            print(
+                f"[WARN] No usable utterances for combined percentile plot: "
+                f"model={model_label}, utt={utt_group_size}, task={task_name}"
+            )
+            continue
+
+        ratios = sorted(grouped_values)
+        percentile_values = [
+            float(np.percentile(grouped_values[ratio], percentile))
+            for ratio in ratios
+        ]
+        plt.plot(ratios, percentile_values, marker="o", linewidth=1.8, label=model_label)
+        plotted_any = True
+
+    if not plotted_any:
+        plt.close()
+        print(
+            f"[WARN] No usable utterances for combined clip-to-final percentile plot: "
+            f"utt={utt_group_size}, task={task_name}, percentile={percentile}"
+        )
+        return False
+
+    plt.title(
+        f"Combined Clip-to-Final Similarity | {utt_group_size}-utt | {task_name} | p{percentile}"
+    )
+    plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
+    plt.ylabel("Cosine similarity to final clip")
+    plt.xlim(0.0, 1.02)
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+    return True
 
 
 def plot_neighbor_similarity_by_clip_count(
@@ -382,6 +493,167 @@ def plot_semantic_turnover_by_clip_count(
     plt.close()
 
 
+def plot_combined_st_threshold_lines(
+    case_metrics: dict[str, list[UtteranceMetrics]],
+    turnover_thresholds: Sequence[float],
+    utt_group_size: int,
+    task_name: str,
+    output_path: Path,
+) -> bool:
+    plt.figure(figsize=(8, 6))
+    plotted_any = False
+
+    for model_label in sorted(case_metrics):
+        model_metrics = case_metrics[model_label]
+        if not model_metrics:
+            print(
+                f"[WARN] No usable utterances for ST-threshold plot: "
+                f"model={model_label}, utt={utt_group_size}, task={task_name}"
+            )
+            continue
+
+        averages = []
+        for threshold in turnover_thresholds:
+            values = [
+                compute_semantic_turnover_ratio(
+                    clip_count=metrics.clip_count,
+                    neighboring_similarities=metrics.neighboring_similarities,
+                    turnover_threshold=threshold,
+                )
+                for metrics in model_metrics
+            ]
+            averages.append(float(np.mean(values)))
+
+        plt.plot(
+            turnover_thresholds,
+            averages,
+            marker="o",
+            linewidth=1.8,
+            label=model_label,
+        )
+        plotted_any = True
+
+    if not plotted_any:
+        plt.close()
+        print(
+            f"[WARN] No usable utterances for combined ST-threshold plot: "
+            f"utt={utt_group_size}, task={task_name}"
+        )
+        return False
+
+    plt.title(f"Average ST/Clip Count vs Threshold | {utt_group_size}-utt | {task_name}")
+    plt.xlabel("Threshold t")
+    plt.ylabel("Average(ST / number of clips)")
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+    return True
+
+
+def write_wastp_table(
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    output_csv_path: Path,
+    output_md_path: Path,
+) -> None:
+    case_order = [
+        (utt_group_size, task_name)
+        for utt_group_size in UTTERANCE_GROUP_SIZES
+        for task_name in TASK_NAMES
+    ]
+
+    model_labels = sorted(
+        {
+            model_label
+            for case_metrics in combined_case_metrics.values()
+            for model_label in case_metrics
+        }
+    )
+
+    fieldnames = ["model"] + [
+        f"{utt_group_size}utt_{task_name}" for utt_group_size, task_name in case_order
+    ]
+
+    rows: list[dict[str, str]] = []
+    for model_label in model_labels:
+        row: dict[str, str] = {"model": model_label}
+        for utt_group_size, task_name in case_order:
+            case_metrics = combined_case_metrics.get((utt_group_size, task_name), {})
+            utterance_metrics = case_metrics.get(model_label, [])
+            wastp_values = [
+                compute_weighted_average_st_position(
+                    clip_count=metrics.clip_count,
+                    neighboring_similarities=metrics.neighboring_similarities,
+                )
+                for metrics in utterance_metrics
+            ]
+            valid_values = [value for value in wastp_values if value is not None]
+            row[f"{utt_group_size}utt_{task_name}"] = (
+                f"{float(np.mean(valid_values)):.4f}" if valid_values else ""
+            )
+        rows.append(row)
+
+    with output_csv_path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+    lines = [
+        "| " + " | ".join(fieldnames) + " |",
+        "| " + " | ".join(["---"] * len(fieldnames)) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(row.get(field, "") for field in fieldnames) + " |")
+    output_md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def generate_combined_outputs(
+    plots_root: Path,
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    turnover_thresholds: Sequence[float],
+    progress_partitions: int,
+) -> None:
+    for utt_group_size in UTTERANCE_GROUP_SIZES:
+        for task_name in TASK_NAMES:
+            case_key = (utt_group_size, task_name)
+            case_metrics = combined_case_metrics.get(case_key, {})
+
+            for percentile in (25, 50, 75):
+                output_path = (
+                    plots_root
+                    / f"combined_clip_to_final_percentile_p{percentile}_{utt_group_size}utt_{task_name}.png"
+                )
+                plot_combined_clip_to_final_percentile_lines(
+                    case_metrics=case_metrics,
+                    percentile=percentile,
+                    utt_group_size=utt_group_size,
+                    task_name=task_name,
+                    progress_partitions=progress_partitions,
+                    output_path=output_path,
+                )
+
+            st_output_path = (
+                plots_root
+                / f"combined_st_vs_threshold_{utt_group_size}utt_{task_name}.png"
+            )
+            plot_combined_st_threshold_lines(
+                case_metrics=case_metrics,
+                turnover_thresholds=turnover_thresholds,
+                utt_group_size=utt_group_size,
+                task_name=task_name,
+                output_path=st_output_path,
+            )
+
+    write_wastp_table(
+        combined_case_metrics=combined_case_metrics,
+        output_csv_path=plots_root / "wastp_summary.csv",
+        output_md_path=plots_root / "wastp_summary.md",
+    )
+
+
 def analyze_result_folder(
     model: SentenceTransformer,
     result_folder: Path,
@@ -410,6 +682,8 @@ def analyze_dataset(
     plots_root: Path,
     turnover_thresholds: Sequence[float],
     progress_partitions: int,
+    include_scatter: bool,
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
 ) -> None:
     result_folders = iter_result_folders(dataset_root)
     if not result_folders:
@@ -431,16 +705,22 @@ def analyze_dataset(
             dataset_root=dataset_root,
             result_folder=result_folder,
         )
+        group_size = parse_group_size(result_folder)
+        task_name = parse_task_name(result_folder)
+        model_label = build_model_label(model_root=model_root, result_folder=result_folder)
+        if group_size is not None and task_name is not None:
+            combined_case_metrics[(group_size, task_name)][model_label].extend(utterance_metrics)
 
-        clip_to_final_path = output_dir / "clip_to_final_similarity_with_scatter.png"
-        plot_clip_to_final_scatter(
-            utterance_metrics=utterance_metrics,
-            title=title,
-            progress_partitions=progress_partitions,
-            output_path=clip_to_final_path,
-            include_scatter=True,
-        )
-        print(f"[INFO] Saved {clip_to_final_path}")
+        if include_scatter:
+            clip_to_final_path = output_dir / "clip_to_final_similarity_with_scatter.png"
+            plot_clip_to_final_scatter(
+                utterance_metrics=utterance_metrics,
+                title=title,
+                progress_partitions=progress_partitions,
+                output_path=clip_to_final_path,
+                include_scatter=True,
+            )
+            print(f"[INFO] Saved {clip_to_final_path}")
 
         clip_to_final_percentile_path = output_dir / "clip_to_final_similarity_percentiles_only.png"
         plot_clip_to_final_scatter(
@@ -492,6 +772,10 @@ def main() -> None:
             f"No model result folders with dataset structure found under {results_root}"
         )
 
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+
     for model_root in model_roots:
         print(f"[INFO] Processing model: {model_root}")
         for dataset_name in DATASET_NAMES:
@@ -507,7 +791,16 @@ def main() -> None:
                 plots_root=plots_root,
                 turnover_thresholds=args.turnover_thresholds,
                 progress_partitions=args.progress_partitions,
+                include_scatter=not args.no_scatter,
+                combined_case_metrics=combined_case_metrics,
             )
+
+    generate_combined_outputs(
+        plots_root=plots_root,
+        combined_case_metrics=combined_case_metrics,
+        turnover_thresholds=args.turnover_thresholds,
+        progress_partitions=args.progress_partitions,
+    )
 
 
 if __name__ == "__main__":

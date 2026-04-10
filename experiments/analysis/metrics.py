@@ -78,3 +78,22 @@ def compute_semantic_turnover_ratio(
         turnover_threshold=turnover_threshold,
     )
     return float(semantic_turnover / clip_count)
+
+
+def compute_weighted_average_st_position(
+    clip_count: int,
+    neighboring_similarities: Sequence[float],
+) -> float | None:
+    weighted_sum = 0.0
+    total_weight = 0.0
+
+    for position_index, similarity in enumerate(neighboring_similarities, start=1):
+        turnover_weight = max(0.0, 1.0 - similarity)
+        if turnover_weight <= 0:
+            continue
+        weighted_sum += turnover_weight * (position_index / clip_count)
+        total_weight += turnover_weight
+
+    if total_weight == 0:
+        return None
+    return float(weighted_sum / total_weight)

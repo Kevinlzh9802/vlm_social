@@ -21,11 +21,12 @@ DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--with-scatter]" >&2
     echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  model: SentenceTransformer model name, used only for download (default: ${DEFAULT_MODEL})" >&2
     echo "  model-path: local directory with pre-downloaded model (default: ${DEFAULT_MODEL_PATH})" >&2
     echo "  turnover-thresholds: semantic-turnover thresholds (default: ${DEFAULT_THRESHOLDS[*]})" >&2
+    echo "  --with-scatter: include scatter points in per-folder clip-to-final plots (default: disabled)" >&2
     echo "" >&2
     echo "Pre-download the model on a login node before submitting:" >&2
     echo "  apptainer exec --bind /scratch/zli33:/scratch/zli33 ${SIF_PATH} \\" >&2
@@ -36,6 +37,7 @@ RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
 MODEL="${DEFAULT_MODEL}"
 MODEL_PATH="${DEFAULT_MODEL_PATH}"
 THRESHOLDS=("${DEFAULT_THRESHOLDS[@]}")
+NO_SCATTER=1
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -62,6 +64,10 @@ while [[ $# -gt 0 ]]; do
                 echo "Missing value(s) for --turnover-thresholds" >&2
                 exit 1
             fi
+            ;;
+        --with-scatter)
+            NO_SCATTER=0
+            shift
             ;;
         -h|--help)
             usage
@@ -107,6 +113,7 @@ echo "Results root:    ${RESULTS_ROOT}"
 echo "Model name:      ${MODEL}"
 echo "Model path:      ${MODEL_PATH}"
 echo "Thresholds:      ${THRESHOLDS[*]}"
+echo "No scatter:      ${NO_SCATTER}"
 
 PYTHON_ARGS=(
     python /workspace/experiments/analysis/main.py
@@ -114,6 +121,10 @@ PYTHON_ARGS=(
     --model-path "${MODEL_PATH}"
     --turnover-thresholds "${THRESHOLDS[@]}"
 )
+
+if [[ "${NO_SCATTER}" == "1" ]]; then
+    PYTHON_ARGS+=(--no-scatter)
+fi
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
