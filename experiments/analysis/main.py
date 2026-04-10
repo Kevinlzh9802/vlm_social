@@ -23,6 +23,7 @@ from metrics import (
 DATASET_NAMES = ("mintrec2", "meld", "seamless_interaction")
 DIALOGUE_KEY_PATTERN = re.compile(r"^d\d+u\d+$")
 FILE_CLIP_PATTERN = re.compile(r"^(?P<prefix>d\d+u\d+)_clip(?P<index>\d+)$")
+DEFAULT_PROGRESS_PARTITIONS = 20
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,6 +64,15 @@ def parse_args() -> argparse.Namespace:
             "as one turnover event. Default: 0.3 0.5 0.7 0.9."
         ),
     )
+    parser.add_argument(
+        "--progress-partitions",
+        type=int,
+        default=DEFAULT_PROGRESS_PARTITIONS,
+        help=(
+            "Number of fixed x-axis partitions for clip-progress aggregation in "
+            "clip-to-final plots. Default: 20."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -98,9 +108,17 @@ def iter_model_roots(results_root: Path) -> List[Path]:
 
     model_roots: List[Path] = []
     for path in sorted(results_root.iterdir()):
+        if path.name == "plots":
+            continue
         if path.is_dir() and has_dataset_structure(path):
             model_roots.append(path)
     return model_roots
+
+
+def resolve_plots_root(results_root: Path) -> Path:
+    if has_dataset_structure(results_root):
+        return (results_root.parent / "plots").resolve()
+    return (results_root / "plots").resolve()
 
 
 def iter_result_folders(dataset_root: Path) -> List[Path]:
@@ -179,19 +197,39 @@ def extract_ordered_clips(dialogue_key: str, dialogue_value: object) -> List[Tup
     return sorted(clip_dict.items(), key=lambda item: item[0])
 
 
-def build_base_figure_name(result_folder: Path, dataset_root: Path) -> str:
-    return "__".join(result_folder.relative_to(dataset_root).parts)
-
-
 def build_plot_title(model_root: Path, dataset_root: Path, result_folder: Path) -> str:
     relative_path = str(result_folder.relative_to(dataset_root)).replace("\\", " / ")
     return f"{model_root.name} | {relative_path}"
 
 
+def build_plot_output_dir(
+    plots_root: Path,
+    dataset_root: Path,
+    result_folder: Path,
+) -> Path:
+    relative_parts = list(result_folder.relative_to(dataset_root).parts)
+    if relative_parts and relative_parts[0] == "context":
+        relative_parts = relative_parts[1:]
+
+    output_dir = plots_root / dataset_root.name
+    for part in relative_parts:
+        output_dir /= part
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+def quantize_progress_ratio(progress_ratio: float, partitions: int) -> float:
+    bucket_index = round(progress_ratio * partitions)
+    bucket_index = max(1, min(partitions, bucket_index))
+    return bucket_index / partitions
+
+
 def plot_clip_to_final_scatter(
     utterance_metrics: Sequence[UtteranceMetrics],
     title: str,
+    progress_partitions: int,
     output_path: Path,
+    include_scatter: bool,
 ) -> None:
     x_values: list[float] = []
     y_values: list[float] = []
@@ -201,7 +239,10 @@ def plot_clip_to_final_scatter(
         for position, similarity in enumerate(
             metrics.clip_to_final_similarities, start=1
         ):
-            progress_ratio = position / metrics.clip_count
+            progress_ratio = quantize_progress_ratio(
+                position / metrics.clip_count,
+                partitions=progress_partitions,
+            )
             x_values.append(progress_ratio)
             y_values.append(similarity)
             grouped_values[progress_ratio].append(similarity)
@@ -210,7 +251,8 @@ def plot_clip_to_final_scatter(
         return
 
     plt.figure(figsize=(8, 6))
-    plt.scatter(x_values, y_values, s=18, alpha=0.65, edgecolors="none")
+    if include_scatter:
+        plt.scatter(x_values, y_values, s=18, alpha=0.65, edgecolors="none")
 
     sorted_ratios = sorted(grouped_values)
     percentile_25 = [
@@ -246,7 +288,7 @@ def plot_clip_to_final_scatter(
     )
 
     plt.title(title)
-    plt.xlabel("Observed clip ratio")
+    plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
     plt.ylabel("Cosine similarity to final clip")
     plt.xlim(0.0, 1.02)
     plt.ylim(-0.05, 1.05)
@@ -365,7 +407,9 @@ def analyze_dataset(
     model: SentenceTransformer,
     model_root: Path,
     dataset_root: Path,
+    plots_root: Path,
     turnover_thresholds: Sequence[float],
+    progress_partitions: int,
 ) -> None:
     result_folders = iter_result_folders(dataset_root)
     if not result_folders:
@@ -381,18 +425,34 @@ def analyze_dataset(
             print(f"[WARN] No usable utterances found in {result_folder}")
             continue
 
-        base_name = build_base_figure_name(result_folder, dataset_root)
         title = build_plot_title(model_root=model_root, dataset_root=dataset_root, result_folder=result_folder)
+        output_dir = build_plot_output_dir(
+            plots_root=plots_root,
+            dataset_root=dataset_root,
+            result_folder=result_folder,
+        )
 
-        clip_to_final_path = dataset_root / f"{base_name}_clip_to_final_similarity.png"
+        clip_to_final_path = output_dir / "clip_to_final_similarity_with_scatter.png"
         plot_clip_to_final_scatter(
             utterance_metrics=utterance_metrics,
             title=title,
+            progress_partitions=progress_partitions,
             output_path=clip_to_final_path,
+            include_scatter=True,
         )
         print(f"[INFO] Saved {clip_to_final_path}")
 
-        neighbor_path = dataset_root / f"{base_name}_neighbor_similarity_by_clip_count.png"
+        clip_to_final_percentile_path = output_dir / "clip_to_final_similarity_percentiles_only.png"
+        plot_clip_to_final_scatter(
+            utterance_metrics=utterance_metrics,
+            title=f"{title} | Percentiles Only",
+            progress_partitions=progress_partitions,
+            output_path=clip_to_final_percentile_path,
+            include_scatter=False,
+        )
+        print(f"[INFO] Saved {clip_to_final_percentile_path}")
+
+        neighbor_path = output_dir / "neighbor_similarity_by_clip_count.png"
         plot_neighbor_similarity_by_clip_count(
             utterance_metrics=utterance_metrics,
             title=f"{title} | Neighbor Similarity by Clip Count",
@@ -402,10 +462,7 @@ def analyze_dataset(
 
         for turnover_threshold in turnover_thresholds:
             threshold_tag = f"{turnover_threshold:.2f}".replace(".", "p")
-            turnover_path = (
-                dataset_root
-                / f"{base_name}_semantic_turnover_by_clip_count_t{threshold_tag}.png"
-            )
+            turnover_path = output_dir / f"semantic_turnover_by_clip_count_t{threshold_tag}.png"
             plot_semantic_turnover_by_clip_count(
                 utterance_metrics=utterance_metrics,
                 turnover_threshold=turnover_threshold,
@@ -418,6 +475,8 @@ def analyze_dataset(
 def main() -> None:
     args = parse_args()
     results_root = resolve_results_root(args.results_root)
+    plots_root = resolve_plots_root(results_root)
+    plots_root.mkdir(parents=True, exist_ok=True)
 
     if args.model_path is not None:
         model_loc = str(args.model_path.expanduser().resolve())
@@ -445,7 +504,9 @@ def main() -> None:
                 model=model,
                 model_root=model_root,
                 dataset_root=dataset_root,
+                plots_root=plots_root,
                 turnover_thresholds=args.turnover_thresholds,
+                progress_partitions=args.progress_partitions,
             )
 
 
