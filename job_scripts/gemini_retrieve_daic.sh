@@ -24,8 +24,11 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 project_dir="${SLURM_SUBMIT_DIR:-.}"
 sif_file=/tudelft.net/staff-umbrella/neon/apptainer/gemini.sif
-results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench
-gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
+# gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
+# results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench
+
+gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench/human_eval/samples
+results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval
 
 api_key_file=/home/nfs/zli33/keys/gemini_api.txt
 registry_file="${results_root}/gemini/gemini_registry.json"
