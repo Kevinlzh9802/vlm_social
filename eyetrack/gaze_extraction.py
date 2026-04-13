@@ -199,6 +199,14 @@ def extract_video_gaze_data(
     extracted = []
     for annotator_timings in all_timings:
         for timing in annotator_timings.timings:
+            if timing.video_start_time is None or timing.video_end_time is None:
+                logging.warning(
+                    "Skipping annotator %s video %s because start/end time is missing.",
+                    annotator_timings.annotator_number,
+                    timing.video_number,
+                )
+                continue
+
             video_entry = video_entries.get(timing.video_number)
             if video_entry is None:
                 logging.error("No video list entry found for video number %s.", timing.video_number)

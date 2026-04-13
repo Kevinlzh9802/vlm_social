@@ -16,9 +16,9 @@ TIME_TOLERANCE_SECONDS = 0.5
 class VideoTiming:
     video_number: int
     annotation_key: int
-    video_start_time: str
-    video_end_time: str
-    video_length: float
+    video_start_time: str | None
+    video_end_time: str | None
+    video_length: float | None
     current_video_time: float | None
     time_annot: float | None
 
@@ -107,10 +107,11 @@ def parse_optional_float(value: Any) -> float | None:
         return None
 
 
-def select_latest_press_data(annotation_key: int, annotation: dict) -> dict:
+def select_latest_press_data(annotation_key: int, annotation: dict) -> dict | None:
     candidates = list(iter_press_data(annotation.get("data", {})))
     if not candidates:
-        raise ValueError(f"annotation {annotation_key} has no press_data entry under data.")
+        logging.error("annotation %s has no press_data entry under data.", annotation_key)
+        return None
     if len(candidates) > 1:
         logging.warning(
             "annotation %s has %s press_data entries; using the latest time_annot.",
@@ -135,6 +136,20 @@ def parse_video_timings(
     timings = []
     for video_number, (annotation_key, annotation) in enumerate(sorted_annotation_items(annotations)):
         press_data = select_latest_press_data(annotation_key, annotation)
+        if press_data is None:
+            timings.append(
+                VideoTiming(
+                    video_number=video_number,
+                    annotation_key=annotation_key,
+                    video_start_time=None,
+                    video_end_time=None,
+                    video_length=None,
+                    current_video_time=None,
+                    time_annot=None,
+                )
+            )
+            continue
+
         start_raw = press_data["video_start_time"]
         end_raw = press_data["video_end_time"]
         video_length = (parse_timestamp(end_raw) - parse_timestamp(start_raw)).total_seconds()
@@ -204,9 +219,9 @@ def print_timing_table(annotator_timings: AnnotatorTimings) -> None:
     rows = [
         (
             str(timing.video_number),
-            timing.video_start_time,
-            timing.video_end_time,
-            f"{timing.video_length:.3f}",
+            str(timing.video_start_time),
+            str(timing.video_end_time),
+            "None" if timing.video_length is None else f"{timing.video_length:.3f}",
         )
         for timing in timings
     ]

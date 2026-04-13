@@ -117,6 +117,17 @@
                 "--delete-all"
             ]
         
+        },
+        {
+            "name": "annotation_interval",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/eyetrack/annotation_intervals.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "D:\\ChromeDownloads\\benchmark\\results (3)\\T2_0.json"
+            ]
         }
     ]
 }
