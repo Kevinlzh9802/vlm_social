@@ -1,0 +1,65 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Author zonghuan
+    Description Lightweight environment for eyetrack extraction and focus plotting
+
+%help
+    Build from the apptainer directory:
+        cd apptainer
+        apptainer build eyetrack.sif eyetrack.def
+
+    Example usage:
+        apptainer exec --bind ..:/workspace eyetrack.sif \
+            python /workspace/eyetrack/eyetrack_annotation.py --help
+
+%files
+    requirements_eyetrack.txt /opt/requirements_eyetrack.txt
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    export PYTHONUNBUFFERED=1
+    export PYTHONDONTWRITEBYTECODE=1
+    export PIP_NO_CACHE_DIR=1
+    export MPLCONFIGDIR=/tmp/matplotlib
+    export XDG_CACHE_HOME=/tmp
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+
+    if [ ! -f /opt/requirements_eyetrack.txt ]; then
+        echo "ERROR: /opt/requirements_eyetrack.txt not found."
+        echo "Make sure to build from the apptainer/ directory:"
+        echo "    cd apptainer && apptainer build eyetrack.sif eyetrack.def"
+        exit 1
+    fi
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        ffmpeg \
+        fonts-dejavu-core \
+        git \
+        libglib2.0-0 \
+        libgomp1 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        python3 \
+        python3-pip \
+        python3-venv
+    rm -rf /var/lib/apt/lists/*
+
+    ln -sf /usr/bin/python3 /usr/local/bin/python
+    python -m pip install --upgrade pip setuptools wheel
+    python -m pip install -r /opt/requirements_eyetrack.txt
+
+    mkdir -p /workspace /tmp/matplotlib
+
+%runscript
+    exec "$@"
+
+%test
+    python -c "import cv2, matplotlib, msgpack, numpy; print('eyetrack imports OK')"
