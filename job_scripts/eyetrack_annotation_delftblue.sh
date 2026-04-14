@@ -18,7 +18,7 @@ DEFAULT_PUPIL_PARENT="/scratch/zli33/data/gestalt_bench/human_eval/pupil"
 DEFAULT_ANNOTATION_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/results"
 DEFAULT_VIDEO_JSON="/scratch/zli33/data/gestalt_bench/human_eval/task2/task2.json"
 DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/extraction_focus"
-DEFAULT_LOCAL_PATH_PREFIX="/scratch/zli33/data/gestalt_bench/annotation1"
+DEFAULT_LOCAL_PATH_PREFIX="/scratch/zli33/data/gestalt_bench/human_eval/videos"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 
 usage() {
