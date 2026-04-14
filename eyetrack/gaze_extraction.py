@@ -188,13 +188,57 @@ def load_video_entries(
     return videos
 
 
+def get_video_entry_for_timing(
+    timing: VideoTiming,
+    video_entries: Dict[int, VideoEntry] | None,
+    local_path_prefix: Path,
+    media_url_prefix: str,
+) -> VideoEntry | None:
+    if timing.video_path:
+        annotation_video_path = resolve_video_path(
+            timing.video_path,
+            local_path_prefix,
+            media_url_prefix,
+        )
+        if annotation_video_path.exists():
+            return VideoEntry(
+                video_id=timing.video_number,
+                video_url=timing.video_path,
+                video_path=annotation_video_path,
+            )
+
+        logging.warning(
+            "Annotation video path does not exist; trying video JSON fallback for video %s: %s",
+            timing.video_number,
+            annotation_video_path,
+        )
+
+    if video_entries is None:
+        logging.error(
+            "No annotation video path and no video JSON fallback for video number %s.",
+            timing.video_number,
+        )
+        return None
+
+    video_entry = video_entries.get(timing.video_number)
+    if video_entry is None:
+        logging.error("No video list entry found for video number %s.", timing.video_number)
+        return None
+    if not video_entry.video_path.exists():
+        logging.error("Video file does not exist: %s", video_entry.video_path)
+        return None
+    return video_entry
+
+
 def extract_video_gaze_data(
     all_timings: List[AnnotatorTimings],
-    video_entries: Dict[int, VideoEntry],
+    video_entries: Dict[int, VideoEntry] | None,
     timestamps: Any,
     gaze_data: list,
     system_to_pupil_offset: float,
     confidence_threshold: float,
+    local_path_prefix: Path,
+    media_url_prefix: str,
 ) -> List[VideoGazeData]:
     extracted = []
     for annotator_timings in all_timings:
@@ -207,12 +251,13 @@ def extract_video_gaze_data(
                 )
                 continue
 
-            video_entry = video_entries.get(timing.video_number)
+            video_entry = get_video_entry_for_timing(
+                timing,
+                video_entries,
+                local_path_prefix,
+                media_url_prefix,
+            )
             if video_entry is None:
-                logging.error("No video list entry found for video number %s.", timing.video_number)
-                continue
-            if not video_entry.video_path.exists():
-                logging.error("Video file does not exist: %s", video_entry.video_path)
                 continue
 
             start_time = annotation_time_to_pupil_time(

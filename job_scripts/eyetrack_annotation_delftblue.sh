@@ -126,8 +126,8 @@ PYTHON_ARGS=(
     python /workspace/eyetrack/eyetrack_annotation.py
     "${PUPIL_PARENT}"
     "${ANNOTATION_DIR}"
-    "${VIDEO_JSON}"
     "${LOCAL_PATH_PREFIX}"
+    --video-json "${VIDEO_JSON}"
     --output-dir "${OUTPUT_DIR}"
     --timing-csv "${TIMING_CSV}"
     --media-url-prefix "${MEDIA_URL_PREFIX}"

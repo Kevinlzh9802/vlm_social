@@ -18,6 +18,8 @@ class VideoTiming:
     annotation_key: int
     video_start_time: str | None
     video_end_time: str | None
+    video_path: str | None
+    audio_path: str | None
     video_length: float | None
     current_video_time: float | None
     time_annot: float | None
@@ -86,7 +88,12 @@ def iter_press_data(node: Any) -> Iterator[dict]:
     if isinstance(node, dict):
         press_data = node.get("press_data")
         if isinstance(press_data, dict):
-            yield press_data
+            sibling_fields = {
+                key: value
+                for key, value in node.items()
+                if key != "press_data" and not isinstance(value, (dict, list))
+            }
+            yield {**press_data, **sibling_fields}
         for value in node.values():
             yield from iter_press_data(value)
     elif isinstance(node, list):
@@ -143,6 +150,8 @@ def parse_video_timings(
                     annotation_key=annotation_key,
                     video_start_time=None,
                     video_end_time=None,
+                    video_path=None,
+                    audio_path=None,
                     video_length=None,
                     current_video_time=None,
                     time_annot=None,
@@ -153,6 +162,8 @@ def parse_video_timings(
         start_raw = press_data["video_start_time"]
         end_raw = press_data["video_end_time"]
         video_length = (parse_timestamp(end_raw) - parse_timestamp(start_raw)).total_seconds()
+        video_path = press_data.get("video_path")
+        audio_path = press_data.get("audio_path")
         current_video_time = parse_optional_float(press_data.get("current_video_time"))
         time_annot = parse_optional_float(press_data.get("time_annot"))
 
@@ -178,6 +189,8 @@ def parse_video_timings(
                 annotation_key=annotation_key,
                 video_start_time=start_raw,
                 video_end_time=end_raw,
+                video_path=None if video_path is None else str(video_path),
+                audio_path=None if audio_path is None else str(audio_path),
                 video_length=video_length,
                 current_video_time=current_video_time,
                 time_annot=time_annot,

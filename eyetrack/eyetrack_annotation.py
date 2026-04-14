@@ -60,6 +60,8 @@ TIMING_CSV_FIELDS = (
     "annotation_key",
     "video_start_time",
     "video_end_time",
+    "video_path",
+    "audio_path",
     "video_length",
     "current_video_time",
     "time_annot",
@@ -104,6 +106,8 @@ def write_timing_csv_rows(
                 "annotation_key": timing.annotation_key,
                 "video_start_time": timing.video_start_time,
                 "video_end_time": timing.video_end_time,
+                "video_path": timing.video_path,
+                "audio_path": timing.audio_path,
                 "video_length": timing.video_length,
                 "current_video_time": timing.current_video_time,
                 "time_annot": timing.time_annot,
@@ -125,11 +129,20 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Folder containing annotation JSON files named like T{x}_{y}.json.",
     )
-    parser.add_argument("video_json", type=Path, help="JSON file containing the ordered video list.")
     parser.add_argument(
-        "local_path_prefix",
+        "paths",
+        nargs="+",
         type=Path,
-        help=f"Local path prefix replacing the {MEDIA_URL_PREFIX} URL prefix.",
+        help=(
+            f"Local path prefix replacing the {MEDIA_URL_PREFIX} URL prefix. "
+            "Legacy positional form is also supported: video_json local_path_prefix."
+        ),
+    )
+    parser.add_argument(
+        "--video-json",
+        type=Path,
+        default=None,
+        help="Optional fallback JSON file containing the ordered video list.",
     )
     parser.add_argument(
         "--duration-tolerance",
@@ -172,7 +185,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional offset added to UNIX annotation timestamps to get Pupil Time.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if len(args.paths) == 1:
+        args.local_path_prefix = args.paths[0]
+    elif len(args.paths) == 2:
+        if args.video_json is not None:
+            parser.error("Use either --video-json or legacy positional video_json, not both.")
+        args.video_json = args.paths[0]
+        args.local_path_prefix = args.paths[1]
+    else:
+        parser.error("Expected local_path_prefix, or legacy: video_json local_path_prefix.")
+    return args
 
 
 def main() -> None:
@@ -194,12 +217,14 @@ def main() -> None:
         )
     logging.info("found %s annotation files in %s", len(annotation_files), args.annotation_dir)
 
-    video_entries = load_video_entries(
-        args.video_json,
-        args.local_path_prefix,
-        args.media_url_prefix,
-    )
-    logging.info("loaded %s video entries from %s", len(video_entries), args.video_json)
+    video_entries = None
+    if args.video_json is not None:
+        video_entries = load_video_entries(
+            args.video_json,
+            args.local_path_prefix,
+            args.media_url_prefix,
+        )
+        logging.info("loaded %s video entries from %s", len(video_entries), args.video_json)
 
     timing_csv_file = None
     timing_writer = None
@@ -255,6 +280,8 @@ def main() -> None:
                     gaze_data=gaze_data,
                     system_to_pupil_offset=system_to_pupil_offset,
                     confidence_threshold=args.confidence,
+                    local_path_prefix=args.local_path_prefix,
+                    media_url_prefix=args.media_url_prefix,
                 )
                 plot_focus_for_video_gaze_data(
                     video_gaze_data=video_gaze_data,
