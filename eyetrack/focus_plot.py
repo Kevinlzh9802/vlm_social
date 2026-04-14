@@ -129,9 +129,12 @@ def plot_focus_for_video_gaze_data(
     video_gaze_data: List[VideoGazeData],
     output_dir: Path,
     video_screen_ratio: float,
+    annotator_dir_template: str = "annotator_{annotator_number}",
 ) -> None:
     for video_gaze in video_gaze_data:
         points = map_screen_focus_to_video(video_gaze.samples, video_screen_ratio)
-        annotator_output_dir = output_dir / f"annotator_{video_gaze.annotator_number}"
+        annotator_output_dir = output_dir / annotator_dir_template.format(
+            annotator_number=video_gaze.annotator_number
+        )
         output_path = plot_focus_points(video_gaze, points, annotator_output_dir)
         logging.info("wrote focus plot: %s", output_path)

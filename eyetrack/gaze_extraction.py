@@ -13,7 +13,7 @@ except ImportError:
     from annotation_intervals import AnnotatorTimings, VideoTiming, parse_timestamp
 
 
-MEDIA_URL_PREFIX = "http://localhost:5000/api/media/"
+MEDIA_URL_PREFIX = "http://localhost:5000/api/media/gestalt_bench/annotation1/"
 
 
 @dataclass
@@ -144,7 +144,7 @@ def annotation_time_to_pupil_time(value: str, system_to_pupil_offset: float) -> 
     return parse_timestamp(value).timestamp() + system_to_pupil_offset
 
 
-def resolve_video_path(video_url: str, data_parent: Path, media_url_prefix: str) -> Path:
+def resolve_video_path(video_url: str, local_path_prefix: Path, media_url_prefix: str) -> Path:
     if video_url.startswith(media_url_prefix):
         relative_path = video_url[len(media_url_prefix) :]
     else:
@@ -154,7 +154,7 @@ def resolve_video_path(video_url: str, data_parent: Path, media_url_prefix: str)
             video_url,
         )
         relative_path = video_url
-    return data_parent.joinpath(*unquote(relative_path).lstrip("/\\").split("/"))
+    return local_path_prefix.joinpath(*unquote(relative_path).lstrip("/\\").split("/"))
 
 
 def iter_video_entries(node: Any) -> Iterator[dict]:
@@ -170,7 +170,7 @@ def iter_video_entries(node: Any) -> Iterator[dict]:
 
 def load_video_entries(
     video_json_path: Path,
-    data_parent: Path,
+    local_path_prefix: Path,
     media_url_prefix: str,
 ) -> Dict[int, VideoEntry]:
     with video_json_path.open("r", encoding="utf-8") as f:
@@ -183,7 +183,7 @@ def load_video_entries(
         videos[list_index] = VideoEntry(
             video_id=video_id,
             video_url=video_url,
-            video_path=resolve_video_path(video_url, data_parent, media_url_prefix),
+            video_path=resolve_video_path(video_url, local_path_prefix, media_url_prefix),
         )
     return videos
 
