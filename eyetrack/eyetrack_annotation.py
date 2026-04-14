@@ -12,6 +12,7 @@ This CLI coordinates three pieces:
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import re
 from pathlib import Path
@@ -48,6 +49,21 @@ except ImportError:
 
 
 ANNOTATION_FILE_RE = re.compile(r"^T(?P<task_number>\d+)_(?P<task_instance_id>\d+)\.json$")
+TIMING_CSV_FIELDS = (
+    "task_number",
+    "task_instance_id",
+    "task_instance",
+    "annotator_number",
+    "node_id",
+    "global_unique_id",
+    "video_number",
+    "annotation_key",
+    "video_start_time",
+    "video_end_time",
+    "video_length",
+    "current_video_time",
+    "time_annot",
+)
 
 
 def find_annotation_jsons(annotation_dir: Path) -> List[Tuple[int, int, Path]]:
@@ -66,6 +82,33 @@ def find_annotation_jsons(annotation_dir: Path) -> List[Tuple[int, int, Path]]:
             )
         )
     return sorted(annotation_files, key=lambda item: (item[0], item[1], item[2].name))
+
+
+def write_timing_csv_rows(
+    writer: csv.DictWriter,
+    task_number: int,
+    task_instance_id: int,
+    task_instance_name: str,
+    annotator_timings,
+) -> None:
+    for timing in annotator_timings.timings:
+        writer.writerow(
+            {
+                "task_number": task_number,
+                "task_instance_id": task_instance_id,
+                "task_instance": task_instance_name,
+                "annotator_number": annotator_timings.annotator_number,
+                "node_id": annotator_timings.node_id,
+                "global_unique_id": annotator_timings.global_unique_id,
+                "video_number": timing.video_number,
+                "annotation_key": timing.annotation_key,
+                "video_start_time": timing.video_start_time,
+                "video_end_time": timing.video_end_time,
+                "video_length": timing.video_length,
+                "current_video_time": timing.current_video_time,
+                "time_annot": timing.time_annot,
+            }
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,6 +142,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("eyetrack_focus_plots"),
         help="Directory where focus plots will be written.",
+    )
+    parser.add_argument(
+        "--timing-csv",
+        type=Path,
+        default=None,
+        help="Optional CSV file for annotation start/end timing rows.",
     )
     parser.add_argument(
         "--confidence",
@@ -152,50 +201,71 @@ def main() -> None:
     )
     logging.info("loaded %s video entries from %s", len(video_entries), args.video_json)
 
-    for task_number, task_instance_id, annotation_json in annotation_files:
-        task_instance_name = f"T{task_number}_{task_instance_id}"
-        logging.info("processing annotation file: %s", annotation_json)
+    timing_csv_file = None
+    timing_writer = None
+    try:
+        if args.timing_csv is not None:
+            args.timing_csv.parent.mkdir(parents=True, exist_ok=True)
+            timing_csv_file = args.timing_csv.open("w", encoding="utf-8", newline="")
+            timing_writer = csv.DictWriter(timing_csv_file, fieldnames=TIMING_CSV_FIELDS)
+            timing_writer.writeheader()
 
-        all_timings = load_all_video_timings(annotation_json, args.duration_tolerance)
-        for annotator_timings in all_timings:
-            annotator_output_dir = (
-                args.output_dir
-                / f"{task_instance_name}_annotator{annotator_timings.annotator_number}"
-            )
-            annotator_output_dir.mkdir(parents=True, exist_ok=True)
-            print_timing_table(annotator_timings)
+        for task_number, task_instance_id, annotation_json in annotation_files:
+            task_instance_name = f"T{task_number}_{task_instance_id}"
+            logging.info("processing annotation file: %s", annotation_json)
 
-            recording_dir = args.recording_parent_dir / annotator_output_dir.name
-            if not recording_dir.is_dir():
-                raise NotADirectoryError(f"Pupil recording folder not found: {recording_dir}")
+            all_timings = load_all_video_timings(annotation_json, args.duration_tolerance)
+            for annotator_timings in all_timings:
+                annotator_output_dir = (
+                    args.output_dir
+                    / f"{task_instance_name}_annotator{annotator_timings.annotator_number}"
+                )
+                annotator_output_dir.mkdir(parents=True, exist_ok=True)
+                print_timing_table(annotator_timings)
+                if timing_writer is not None:
+                    write_timing_csv_rows(
+                        timing_writer,
+                        task_number,
+                        task_instance_id,
+                        task_instance_name,
+                        annotator_timings,
+                    )
 
-            logging.info(
-                "using recording folder for %s annotator %s: %s",
-                task_instance_name,
-                annotator_timings.annotator_number,
-                recording_dir,
-            )
-            timestamps, gaze_data = load_gaze(recording_dir)
-            system_to_pupil_offset = (
-                args.system_to_pupil_offset
-                if args.system_to_pupil_offset is not None
-                else load_recording_time_offset(recording_dir)
-            )
+                recording_dir = args.recording_parent_dir / annotator_output_dir.name
+                if not recording_dir.is_dir():
+                    raise NotADirectoryError(f"Pupil recording folder not found: {recording_dir}")
 
-            video_gaze_data = extract_video_gaze_data(
-                all_timings=[annotator_timings],
-                video_entries=video_entries,
-                timestamps=timestamps,
-                gaze_data=gaze_data,
-                system_to_pupil_offset=system_to_pupil_offset,
-                confidence_threshold=args.confidence,
-            )
-            plot_focus_for_video_gaze_data(
-                video_gaze_data=video_gaze_data,
-                output_dir=args.output_dir,
-                video_screen_ratio=args.video_screen_ratio,
-                annotator_dir_template=f"{task_instance_name}_annotator{{annotator_number}}",
-            )
+                logging.info(
+                    "using recording folder for %s annotator %s: %s",
+                    task_instance_name,
+                    annotator_timings.annotator_number,
+                    recording_dir,
+                )
+                timestamps, gaze_data = load_gaze(recording_dir)
+                system_to_pupil_offset = (
+                    args.system_to_pupil_offset
+                    if args.system_to_pupil_offset is not None
+                    else load_recording_time_offset(recording_dir)
+                )
+
+                video_gaze_data = extract_video_gaze_data(
+                    all_timings=[annotator_timings],
+                    video_entries=video_entries,
+                    timestamps=timestamps,
+                    gaze_data=gaze_data,
+                    system_to_pupil_offset=system_to_pupil_offset,
+                    confidence_threshold=args.confidence,
+                )
+                plot_focus_for_video_gaze_data(
+                    video_gaze_data=video_gaze_data,
+                    output_dir=args.output_dir,
+                    video_screen_ratio=args.video_screen_ratio,
+                    annotator_dir_template=f"{task_instance_name}_annotator{{annotator_number}}",
+                )
+    finally:
+        if timing_csv_file is not None:
+            logging.info("wrote timing CSV: %s", args.timing_csv)
+            timing_csv_file.close()
 
 
 if __name__ == "__main__":
