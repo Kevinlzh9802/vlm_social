@@ -82,6 +82,9 @@ class AnnotationClipGroup:
     final_clip_path: Path
     gaze_points: list[GazePoint]
     # Provenance metadata
+    task_number: int | None = None
+    task_instance_id: int | None = None
+    task_instance: str | None = None
     video_number: int | None = None
     annotation_key: int | None = None
     annotation_video_path: str | None = None
@@ -640,6 +643,9 @@ def build_annotation_clip_groups(
                         clip_prefix=clip_prefix,
                         final_clip_path=video_entry.video_path,
                         gaze_points=merge_gaze_points([], points),
+                        task_number=task_number,
+                        task_instance_id=task_instance_id,
+                        task_instance=task_instance_name,
                         video_number=timing.video_number,
                         annotation_key=timing.annotation_key,
                         annotation_video_path=timing.video_path,
@@ -662,6 +668,9 @@ def build_annotation_clip_groups(
                         clip_prefix=existing.clip_prefix,
                         final_clip_path=existing.final_clip_path,
                         gaze_points=merge_gaze_points(existing.gaze_points, points),
+                        task_number=existing.task_number,
+                        task_instance_id=existing.task_instance_id,
+                        task_instance=existing.task_instance,
                         video_number=existing.video_number,
                         annotation_key=existing.annotation_key,
                         annotation_video_path=existing.annotation_video_path,
@@ -1183,6 +1192,9 @@ def _write_provenance_metadata(
         avg_y = sum(p.y for p in group.gaze_points) / len(group.gaze_points)
 
     metadata = {
+        "task_number": group.task_number,
+        "task_instance_id": group.task_instance_id,
+        "task_instance": group.task_instance,
         "video_number": group.video_number,
         "annotation_key": group.annotation_key,
         "resolved_video_path": str(group.final_clip_path),
@@ -1456,6 +1468,7 @@ def materialize_annotation_focus_plot_group(
     output_path = output_dir / "gaze_plot.png"
     if output_path.exists() and not overwrite:
         return {
+            "task_instance": group.task_instance,
             "annotator_number": group.annotator_number,
             "dataset": group.dataset,
             "group_size": group.group_size,
@@ -1476,6 +1489,7 @@ def materialize_annotation_focus_plot_group(
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_provenance_metadata(output_dir, group, source_clips)
     return {
+        "task_instance": group.task_instance,
         "annotator_number": group.annotator_number,
         "dataset": group.dataset,
         "group_size": group.group_size,
@@ -1796,6 +1810,7 @@ def write_annotation_clip_summary(
         encoding="utf-8",
     ) as csv_file:
         fieldnames = [
+            "task_instance",
             "annotator_number",
             "dataset",
             "group_size",

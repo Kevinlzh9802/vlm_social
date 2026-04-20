@@ -194,18 +194,10 @@ def get_video_entry_for_timing(
     local_path_prefix: Path,
     media_url_prefix: str,
 ) -> VideoEntry | None:
-    # Prefer video JSON index-based lookup (by video_number) when available,
-    # because annotation JSONs may record the wrong video_path (e.g. always
-    # pointing to clip0 regardless of the actual video shown).
-    if video_entries is not None:
-        video_entry = video_entries.get(timing.video_number)
-        if video_entry is not None and video_entry.video_path.exists():
-            return video_entry
-        logging.warning(
-            "Video JSON lookup failed for video number %s; falling back to annotation path.",
-            timing.video_number,
-        )
-
+    # Prefer the media path recorded in each T{x}_{y}.json.  The annotation
+    # JSONs are per task instance, while a shared video JSON is indexed only by
+    # local video_number; using the shared JSON first can incorrectly map
+    # different task instances onto the same clip.
     if timing.video_path:
         annotation_video_path = resolve_video_path(
             timing.video_path,
@@ -220,9 +212,18 @@ def get_video_entry_for_timing(
             )
 
         logging.warning(
-            "Annotation video path does not exist for video %s: %s",
+            "Annotation video path does not exist for video %s: %s; falling back to video JSON.",
             timing.video_number,
             annotation_video_path,
+        )
+
+    if video_entries is not None:
+        video_entry = video_entries.get(timing.video_number)
+        if video_entry is not None and video_entry.video_path.exists():
+            return video_entry
+        logging.warning(
+            "Video JSON lookup failed for video number %s.",
+            timing.video_number,
         )
 
     logging.error(
