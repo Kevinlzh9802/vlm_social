@@ -47,11 +47,11 @@ def iter_indexed_values(container: Any) -> Iterator[Tuple[int, Any]]:
             yield index, value
         return
     if isinstance(container, dict):
-        for key in sorted(
+        for index, key in enumerate(sorted(
             container,
             key=lambda item: (0, int(item)) if str(item).isdigit() else (1, str(item)),
-        ):
-            yield int(key) if str(key).isdigit() else 0, container[key]
+        )):
+            yield index, container[key]
         return
     raise TypeError(f"Expected list or dict, got {type(container).__name__}.")
 
@@ -206,6 +206,7 @@ def parse_video_timings(
     annotations: dict,
     tolerance: float,
     annotator_number: int,
+    node_id: str | None = None,
 ) -> List[VideoTiming]:
     timings = []
     for video_number, (annotation_key, annotation) in enumerate(sorted_annotation_items(annotations)):
@@ -228,6 +229,26 @@ def parse_video_timings(
 
         start_raw = press_data["video_start_time"]
         end_raw = press_data["video_end_time"]
+        if not isinstance(start_raw, str) or not isinstance(end_raw, str):
+            logging.error(
+                "Invalid timestamp type before parsing: annotator=%s node=%s "
+                "annotation_key=%s video_number=%s "
+                "video_start_time_type=%s video_start_time=%r "
+                "video_end_time_type=%s video_end_time=%r",
+                annotator_number,
+                node_id,
+                annotation_key,
+                video_number,
+                type(start_raw).__name__,
+                start_raw,
+                type(end_raw).__name__,
+                end_raw,
+            )
+            raise TypeError(
+                "video_start_time and video_end_time must be strings; "
+                f"annotator={annotator_number}, node={node_id}, "
+                f"annotation_key={annotation_key}, video_number={video_number}"
+            )
         video_length = (parse_timestamp(end_raw) - parse_timestamp(start_raw)).total_seconds()
         video_path = press_data.get("video_path")
         audio_path = press_data.get("audio_path")
@@ -284,7 +305,12 @@ def load_all_video_timings(json_path: Path, tolerance: float) -> List[AnnotatorT
                 annotator_number=annotator_number,
                 node_id=node_id,
                 global_unique_id=global_unique_id,
-                timings=parse_video_timings(annotations, tolerance, annotator_number),
+                timings=parse_video_timings(
+                    annotations,
+                    tolerance,
+                    annotator_number,
+                    node_id=node_id,
+                ),
             )
         )
     return all_timings
