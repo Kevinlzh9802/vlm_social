@@ -66,6 +66,39 @@ TIMING_CSV_FIELDS = (
     "current_video_time",
     "time_annot",
 )
+EXTRACTION_SUMMARY_FIELDS = (
+    "task_number",
+    "task_instance_id",
+    "task_instance",
+    "annotator_number",
+    "node_id",
+    "global_unique_id",
+    "response_selection",
+    "response_index",
+    "response_created",
+    "response_submitted",
+    "video_number",
+    "annotation_key",
+    "video_start_time",
+    "video_end_time",
+    "video_length",
+    "current_video_time",
+    "time_annot",
+    "annotation_video_path",
+    "resolved_video_path",
+    "plot_path",
+    "recording_dir",
+    "gaze_timestamps_path",
+    "gaze_pldata_path",
+    "system_to_pupil_offset",
+    "confidence_threshold",
+    "focus_mapping",
+    "video_screen_ratio",
+    "raw_gaze_sample_count",
+    "mapped_gaze_sample_count",
+    "mean_mapped_gaze_x",
+    "mean_mapped_gaze_y",
+)
 
 
 def find_annotation_jsons(annotation_dir: Path) -> List[Tuple[int, int, Path]]:
@@ -111,6 +144,71 @@ def write_timing_csv_rows(
                 "video_length": timing.video_length,
                 "current_video_time": timing.current_video_time,
                 "time_annot": timing.time_annot,
+            }
+        )
+
+
+def write_extraction_summary_rows(
+    writer: csv.DictWriter,
+    task_number: int,
+    task_instance_id: int,
+    task_instance_name: str,
+    annotator_timings,
+    plot_rows: list[dict],
+    recording_dir: Path,
+    system_to_pupil_offset: float,
+    confidence_threshold: float,
+    video_screen_ratio: float,
+) -> None:
+    timing_by_key = {
+        (timing.video_number, timing.annotation_key): timing
+        for timing in annotator_timings.timings
+    }
+    for plot_row in plot_rows:
+        timing = timing_by_key.get(
+            (plot_row["video_number"], plot_row["annotation_key"])
+        )
+        if timing is None:
+            logging.warning(
+                "Could not find timing row for annotator %s video %s annotation %s.",
+                annotator_timings.annotator_number,
+                plot_row["video_number"],
+                plot_row["annotation_key"],
+            )
+            continue
+        writer.writerow(
+            {
+                "task_number": task_number,
+                "task_instance_id": task_instance_id,
+                "task_instance": task_instance_name,
+                "annotator_number": annotator_timings.annotator_number,
+                "node_id": annotator_timings.node_id,
+                "global_unique_id": annotator_timings.global_unique_id,
+                "response_selection": "first-response",
+                "response_index": 0,
+                "response_created": "",
+                "response_submitted": "",
+                "video_number": timing.video_number,
+                "annotation_key": timing.annotation_key,
+                "video_start_time": timing.video_start_time,
+                "video_end_time": timing.video_end_time,
+                "video_length": timing.video_length,
+                "current_video_time": timing.current_video_time,
+                "time_annot": timing.time_annot,
+                "annotation_video_path": timing.video_path,
+                "resolved_video_path": plot_row["video_path"],
+                "plot_path": plot_row["plot_path"],
+                "recording_dir": str(recording_dir),
+                "gaze_timestamps_path": str(recording_dir / "gaze_timestamps.npy"),
+                "gaze_pldata_path": str(recording_dir / "gaze.pldata"),
+                "system_to_pupil_offset": system_to_pupil_offset,
+                "confidence_threshold": confidence_threshold,
+                "focus_mapping": "legacy-extraction",
+                "video_screen_ratio": video_screen_ratio,
+                "raw_gaze_sample_count": plot_row["raw_gaze_sample_count"],
+                "mapped_gaze_sample_count": plot_row["mapped_gaze_sample_count"],
+                "mean_mapped_gaze_x": plot_row["mean_mapped_gaze_x"],
+                "mean_mapped_gaze_y": plot_row["mean_mapped_gaze_y"],
             }
         )
 
@@ -161,6 +259,16 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional CSV file for annotation start/end timing rows.",
+    )
+    parser.add_argument(
+        "--summary-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Optional CSV file with one row per generated gaze plot, including "
+            "Pupil files, sample counts, mapped gaze counts, and plot path. "
+            "Defaults to output_dir/extraction_summary.csv."
+        ),
     )
     parser.add_argument(
         "--confidence",
@@ -228,7 +336,18 @@ def main() -> None:
 
     timing_csv_file = None
     timing_writer = None
+    summary_csv_file = None
+    summary_writer = None
     try:
+        summary_csv = args.summary_csv or (args.output_dir / "extraction_summary.csv")
+        summary_csv.parent.mkdir(parents=True, exist_ok=True)
+        summary_csv_file = summary_csv.open("w", encoding="utf-8", newline="")
+        summary_writer = csv.DictWriter(
+            summary_csv_file,
+            fieldnames=EXTRACTION_SUMMARY_FIELDS,
+        )
+        summary_writer.writeheader()
+
         if args.timing_csv is not None:
             args.timing_csv.parent.mkdir(parents=True, exist_ok=True)
             timing_csv_file = args.timing_csv.open("w", encoding="utf-8", newline="")
@@ -283,16 +402,31 @@ def main() -> None:
                     local_path_prefix=args.local_path_prefix,
                     media_url_prefix=args.media_url_prefix,
                 )
-                plot_focus_for_video_gaze_data(
+                plot_rows = plot_focus_for_video_gaze_data(
                     video_gaze_data=video_gaze_data,
                     output_dir=args.output_dir,
                     video_screen_ratio=args.video_screen_ratio,
                     annotator_dir_template=f"{task_instance_name}_annotator{{annotator_number}}",
                 )
+                write_extraction_summary_rows(
+                    writer=summary_writer,
+                    task_number=task_number,
+                    task_instance_id=task_instance_id,
+                    task_instance_name=task_instance_name,
+                    annotator_timings=annotator_timings,
+                    plot_rows=plot_rows,
+                    recording_dir=recording_dir,
+                    system_to_pupil_offset=system_to_pupil_offset,
+                    confidence_threshold=args.confidence,
+                    video_screen_ratio=args.video_screen_ratio,
+                )
     finally:
         if timing_csv_file is not None:
             logging.info("wrote timing CSV: %s", args.timing_csv)
             timing_csv_file.close()
+        if summary_csv_file is not None:
+            logging.info("wrote extraction summary CSV: %s", summary_csv_file.name)
+            summary_csv_file.close()
 
 
 if __name__ == "__main__":

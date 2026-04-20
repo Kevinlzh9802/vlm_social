@@ -17,10 +17,10 @@ SIF_PATH="/scratch/zli33/apptainers/eyetrack.sif"
 DEFAULT_PUPIL_PARENT="/scratch/zli33/data/gestalt_bench/human_eval/pupil"
 DEFAULT_ANNOTATION_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/results"
 DEFAULT_VIDEO_JSON="/scratch/zli33/data/gestalt_bench/human_eval/task2/task2.json"
-DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/extraction_focus"
+DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/extraction_focus_new"
 DEFAULT_LOCAL_PATH_PREFIX="/scratch/zli33/data/gestalt_bench/human_eval/videos"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
-DEFAULT_FOCUS_MAPPING="legacy-extraction"
+DEFAULT_FOCUS_MAPPING="measured-player"
 DEFAULT_RESPONSE_SELECTION="latest-submitted"
 
 usage() {
@@ -97,6 +97,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 TIMING_CSV="${OUTPUT_DIR}/timing_tables.csv"
+SUMMARY_CSV="${OUTPUT_DIR}/extraction_summary.csv"
 
 if [[ "${FOCUS_MAPPING}" != "legacy-extraction" && "${FOCUS_MAPPING}" != "measured-player" ]]; then
     echo "Invalid --focus-mapping: ${FOCUS_MAPPING}. Expected legacy-extraction or measured-player." >&2
@@ -143,6 +144,7 @@ echo "Annotation dir:     ${ANNOTATION_DIR}"
 echo "Video JSON:         ${VIDEO_JSON}"
 echo "Output dir:         ${OUTPUT_DIR}"
 echo "Timing CSV:         ${TIMING_CSV}"
+echo "Summary CSV:        ${SUMMARY_CSV}"
 echo "Local path prefix:  ${LOCAL_PATH_PREFIX}"
 echo "Media URL prefix:   ${MEDIA_URL_PREFIX}"
 echo "Focus mapping:      ${FOCUS_MAPPING}"
@@ -156,6 +158,7 @@ PYTHON_ARGS=(
     --video-json "${VIDEO_JSON}"
     --output-dir "${OUTPUT_DIR}"
     --timing-csv "${TIMING_CSV}"
+    --summary-csv "${SUMMARY_CSV}"
     --media-url-prefix "${MEDIA_URL_PREFIX}"
     --focus-mapping "${FOCUS_MAPPING}"
     --response-selection "${RESPONSE_SELECTION}"

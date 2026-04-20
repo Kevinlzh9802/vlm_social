@@ -19,7 +19,7 @@ DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_PUPIL_PARENT="${DEFAULT_DATA_ROOT}/human_eval/pupil"
 DEFAULT_ANNOTATION_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/results"
 DEFAULT_VIDEO_JSON="${DEFAULT_DATA_ROOT}/human_eval/task2/task2.json"
-DEFAULT_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/extraction_focus_64b3e28"
+DEFAULT_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/extraction_focus_old"
 DEFAULT_LOCAL_PATH_PREFIX="${DEFAULT_DATA_ROOT}/human_eval/videos"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 
@@ -86,6 +86,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 TIMING_CSV="${OUTPUT_DIR}/timing_tables.csv"
+SUMMARY_CSV="${OUTPUT_DIR}/extraction_summary.csv"
 
 if [[ ! -d "${LEGACY_ROOT}" ]]; then
     echo "Missing legacy source folder: ${LEGACY_ROOT}" >&2
@@ -128,6 +129,7 @@ echo "Annotation dir:     ${ANNOTATION_DIR}"
 echo "Video JSON:         ${VIDEO_JSON}"
 echo "Output dir:         ${OUTPUT_DIR}"
 echo "Timing CSV:         ${TIMING_CSV}"
+echo "Summary CSV:        ${SUMMARY_CSV}"
 echo "Local path prefix:  ${LOCAL_PATH_PREFIX}"
 echo "Media URL prefix:   ${MEDIA_URL_PREFIX}"
 
@@ -139,6 +141,7 @@ PYTHON_ARGS=(
     --video-json "${VIDEO_JSON}"
     --output-dir "${OUTPUT_DIR}"
     --timing-csv "${TIMING_CSV}"
+    --summary-csv "${SUMMARY_CSV}"
     --media-url-prefix "${MEDIA_URL_PREFIX}"
 )
 

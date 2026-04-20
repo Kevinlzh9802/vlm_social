@@ -13,11 +13,12 @@
 set -euo pipefail
 
 PROJECT_ROOT="/home/zli33/projects/vlm_social"
+LEGACY_ROOT="${PROJECT_ROOT}/legacy_64b3e28"
 SIF_PATH="/scratch/zli33/apptainers/eyetrack.sif"
 DEFAULT_PUPIL_PARENT="/scratch/zli33/data/gestalt_bench/human_eval/pupil"
 DEFAULT_ANNOTATION_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/results"
 DEFAULT_VIDEO_JSON="/scratch/zli33/data/gestalt_bench/human_eval/task2/task2.json"
-DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/extraction_focus"
+DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/extraction_focus_old"
 DEFAULT_LOCAL_PATH_PREFIX="/scratch/zli33/data/gestalt_bench/human_eval/videos"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 
@@ -83,6 +84,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 TIMING_CSV="${OUTPUT_DIR}/timing_tables.csv"
+SUMMARY_CSV="${OUTPUT_DIR}/extraction_summary.csv"
+
+if [[ ! -d "${LEGACY_ROOT}" ]]; then
+    echo "Missing legacy source folder: ${LEGACY_ROOT}" >&2
+    exit 1
+fi
 
 if [[ ! -f "${SIF_PATH}" ]]; then
     echo "Missing Apptainer image: ${SIF_PATH}" >&2
@@ -113,12 +120,14 @@ fi
 mkdir -p "${OUTPUT_DIR}"
 
 echo "Project root:       ${PROJECT_ROOT}"
+echo "Legacy root:        ${LEGACY_ROOT}"
 echo "Apptainer image:    ${SIF_PATH}"
 echo "Pupil parent:       ${PUPIL_PARENT}"
 echo "Annotation dir:     ${ANNOTATION_DIR}"
 echo "Video JSON:         ${VIDEO_JSON}"
 echo "Output dir:         ${OUTPUT_DIR}"
 echo "Timing CSV:         ${TIMING_CSV}"
+echo "Summary CSV:        ${SUMMARY_CSV}"
 echo "Local path prefix:  ${LOCAL_PATH_PREFIX}"
 echo "Media URL prefix:   ${MEDIA_URL_PREFIX}"
 
@@ -130,11 +139,12 @@ PYTHON_ARGS=(
     --video-json "${VIDEO_JSON}"
     --output-dir "${OUTPUT_DIR}"
     --timing-csv "${TIMING_CSV}"
+    --summary-csv "${SUMMARY_CSV}"
     --media-url-prefix "${MEDIA_URL_PREFIX}"
 )
 
 srun apptainer exec \
-    --bind "${PROJECT_ROOT}:/workspace" \
+    --bind "${LEGACY_ROOT}:/workspace" \
     --bind /home/zli33:/home/zli33 \
     --bind /scratch/zli33:/scratch/zli33 \
     "${SIF_PATH}" \

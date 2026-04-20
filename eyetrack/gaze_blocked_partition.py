@@ -83,10 +83,15 @@ class AnnotationClipGroup:
     gaze_points: list[GazePoint]
     # Provenance metadata
     video_number: int | None = None
+    annotation_key: int | None = None
     annotation_video_path: str | None = None
     annotation_json_path: str | None = None
     recording_dir: str | None = None
     gaze_mapping: str = "measured-player"
+    response_selection: str | None = None
+    response_index: int | None = None
+    response_created: str | None = None
+    response_submitted: bool | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -568,10 +573,15 @@ def build_annotation_clip_groups(
                         final_clip_path=video_entry.video_path,
                         gaze_points=merge_gaze_points([], points),
                         video_number=timing.video_number,
+                        annotation_key=timing.annotation_key,
                         annotation_video_path=timing.video_path,
                         annotation_json_path=str(annotation_json),
                         recording_dir=str(recording_dir),
                         gaze_mapping=gaze_mapping,
+                        response_selection=annotator_timings.response_selection,
+                        response_index=annotator_timings.response_index,
+                        response_created=annotator_timings.response_created,
+                        response_submitted=annotator_timings.response_submitted,
                     )
                 else:
                     grouped[key] = AnnotationClipGroup(
@@ -584,10 +594,15 @@ def build_annotation_clip_groups(
                         final_clip_path=existing.final_clip_path,
                         gaze_points=merge_gaze_points(existing.gaze_points, points),
                         video_number=existing.video_number,
+                        annotation_key=existing.annotation_key,
                         annotation_video_path=existing.annotation_video_path,
                         annotation_json_path=existing.annotation_json_path,
                         recording_dir=existing.recording_dir,
                         gaze_mapping=existing.gaze_mapping,
+                        response_selection=existing.response_selection,
+                        response_index=existing.response_index,
+                        response_created=existing.response_created,
+                        response_submitted=existing.response_submitted,
                     )
 
     return sorted(
@@ -1096,6 +1111,7 @@ def _write_provenance_metadata(
 
     metadata = {
         "video_number": group.video_number,
+        "annotation_key": group.annotation_key,
         "resolved_video_path": str(group.final_clip_path),
         "annotation_video_path": group.annotation_video_path,
         "source_clips": [str(p) for p in source_clips],
@@ -1103,6 +1119,10 @@ def _write_provenance_metadata(
         "annotation_json": group.annotation_json_path,
         "annotator_number": group.annotator_number,
         "gaze_mapping": group.gaze_mapping,
+        "response_selection": group.response_selection,
+        "response_index": group.response_index,
+        "response_created": group.response_created,
+        "response_submitted": group.response_submitted,
         "gaze_point_count": len(group.gaze_points),
         "avg_gaze_x": avg_x,
         "avg_gaze_y": avg_y,

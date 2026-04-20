@@ -130,7 +130,8 @@ def plot_focus_for_video_gaze_data(
     output_dir: Path,
     video_screen_ratio: float,
     annotator_dir_template: str = "annotator_{annotator_number}",
-) -> None:
+) -> List[dict]:
+    rows = []
     for video_gaze in video_gaze_data:
         points = map_screen_focus_to_video(video_gaze.samples, video_screen_ratio)
         annotator_output_dir = output_dir / annotator_dir_template.format(
@@ -138,3 +139,21 @@ def plot_focus_for_video_gaze_data(
         )
         output_path = plot_focus_points(video_gaze, points, annotator_output_dir)
         logging.info("wrote focus plot: %s", output_path)
+        row = {
+            "annotator_number": video_gaze.annotator_number,
+            "video_number": video_gaze.timing.video_number,
+            "annotation_key": video_gaze.timing.annotation_key,
+            "video_path": str(video_gaze.video_entry.video_path),
+            "plot_path": str(output_path),
+            "raw_gaze_sample_count": len(video_gaze.samples),
+            "mapped_gaze_sample_count": len(points),
+            "focus_mapping": "legacy-extraction",
+            "video_screen_ratio": video_screen_ratio,
+            "mean_mapped_gaze_x": "",
+            "mean_mapped_gaze_y": "",
+        }
+        if points:
+            row["mean_mapped_gaze_x"] = sum(point[0] for point in points) / len(points)
+            row["mean_mapped_gaze_y"] = sum(point[1] for point in points) / len(points)
+        rows.append(row)
+    return rows
