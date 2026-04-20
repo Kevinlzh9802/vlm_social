@@ -41,6 +41,21 @@ def get_indexed_value(container: Any, index: int) -> Any:
     raise TypeError(f"Expected list or dict, got {type(container).__name__}.")
 
 
+def iter_indexed_values(container: Any) -> Iterator[Tuple[int, Any]]:
+    if isinstance(container, list):
+        for index, value in enumerate(container):
+            yield index, value
+        return
+    if isinstance(container, dict):
+        for key in sorted(
+            container,
+            key=lambda item: (0, int(item)) if str(item).isdigit() else (1, str(item)),
+        ):
+            yield int(key) if str(key).isdigit() else 0, container[key]
+        return
+    raise TypeError(f"Expected list or dict, got {type(container).__name__}.")
+
+
 def get_first_node_id(journey_entry: dict) -> str:
     nodes = journey_entry["nodes"]
     return str(get_indexed_value(nodes, 0))
@@ -52,8 +67,7 @@ def get_annotator_node_ids(payload: dict) -> List[Tuple[int, str, str | None]]:
         raise KeyError("Annotation JSON must contain a journeys field.")
 
     annotators = []
-    for journey_index in (0, 1):
-        journey_entry = get_indexed_value(journeys, journey_index)
+    for journey_index, journey_entry in iter_indexed_values(journeys):
         annotators.append(
             (
                 journey_index + 1,
@@ -64,14 +78,67 @@ def get_annotator_node_ids(payload: dict) -> List[Tuple[int, str, str | None]]:
     return annotators
 
 
-def get_annotations(payload: dict, node_id: str) -> dict:
+def submitted_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return False
+
+
+def parse_created_timestamp(value: Any) -> datetime:
+    if value is None:
+        return datetime.min
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(float(value))
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+        return parsed.replace(tzinfo=None)
+    except ValueError:
+        logging.warning("Could not parse response created timestamp: %s", value)
+        return datetime.min
+
+
+def select_latest_submitted_response(responses: Any, node_id: str) -> dict | None:
+    submitted_responses = []
+    for response_index, response in iter_indexed_values(responses):
+        if not isinstance(response, dict):
+            logging.warning(
+                "nodes -> %s -> responses -> %s is not a dict; skipping.",
+                node_id,
+                response_index,
+            )
+            continue
+        if submitted_flag(response.get("submitted")):
+            submitted_responses.append(
+                (
+                    parse_created_timestamp(response.get("created")),
+                    response_index,
+                    response,
+                )
+            )
+
+    if not submitted_responses:
+        logging.warning("nodes -> %s has no submitted=True response; skipping annotator.", node_id)
+        return None
+
+    submitted_responses.sort(key=lambda item: (item[0], item[1]))
+    return submitted_responses[-1][2]
+
+
+def get_annotations(payload: dict, node_id: str) -> dict | None:
     node = payload["nodes"][node_id]
     responses = node["responses"]
-    response = responses[0] if isinstance(responses, list) else responses["0"]
+    response = select_latest_submitted_response(responses, node_id)
+    if response is None:
+        return None
     annotations = response["annotations"]
     if not isinstance(annotations, dict):
         raise TypeError(
-            f"nodes -> {node_id} -> responses -> 0 -> annotations must be a dict."
+            f"nodes -> {node_id} -> latest submitted response -> annotations must be a dict."
         )
     return annotations
 
@@ -206,6 +273,8 @@ def load_all_video_timings(json_path: Path, tolerance: float) -> List[AnnotatorT
     all_timings = []
     for annotator_number, node_id, global_unique_id in get_annotator_node_ids(payload):
         annotations = get_annotations(payload, node_id)
+        if annotations is None:
+            continue
         print(
             f"Annotator {annotator_number}: node {node_id}, "
             f"videos under annotations: {len(annotations)}"

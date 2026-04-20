@@ -67,6 +67,7 @@ class GazePoint:
 
 @dataclass(frozen=True)
 class AnnotationClipGroup:
+    annotator_number: int
     dataset: str
     group_size: int
     batch_name: str | None
@@ -408,7 +409,7 @@ def build_annotation_clip_groups(
     if video_json is not None:
         video_entries = load_video_entries(video_json, local_path_prefix, media_url_prefix)
 
-    grouped: dict[tuple[str, int, str | None, str, str, str], AnnotationClipGroup] = {}
+    grouped: dict[tuple[int, str, int, str | None, str, str, str], AnnotationClipGroup] = {}
 
     for task_number, task_instance_id, annotation_json in annotation_files:
         task_instance_name = f"T{task_number}_{task_instance_id}"
@@ -474,6 +475,7 @@ def build_annotation_clip_groups(
                     )
 
                 key = (
+                    annotator_timings.annotator_number,
                     dataset,
                     group_size,
                     batch_name,
@@ -484,6 +486,7 @@ def build_annotation_clip_groups(
                 existing = grouped.get(key)
                 if existing is None:
                     grouped[key] = AnnotationClipGroup(
+                        annotator_number=annotator_timings.annotator_number,
                         dataset=dataset,
                         group_size=group_size,
                         batch_name=batch_name,
@@ -494,6 +497,7 @@ def build_annotation_clip_groups(
                     )
                 else:
                     grouped[key] = AnnotationClipGroup(
+                        annotator_number=existing.annotator_number,
                         dataset=existing.dataset,
                         group_size=existing.group_size,
                         batch_name=existing.batch_name,
@@ -506,6 +510,7 @@ def build_annotation_clip_groups(
     return sorted(
         grouped.values(),
         key=lambda item: (
+            item.annotator_number,
             item.dataset,
             item.group_size,
             item.batch_name or "",
@@ -528,6 +533,7 @@ def discover_sibling_clips(final_clip_path: Path, clip_prefix: str) -> list[Path
 def output_dir_for_annotation_group(group: AnnotationClipGroup, output_parent: Path) -> Path:
     output_dir = (
         output_parent
+        / f"annotator{group.annotator_number}"
         / group.dataset
         / "context"
         / GROUP_FOLDER_NAMES[group.group_size]
@@ -1003,6 +1009,7 @@ def materialize_annotation_clip_group(
         if overwrite and output_dir.exists():
             shutil.rmtree(output_dir)
         return {
+            "annotator_number": group.annotator_number,
             "dataset": group.dataset,
             "group_size": group.group_size,
             "batch_name": group.batch_name,
@@ -1025,6 +1032,7 @@ def materialize_annotation_clip_group(
             mp4_count = len(list(output_dir.glob("*.mp4")))
             wav_count = len(list(output_dir.glob("*.wav")))
             return {
+                "annotator_number": group.annotator_number,
                 "dataset": group.dataset,
                 "group_size": group.group_size,
                 "batch_name": group.batch_name,
@@ -1078,6 +1086,7 @@ def materialize_annotation_clip_group(
     if mp4_count == 0:
         shutil.rmtree(output_dir)
         return {
+            "annotator_number": group.annotator_number,
             "dataset": group.dataset,
             "group_size": group.group_size,
             "batch_name": group.batch_name,
@@ -1096,6 +1105,7 @@ def materialize_annotation_clip_group(
         }
 
     return {
+        "annotator_number": group.annotator_number,
         "dataset": group.dataset,
         "group_size": group.group_size,
         "batch_name": group.batch_name,
@@ -1127,6 +1137,7 @@ def materialize_original_annotation_clip_group(
             mp4_count = len(list(output_dir.glob("*.mp4")))
             wav_count = len(list(output_dir.glob("*.wav")))
             return {
+                "annotator_number": group.annotator_number,
                 "dataset": group.dataset,
                 "group_size": group.group_size,
                 "batch_name": group.batch_name,
@@ -1154,6 +1165,7 @@ def materialize_original_annotation_clip_group(
             wav_count += 1
 
     return {
+        "annotator_number": group.annotator_number,
         "dataset": group.dataset,
         "group_size": group.group_size,
         "batch_name": group.batch_name,
@@ -1197,6 +1209,7 @@ def write_annotation_clip_summary(
         encoding="utf-8",
     ) as csv_file:
         fieldnames = [
+            "annotator_number",
             "dataset",
             "group_size",
             "batch_name",
