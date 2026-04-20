@@ -194,6 +194,18 @@ def get_video_entry_for_timing(
     local_path_prefix: Path,
     media_url_prefix: str,
 ) -> VideoEntry | None:
+    # Prefer video JSON index-based lookup (by video_number) when available,
+    # because annotation JSONs may record the wrong video_path (e.g. always
+    # pointing to clip0 regardless of the actual video shown).
+    if video_entries is not None:
+        video_entry = video_entries.get(timing.video_number)
+        if video_entry is not None and video_entry.video_path.exists():
+            return video_entry
+        logging.warning(
+            "Video JSON lookup failed for video number %s; falling back to annotation path.",
+            timing.video_number,
+        )
+
     if timing.video_path:
         annotation_video_path = resolve_video_path(
             timing.video_path,
@@ -208,26 +220,16 @@ def get_video_entry_for_timing(
             )
 
         logging.warning(
-            "Annotation video path does not exist; trying video JSON fallback for video %s: %s",
+            "Annotation video path does not exist for video %s: %s",
             timing.video_number,
             annotation_video_path,
         )
 
-    if video_entries is None:
-        logging.error(
-            "No annotation video path and no video JSON fallback for video number %s.",
-            timing.video_number,
-        )
-        return None
-
-    video_entry = video_entries.get(timing.video_number)
-    if video_entry is None:
-        logging.error("No video list entry found for video number %s.", timing.video_number)
-        return None
-    if not video_entry.video_path.exists():
-        logging.error("Video file does not exist: %s", video_entry.video_path)
-        return None
-    return video_entry
+    logging.error(
+        "No valid video source found for video number %s.",
+        timing.video_number,
+    )
+    return None
 
 
 def extract_video_gaze_data(
