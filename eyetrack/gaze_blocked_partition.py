@@ -75,6 +75,11 @@ class AnnotationClipGroup:
     clip_prefix: str
     final_clip_path: Path
     gaze_points: list[GazePoint]
+    # Provenance metadata
+    video_number: int | None = None
+    annotation_video_path: str | None = None
+    annotation_json_path: str | None = None
+    recording_dir: str | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -499,6 +504,10 @@ def build_annotation_clip_groups(
                         clip_prefix=clip_prefix,
                         final_clip_path=video_entry.video_path,
                         gaze_points=merge_gaze_points([], points),
+                        video_number=timing.video_number,
+                        annotation_video_path=timing.video_path,
+                        annotation_json_path=str(annotation_json),
+                        recording_dir=str(recording_dir),
                     )
                 else:
                     grouped[key] = AnnotationClipGroup(
@@ -510,6 +519,10 @@ def build_annotation_clip_groups(
                         clip_prefix=existing.clip_prefix,
                         final_clip_path=existing.final_clip_path,
                         gaze_points=merge_gaze_points(existing.gaze_points, points),
+                        video_number=existing.video_number,
+                        annotation_video_path=existing.annotation_video_path,
+                        annotation_json_path=existing.annotation_json_path,
+                        recording_dir=existing.recording_dir,
                     )
 
     return sorted(
@@ -1004,6 +1017,30 @@ def materialize_gaze_triplet(
     return results, None
 
 
+def _write_provenance_metadata(
+    output_dir: Path,
+    group: AnnotationClipGroup,
+    source_clips: list[Path],
+) -> None:
+    """Write a single ``provenance.json`` metadata file into *output_dir*.
+
+    Contains the video JSON index, resolved and annotation video paths,
+    source clips, Pupil recording folder, and annotation JSON path.
+    """
+    metadata = {
+        "video_number": group.video_number,
+        "resolved_video_path": str(group.final_clip_path),
+        "annotation_video_path": group.annotation_video_path,
+        "source_clips": [str(p) for p in source_clips],
+        "recording_dir": group.recording_dir,
+        "annotation_json": group.annotation_json_path,
+        "annotator_number": group.annotator_number,
+    }
+    (output_dir / "provenance.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def materialize_annotation_clip_group(
     group: AnnotationClipGroup,
     output_parent: Path,
@@ -1120,6 +1157,9 @@ def materialize_annotation_clip_group(
             "skipped": True,
             "skip_reason": "no_masked_frames",
         }
+
+    # Write provenance metadata files
+    _write_provenance_metadata(output_dir, group, source_clips)
 
     return {
         "annotator_number": group.annotator_number,
