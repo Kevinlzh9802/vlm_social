@@ -22,6 +22,7 @@ VIDEO_ASPECT_RATIO = 16 / 9
 # Kept for CLI compatibility. The measured geometry above is now used for
 # mapping instead of a single square-region ratio.
 VIDEO_SCREEN_RATIO = PLAYER_HEIGHT / SCREEN_HEIGHT
+LEGACY_EXTRACTION_VIDEO_SCREEN_RATIO = 0.7
 
 
 def video_display_bounds() -> Tuple[float, float, float, float]:
@@ -56,10 +57,50 @@ def map_screen_sample_to_video_point(sample: dict) -> Tuple[float, float] | None
     return None
 
 
+def map_screen_sample_to_video_point_legacy_extraction(
+    sample: dict,
+    video_screen_ratio: float = LEGACY_EXTRACTION_VIDEO_SCREEN_RATIO,
+) -> Tuple[float, float] | None:
+    """Reproduce the focus mapping used by repo commit 64b3e28.
+
+    That version assumed a square normalized screen region x/y in
+    [1 - video_screen_ratio, 1], without the measured player top offset.
+    With the default ratio 0.7 on a 1920x1080 screen, this corresponds to
+    approximately left=576, top=0, right=1920, bottom=756.
+    """
+    rect_min = 1.0 - video_screen_ratio
+    eps = 1e-9
+    x = sample["norm_pos_x"]
+    y = sample["norm_pos_y"]
+    if x is None or y is None:
+        return None
+
+    video_x = (float(x) - rect_min) / video_screen_ratio
+    video_y = (float(y) - rect_min) / video_screen_ratio
+    if -eps <= video_x <= 1.0 + eps and -eps <= video_y <= 1.0 + eps:
+        return min(max(video_x, 0.0), 1.0), min(max(video_y, 0.0), 1.0)
+    return None
+
+
 def map_screen_focus_to_video(samples: List[dict], video_screen_ratio: float) -> List[Tuple[float, float]]:
     points = []
     for sample in samples:
         point = map_screen_sample_to_video_point(sample)
+        if point is not None:
+            points.append(point)
+    return points
+
+
+def map_screen_focus_to_video_legacy_extraction(
+    samples: List[dict],
+    video_screen_ratio: float = LEGACY_EXTRACTION_VIDEO_SCREEN_RATIO,
+) -> List[Tuple[float, float]]:
+    points = []
+    for sample in samples:
+        point = map_screen_sample_to_video_point_legacy_extraction(
+            sample,
+            video_screen_ratio,
+        )
         if point is not None:
             points.append(point)
     return points
@@ -165,9 +206,18 @@ def plot_focus_for_video_gaze_data(
     output_dir: Path,
     video_screen_ratio: float,
     annotator_dir_template: str = "annotator_{annotator_number}",
+    focus_mapping: str = "measured-player",
 ) -> None:
     for video_gaze in video_gaze_data:
-        points = map_screen_focus_to_video(video_gaze.samples, video_screen_ratio)
+        if focus_mapping == "legacy-extraction":
+            points = map_screen_focus_to_video_legacy_extraction(
+                video_gaze.samples,
+                video_screen_ratio,
+            )
+        elif focus_mapping == "measured-player":
+            points = map_screen_focus_to_video(video_gaze.samples, video_screen_ratio)
+        else:
+            raise ValueError(f"Unsupported focus mapping: {focus_mapping}")
         annotator_output_dir = output_dir / annotator_dir_template.format(
             annotator_number=video_gaze.annotator_number
         )

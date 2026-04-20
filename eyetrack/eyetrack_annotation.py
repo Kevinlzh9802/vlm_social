@@ -24,7 +24,10 @@ try:
         load_all_video_timings,
         print_timing_table,
     )
-    from .focus_plot import VIDEO_SCREEN_RATIO, plot_focus_for_video_gaze_data
+    from .focus_plot import (
+        LEGACY_EXTRACTION_VIDEO_SCREEN_RATIO,
+        plot_focus_for_video_gaze_data,
+    )
     from .gaze_extraction import (
         MEDIA_URL_PREFIX,
         extract_video_gaze_data,
@@ -38,7 +41,10 @@ except ImportError:
         load_all_video_timings,
         print_timing_table,
     )
-    from focus_plot import VIDEO_SCREEN_RATIO, plot_focus_for_video_gaze_data
+    from focus_plot import (
+        LEGACY_EXTRACTION_VIDEO_SCREEN_RATIO,
+        plot_focus_for_video_gaze_data,
+    )
     from gaze_extraction import (
         MEDIA_URL_PREFIX,
         extract_video_gaze_data,
@@ -176,10 +182,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--video-screen-ratio",
         type=float,
-        default=VIDEO_SCREEN_RATIO,
+        default=LEGACY_EXTRACTION_VIDEO_SCREEN_RATIO,
         help=(
-            "Deprecated compatibility option. Focus mapping now uses the measured "
-            "1920x1080 screen geometry from focus_plot.py."
+            "Video screen ratio used only with --focus-mapping legacy-extraction. "
+            "Commit 64b3e28 used 0.7."
+        ),
+    )
+    parser.add_argument(
+        "--focus-mapping",
+        choices=("legacy-extraction", "measured-player"),
+        default="measured-player",
+        help=(
+            "Screen-to-video focus mapping. 'legacy-extraction' reproduces the "
+            "64b3e28 focus plots; 'measured-player' uses focus_plot.py player geometry."
         ),
     )
     parser.add_argument(
@@ -291,6 +306,7 @@ def main() -> None:
                     output_dir=args.output_dir,
                     video_screen_ratio=args.video_screen_ratio,
                     annotator_dir_template=f"{task_instance_name}_annotator{{annotator_number}}",
+                    focus_mapping=args.focus_mapping,
                 )
     finally:
         if timing_csv_file is not None:

@@ -20,16 +20,18 @@ DEFAULT_VIDEO_JSON="/scratch/zli33/data/gestalt_bench/human_eval/task2/task2.jso
 DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/extraction_focus"
 DEFAULT_LOCAL_PATH_PREFIX="/scratch/zli33/data/gestalt_bench/human_eval/videos"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
+DEFAULT_FOCUS_MAPPING="legacy-extraction"
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--output-dir PATH] [--local-path-prefix PATH] [--media-url-prefix URL]" >&2
+    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--output-dir PATH] [--local-path-prefix PATH] [--media-url-prefix URL] [--focus-mapping legacy-extraction|measured-player]" >&2
     echo "  pupil-parent: parent folder with T{x}_{y}_annotator1/2 Pupil recordings (default: ${DEFAULT_PUPIL_PARENT})" >&2
     echo "  annotation-dir: folder with T{x}_{y}.json annotation files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  video-json: ordered video list JSON (default: ${DEFAULT_VIDEO_JSON})" >&2
     echo "  output-dir: focus plot output folder (default: ${DEFAULT_OUTPUT_DIR})" >&2
     echo "  local-path-prefix: local path replacing the media URL prefix (default: ${DEFAULT_LOCAL_PATH_PREFIX})" >&2
     echo "  media-url-prefix: media URL prefix to replace (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
+    echo "  focus-mapping: screen-to-video transform, default ${DEFAULT_FOCUS_MAPPING}" >&2
 }
 
 PUPIL_PARENT="${DEFAULT_PUPIL_PARENT}"
@@ -38,6 +40,7 @@ VIDEO_JSON="${DEFAULT_VIDEO_JSON}"
 OUTPUT_DIR="${DEFAULT_OUTPUT_DIR}"
 LOCAL_PATH_PREFIX="${DEFAULT_LOCAL_PATH_PREFIX}"
 MEDIA_URL_PREFIX="${DEFAULT_MEDIA_URL_PREFIX}"
+FOCUS_MAPPING="${DEFAULT_FOCUS_MAPPING}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -65,6 +68,10 @@ while [[ $# -gt 0 ]]; do
             MEDIA_URL_PREFIX="${2:?Missing value for --media-url-prefix}"
             shift 2
             ;;
+        --focus-mapping)
+            FOCUS_MAPPING="${2:?Missing value for --focus-mapping}"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -83,6 +90,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 TIMING_CSV="${OUTPUT_DIR}/timing_tables.csv"
+
+if [[ "${FOCUS_MAPPING}" != "legacy-extraction" && "${FOCUS_MAPPING}" != "measured-player" ]]; then
+    echo "Invalid --focus-mapping: ${FOCUS_MAPPING}. Expected legacy-extraction or measured-player." >&2
+    exit 1
+fi
 
 if [[ ! -f "${SIF_PATH}" ]]; then
     echo "Missing Apptainer image: ${SIF_PATH}" >&2
@@ -121,6 +133,7 @@ echo "Output dir:         ${OUTPUT_DIR}"
 echo "Timing CSV:         ${TIMING_CSV}"
 echo "Local path prefix:  ${LOCAL_PATH_PREFIX}"
 echo "Media URL prefix:   ${MEDIA_URL_PREFIX}"
+echo "Focus mapping:      ${FOCUS_MAPPING}"
 
 PYTHON_ARGS=(
     python /workspace/eyetrack/eyetrack_annotation.py
@@ -131,6 +144,7 @@ PYTHON_ARGS=(
     --output-dir "${OUTPUT_DIR}"
     --timing-csv "${TIMING_CSV}"
     --media-url-prefix "${MEDIA_URL_PREFIX}"
+    --focus-mapping "${FOCUS_MAPPING}"
 )
 
 srun apptainer exec \

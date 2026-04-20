@@ -42,7 +42,10 @@ from eyetrack.annotation_intervals import (  # noqa: E402
     load_all_video_timings,
 )
 from eyetrack.eyetrack_annotation import find_annotation_jsons  # noqa: E402
-from eyetrack.focus_plot import map_screen_sample_to_video_point  # noqa: E402
+from eyetrack.focus_plot import (  # noqa: E402
+    map_screen_sample_to_video_point,
+    map_screen_sample_to_video_point_legacy_extraction,
+)
 from eyetrack.gaze_extraction import (  # noqa: E402
     MEDIA_URL_PREFIX,
     annotation_time_to_pupil_time,
@@ -55,6 +58,7 @@ from eyetrack.gaze_extraction import (  # noqa: E402
 
 
 DEFAULT_FOCUS_BOX_RATIO = 0.18
+GAZE_MAPPING_CHOICES = ("legacy-extraction", "measured-player")
 CLIP_STEM_RE = re.compile(r"^(?P<prefix>.+)_clip(?P<index>\d+)$")
 GROUP_BATCH_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b(?P<batch>\d+)$")
 
@@ -81,6 +85,7 @@ class AnnotationClipGroup:
     annotation_video_path: str | None = None
     annotation_json_path: str | None = None
     recording_dir: str | None = None
+    gaze_mapping: str = "measured-player"
 
 
 def parse_args() -> argparse.Namespace:
@@ -150,6 +155,16 @@ def parse_args() -> argparse.Namespace:
         "--skip-final-segment-output",
         action="store_true",
         help="Skip generating the final-0.5s corrupted cumulative clips.",
+    )
+    parser.add_argument(
+        "--gaze-mapping",
+        choices=GAZE_MAPPING_CHOICES,
+        default="measured-player",
+        help=(
+            "Screen-to-video gaze mapping. 'legacy-extraction' reproduces the "
+            "64b3e28 eyetrack_annotation focus plots; 'measured-player' uses "
+            "the measured 1920x1080 browser/player geometry."
+        ),
     )
     parser.add_argument(
         "--video-json",
@@ -255,8 +270,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def map_sample_to_video_point(sample: dict) -> tuple[float, float] | None:
-    return map_screen_sample_to_video_point(sample)
+def map_sample_to_video_point(
+    sample: dict,
+    gaze_mapping: str,
+) -> tuple[float, float] | None:
+    if gaze_mapping == "legacy-extraction":
+        return map_screen_sample_to_video_point_legacy_extraction(sample)
+    if gaze_mapping == "measured-player":
+        return map_screen_sample_to_video_point(sample)
+    raise ValueError(f"Unsupported gaze mapping: {gaze_mapping}")
 
 
 def canonical_path(path: Path) -> str:
@@ -286,6 +308,7 @@ def build_gaze_index(
     duration_tolerance: float,
     system_to_pupil_offset: float | None,
     video_json: Path | None,
+    gaze_mapping: str,
 ) -> tuple[dict[str, list[GazePoint]], dict[str, list[GazePoint]]]:
     annotation_files = find_annotation_jsons(annotation_dir)
     if not annotation_files:
@@ -345,7 +368,7 @@ def build_gaze_index(
 
                 points: list[GazePoint] = []
                 for sample in samples:
-                    mapped = map_sample_to_video_point(sample)
+                    mapped = map_sample_to_video_point(sample, gaze_mapping)
                     if mapped is None:
                         continue
                     points.append(
@@ -427,6 +450,7 @@ def build_annotation_clip_groups(
     duration_tolerance: float,
     system_to_pupil_offset: float | None,
     video_json: Path | None,
+    gaze_mapping: str,
 ) -> list[AnnotationClipGroup]:
     annotation_files = find_annotation_jsons(annotation_dir)
     if not annotation_files:
@@ -492,7 +516,7 @@ def build_annotation_clip_groups(
                 )
                 points = []
                 for sample in samples:
-                    mapped = map_sample_to_video_point(sample)
+                    mapped = map_sample_to_video_point(sample, gaze_mapping)
                     if mapped is None:
                         continue
                     points.append(
@@ -527,6 +551,7 @@ def build_annotation_clip_groups(
                         annotation_video_path=timing.video_path,
                         annotation_json_path=str(annotation_json),
                         recording_dir=str(recording_dir),
+                        gaze_mapping=gaze_mapping,
                     )
                 else:
                     grouped[key] = AnnotationClipGroup(
@@ -542,6 +567,7 @@ def build_annotation_clip_groups(
                         annotation_video_path=existing.annotation_video_path,
                         annotation_json_path=existing.annotation_json_path,
                         recording_dir=existing.recording_dir,
+                        gaze_mapping=existing.gaze_mapping,
                     )
 
     return sorted(
@@ -1056,6 +1082,7 @@ def _write_provenance_metadata(
         "recording_dir": group.recording_dir,
         "annotation_json": group.annotation_json_path,
         "annotator_number": group.annotator_number,
+        "gaze_mapping": group.gaze_mapping,
         "gaze_point_count": len(group.gaze_points),
         "avg_gaze_x": avg_x,
         "avg_gaze_y": avg_y,
@@ -1617,6 +1644,7 @@ def write_annotation_clip_summary(
             "final_clip_path",
             "clip_output_folder",
             "source_clip_count",
+            "gaze_mapping",
             "mask_mode",
             "clip_mp4_count",
             "clip_wav_count",
@@ -1702,6 +1730,7 @@ def main() -> None:
             duration_tolerance=args.duration_tolerance,
             system_to_pupil_offset=args.system_to_pupil_offset,
             video_json=args.video_json,
+            gaze_mapping=args.gaze_mapping,
         )
         selected_annotation_groups = [
             group for group in annotation_groups if group.group_size in selected_group_sizes
@@ -1720,6 +1749,7 @@ def main() -> None:
                         output_parent=args.focus_plot_output_parent,
                         overwrite=args.overwrite,
                     )
+                    result.setdefault("gaze_mapping", group.gaze_mapping)
                     focus_plot_results.append(result)
                     logging.info(
                         "wrote focus plot for %s/%s/%s",
@@ -1757,6 +1787,7 @@ def main() -> None:
                         max_gaze_gap=args.max_gaze_gap,
                         overwrite=args.overwrite,
                     )
+                    result.setdefault("gaze_mapping", group.gaze_mapping)
                     overlay_results.append(result)
                     if result.get("skipped"):
                         logging.info(
@@ -1802,6 +1833,7 @@ def main() -> None:
                         output_parent=args.original_output_parent,
                         overwrite=args.overwrite,
                     )
+                    result.setdefault("gaze_mapping", group.gaze_mapping)
                     original_results.append(result)
                     logging.info(
                         "copied %s original clips for %s/%s/%s",
@@ -1843,6 +1875,7 @@ def main() -> None:
                         overwrite=args.overwrite,
                         mask_full_video=True,
                     )
+                    result.setdefault("gaze_mapping", group.gaze_mapping)
                     full_corruption_results.append(result)
                     if result.get("skipped"):
                         logging.info(
@@ -1890,6 +1923,7 @@ def main() -> None:
                         max_gaze_gap=args.max_gaze_gap,
                         overwrite=args.overwrite,
                     )
+                    result.setdefault("gaze_mapping", group.gaze_mapping)
                     results.append(result)
                     if result.get("skipped"):
                         logging.info(
@@ -1937,6 +1971,7 @@ def main() -> None:
         duration_tolerance=args.duration_tolerance,
         system_to_pupil_offset=args.system_to_pupil_offset,
         video_json=args.video_json,
+        gaze_mapping=args.gaze_mapping,
     )
 
     if args.write_frame_focus_csv:
