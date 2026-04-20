@@ -11,22 +11,57 @@ except ImportError:
     from gaze_extraction import VideoGazeData
 
 
-VIDEO_SCREEN_RATIO = 0.7
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
+PLAYER_LEFT = 480
+PLAYER_TOP = 147
+PLAYER_WIDTH = 1440
+PLAYER_HEIGHT = 700
+VIDEO_ASPECT_RATIO = 16 / 9
+
+# Kept for CLI compatibility. The measured geometry above is now used for
+# mapping instead of a single square-region ratio.
+VIDEO_SCREEN_RATIO = PLAYER_HEIGHT / SCREEN_HEIGHT
+
+
+def video_display_bounds() -> Tuple[float, float, float, float]:
+    player_aspect = PLAYER_WIDTH / PLAYER_HEIGHT
+    if VIDEO_ASPECT_RATIO >= player_aspect:
+        display_width = float(PLAYER_WIDTH)
+        display_height = display_width / VIDEO_ASPECT_RATIO
+        display_left = float(PLAYER_LEFT)
+        display_top = PLAYER_TOP + (PLAYER_HEIGHT - display_height) / 2.0
+    else:
+        display_height = float(PLAYER_HEIGHT)
+        display_width = display_height * VIDEO_ASPECT_RATIO
+        display_left = PLAYER_LEFT + (PLAYER_WIDTH - display_width) / 2.0
+        display_top = float(PLAYER_TOP)
+    return display_left, display_top, display_width, display_height
+
+
+def map_screen_sample_to_video_point(sample: dict) -> Tuple[float, float] | None:
+    x = sample["norm_pos_x"]
+    y = sample["norm_pos_y"]
+    if x is None or y is None:
+        return None
+
+    screen_x = float(x) * SCREEN_WIDTH
+    screen_y_from_top = (1.0 - float(y)) * SCREEN_HEIGHT
+    display_left, display_top, display_width, display_height = video_display_bounds()
+    video_x = (screen_x - display_left) / display_width
+    video_y = 1.0 - ((screen_y_from_top - display_top) / display_height)
+    eps = 1e-9
+    if -eps <= video_x <= 1.0 + eps and -eps <= video_y <= 1.0 + eps:
+        return min(max(video_x, 0.0), 1.0), min(max(video_y, 0.0), 1.0)
+    return None
 
 
 def map_screen_focus_to_video(samples: List[dict], video_screen_ratio: float) -> List[Tuple[float, float]]:
-    rect_min = 1.0 - video_screen_ratio
-    eps = 1e-9
     points = []
     for sample in samples:
-        x = sample["norm_pos_x"]
-        y = sample["norm_pos_y"]
-        if x is None or y is None:
-            continue
-        video_x = (float(x) - rect_min) / video_screen_ratio
-        video_y = (float(y) - rect_min) / video_screen_ratio
-        if -eps <= video_x <= 1.0 + eps and -eps <= video_y <= 1.0 + eps:
-            points.append((min(max(video_x, 0.0), 1.0), min(max(video_y, 0.0), 1.0)))
+        point = map_screen_sample_to_video_point(sample)
+        if point is not None:
+            points.append(point)
     return points
 
 

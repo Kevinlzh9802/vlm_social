@@ -19,6 +19,7 @@ DEFAULT_ANNOTATION_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/resul
 DEFAULT_VIDEO_JSON="/scratch/zli33/data/gestalt_bench/human_eval/task2/task2.json"
 DEFAULT_SOURCE_VIDEOS="/scratch/zli33/data/gestalt_bench/human_eval/videos"
 DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/manipulation"
+DEFAULT_FULL_CORRUPTION_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/manipulation_full"
 DEFAULT_ORIGINAL_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/original"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 DEFAULT_EFFECT="block"
@@ -28,12 +29,13 @@ DEFAULT_MAX_GAZE_GAP="0.5"
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--original-output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--utt 1,2,3] [--no-overwrite]" >&2
+    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--full-corruption-output-dir PATH] [--original-output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--utt 1,2,3] [--no-overwrite]" >&2
     echo "  pupil-parent: parent folder with T{x}_{y}_annotator1/2 Pupil recordings (default: ${DEFAULT_PUPIL_PARENT})" >&2
     echo "  annotation-dir: folder with T{x}_{y}.json annotation files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  video-json: fallback ordered video list JSON (default: ${DEFAULT_VIDEO_JSON})" >&2
     echo "  source-videos: local path replacing the media URL prefix (default: ${DEFAULT_SOURCE_VIDEOS})" >&2
-    echo "  output-dir: manipulated gaze-blocked output parent (default: ${DEFAULT_OUTPUT_DIR})" >&2
+    echo "  output-dir: final-segment manipulated output parent (default: ${DEFAULT_OUTPUT_DIR})" >&2
+    echo "  full-corruption-output-dir: whole-clip gaze-corrupted output parent (default: ${DEFAULT_FULL_CORRUPTION_OUTPUT_DIR})" >&2
     echo "  original-output-dir: unmanipulated copied output parent (default: ${DEFAULT_ORIGINAL_OUTPUT_DIR})" >&2
     echo "  media-url-prefix: media URL prefix to replace (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
     echo "  effect: manipulation effect, default ${DEFAULT_EFFECT}" >&2
@@ -44,6 +46,7 @@ ANNOTATION_DIR="${DEFAULT_ANNOTATION_DIR}"
 VIDEO_JSON="${DEFAULT_VIDEO_JSON}"
 SOURCE_VIDEOS="${DEFAULT_SOURCE_VIDEOS}"
 OUTPUT_DIR="${DEFAULT_OUTPUT_DIR}"
+FULL_CORRUPTION_OUTPUT_DIR="${DEFAULT_FULL_CORRUPTION_OUTPUT_DIR}"
 ORIGINAL_OUTPUT_DIR="${DEFAULT_ORIGINAL_OUTPUT_DIR}"
 MEDIA_URL_PREFIX="${DEFAULT_MEDIA_URL_PREFIX}"
 EFFECT="${DEFAULT_EFFECT}"
@@ -73,6 +76,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --output-dir)
             OUTPUT_DIR="${2:?Missing value for --output-dir}"
+            shift 2
+            ;;
+        --full-corruption-output-dir)
+            FULL_CORRUPTION_OUTPUT_DIR="${2:?Missing value for --full-corruption-output-dir}"
             shift 2
             ;;
         --original-output-dir)
@@ -155,7 +162,7 @@ if [[ ! -d "${SOURCE_VIDEOS}" ]]; then
     exit 1
 fi
 
-mkdir -p "${OUTPUT_DIR}" "${ORIGINAL_OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR}" "${FULL_CORRUPTION_OUTPUT_DIR}" "${ORIGINAL_OUTPUT_DIR}"
 
 echo "Project root:        ${PROJECT_ROOT}"
 echo "Apptainer image:     ${SIF_PATH}"
@@ -163,15 +170,16 @@ echo "Pupil parent:        ${PUPIL_PARENT}"
 echo "Annotation dir:      ${ANNOTATION_DIR}"
 echo "Video JSON:          ${VIDEO_JSON}"
 echo "Source videos:       ${SOURCE_VIDEOS}"
-echo "Manipulated output:  ${OUTPUT_DIR}"
-echo "Original output:     ${ORIGINAL_OUTPUT_DIR}"
-echo "Media URL prefix:    ${MEDIA_URL_PREFIX}"
-echo "Effect:              ${EFFECT}"
-echo "Clip length:         ${CLIP_LENGTH}"
-echo "Focus box ratio:     ${FOCUS_BOX_RATIO}"
-echo "Max gaze gap:        ${MAX_GAZE_GAP}"
-echo "Utterance groups:    ${UTT:-all}"
-echo "Overwrite:           ${OVERWRITE}"
+echo "Final-segment output: ${OUTPUT_DIR}"
+echo "Full corruption out:  ${FULL_CORRUPTION_OUTPUT_DIR}"
+echo "Original output:      ${ORIGINAL_OUTPUT_DIR}"
+echo "Media URL prefix:     ${MEDIA_URL_PREFIX}"
+echo "Effect:               ${EFFECT}"
+echo "Clip length:          ${CLIP_LENGTH}"
+echo "Focus box ratio:      ${FOCUS_BOX_RATIO}"
+echo "Max gaze gap:         ${MAX_GAZE_GAP}"
+echo "Utterance groups:     ${UTT:-all}"
+echo "Overwrite:            ${OVERWRITE}"
 
 PYTHON_ARGS=(
     python /workspace/eyetrack/gaze_blocked_partition.py
@@ -182,6 +190,7 @@ PYTHON_ARGS=(
     --video-json "${VIDEO_JSON}"
     --media-url-prefix "${MEDIA_URL_PREFIX}"
     --original-output-parent "${ORIGINAL_OUTPUT_DIR}"
+    --full-corruption-output-parent "${FULL_CORRUPTION_OUTPUT_DIR}"
     --effect "${EFFECT}"
     --clip-length "${CLIP_LENGTH}"
     --focus-box-ratio "${FOCUS_BOX_RATIO}"

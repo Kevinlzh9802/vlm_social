@@ -177,7 +177,10 @@ def parse_args() -> argparse.Namespace:
         "--video-screen-ratio",
         type=float,
         default=VIDEO_SCREEN_RATIO,
-        help="Assumed width/height ratio of the video rectangle on the screen.",
+        help=(
+            "Deprecated compatibility option. Focus mapping now uses the measured "
+            "1920x1080 screen geometry from focus_plot.py."
+        ),
     )
     parser.add_argument(
         "--system-to-pupil-offset",

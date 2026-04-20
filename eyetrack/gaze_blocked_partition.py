@@ -41,7 +41,7 @@ from eyetrack.annotation_intervals import (  # noqa: E402
     load_all_video_timings,
 )
 from eyetrack.eyetrack_annotation import find_annotation_jsons  # noqa: E402
-from eyetrack.focus_plot import VIDEO_SCREEN_RATIO  # noqa: E402
+from eyetrack.focus_plot import map_screen_sample_to_video_point  # noqa: E402
 from eyetrack.gaze_extraction import (  # noqa: E402
     MEDIA_URL_PREFIX,
     annotation_time_to_pupil_time,
@@ -110,6 +110,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Optional output parent for unmanipulated clips copied into the same "
             "dataset/context/{1,2,3}-utt_group structure."
+        ),
+    )
+    parser.add_argument(
+        "--full-corruption-output-parent",
+        type=Path,
+        default=None,
+        help=(
+            "Optional output parent for clips where gaze corruption is applied "
+            "throughout each whole clip instead of only the final segment."
         ),
     )
     parser.add_argument(
@@ -216,18 +225,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def map_sample_to_video_point(sample: dict, video_screen_ratio: float) -> tuple[float, float] | None:
-    x = sample["norm_pos_x"]
-    y = sample["norm_pos_y"]
-    if x is None or y is None:
-        return None
-
-    rect_min = 1.0 - video_screen_ratio
-    video_x = (float(x) - rect_min) / video_screen_ratio
-    video_y = (float(y) - rect_min) / video_screen_ratio
-    if 0.0 <= video_x <= 1.0 and 0.0 <= video_y <= 1.0:
-        return video_x, video_y
-    return None
+def map_sample_to_video_point(sample: dict) -> tuple[float, float] | None:
+    return map_screen_sample_to_video_point(sample)
 
 
 def canonical_path(path: Path) -> str:
@@ -316,7 +315,7 @@ def build_gaze_index(
 
                 points: list[GazePoint] = []
                 for sample in samples:
-                    mapped = map_sample_to_video_point(sample, VIDEO_SCREEN_RATIO)
+                    mapped = map_sample_to_video_point(sample)
                     if mapped is None:
                         continue
                     points.append(
@@ -463,7 +462,7 @@ def build_annotation_clip_groups(
                 )
                 points = []
                 for sample in samples:
-                    mapped = map_sample_to_video_point(sample, VIDEO_SCREEN_RATIO)
+                    mapped = map_sample_to_video_point(sample)
                     if mapped is None:
                         continue
                     points.append(
@@ -652,6 +651,7 @@ def write_masked_target_prefix_video(
     effect: str,
     focus_box_ratio: float,
     max_gaze_gap: float,
+    mask_full_video: bool = False,
 ) -> dict[str, int]:
     source_path = Path(source_path)
     cap = cv2.VideoCapture(str(source_path))
@@ -682,7 +682,7 @@ def write_masked_target_prefix_video(
             cap.release()
             raise RuntimeError(f"Could not create temporary video writer for {raw_video_path}")
 
-        mask_start_time = max(0.0, duration_seconds - clip_length)
+        mask_start_time = 0.0 if mask_full_video else max(0.0, duration_seconds - clip_length)
         frame_index = 0
         while frame_index < frame_limit:
             ok, frame = cap.read()
@@ -991,12 +991,14 @@ def materialize_annotation_clip_group(
     focus_box_ratio: float,
     max_gaze_gap: float,
     overwrite: bool,
+    mask_full_video: bool = False,
 ) -> dict[str, object]:
     source_clips = discover_sibling_clips(group.final_clip_path, group.clip_prefix)
     if not source_clips:
         raise FileNotFoundError(f"No sibling clips found for {group.final_clip_path}")
 
     output_dir = output_dir_for_annotation_group(group, output_parent)
+    mask_mode = "full_video" if mask_full_video else "final_segment"
     if not group.gaze_points:
         if overwrite and output_dir.exists():
             shutil.rmtree(output_dir)
@@ -1009,6 +1011,7 @@ def materialize_annotation_clip_group(
             "final_clip_path": str(group.final_clip_path),
             "clip_output_folder": str(output_dir),
             "source_clip_count": len(source_clips),
+            "mask_mode": mask_mode,
             "clip_mp4_count": 0,
             "clip_wav_count": 0,
             "masked_frame_count": 0,
@@ -1030,6 +1033,7 @@ def materialize_annotation_clip_group(
                 "final_clip_path": str(group.final_clip_path),
                 "clip_output_folder": str(output_dir),
                 "source_clip_count": len(source_clips),
+                "mask_mode": mask_mode,
                 "clip_mp4_count": mp4_count,
                 "clip_wav_count": wav_count,
                 "masked_frame_count": "",
@@ -1058,6 +1062,7 @@ def materialize_annotation_clip_group(
                 effect=effect,
                 focus_box_ratio=focus_box_ratio,
                 max_gaze_gap=max_gaze_gap,
+                mask_full_video=mask_full_video,
             )
             masked_frame_count += stats["masked_frames"]
             if stats["masked_frames"] <= 0:
@@ -1081,6 +1086,7 @@ def materialize_annotation_clip_group(
             "final_clip_path": str(group.final_clip_path),
             "clip_output_folder": str(output_dir),
             "source_clip_count": len(source_clips),
+            "mask_mode": mask_mode,
             "clip_mp4_count": 0,
             "clip_wav_count": 0,
             "masked_frame_count": masked_frame_count,
@@ -1098,6 +1104,7 @@ def materialize_annotation_clip_group(
         "final_clip_path": str(group.final_clip_path),
         "clip_output_folder": str(output_dir),
         "source_clip_count": len(source_clips),
+        "mask_mode": mask_mode,
         "clip_mp4_count": mp4_count,
         "clip_wav_count": wav_count,
         "masked_frame_count": masked_frame_count,
@@ -1198,6 +1205,7 @@ def write_annotation_clip_summary(
             "final_clip_path",
             "clip_output_folder",
             "source_clip_count",
+            "mask_mode",
             "clip_mp4_count",
             "clip_wav_count",
             "masked_frame_count",
@@ -1321,6 +1329,56 @@ def main() -> None:
                 original_results,
                 stem="original_annotation_clip",
                 pipeline="annotation_clip_original_copy",
+            )
+
+        if args.full_corruption_output_parent is not None:
+            full_corruption_results = []
+            logging.info(
+                "building full-video gaze-corrupted clips under %s",
+                args.full_corruption_output_parent,
+            )
+            for group in selected_annotation_groups:
+                try:
+                    result = materialize_annotation_clip_group(
+                        group=group,
+                        output_parent=args.full_corruption_output_parent,
+                        clip_length=args.clip_length,
+                        effect=args.effect,
+                        focus_box_ratio=args.focus_box_ratio,
+                        max_gaze_gap=args.max_gaze_gap,
+                        overwrite=args.overwrite,
+                        mask_full_video=True,
+                    )
+                    full_corruption_results.append(result)
+                    if result.get("skipped"):
+                        logging.info(
+                            "skipped full-video corrupted clips for %s/%s/%s: %s",
+                            group.dataset,
+                            GROUP_FOLDER_NAMES[group.group_size],
+                            group.group_name,
+                            result.get("skip_reason"),
+                        )
+                        continue
+                    logging.info(
+                        "wrote %s full-video corrupted clips for %s/%s/%s",
+                        result["clip_mp4_count"],
+                        group.dataset,
+                        GROUP_FOLDER_NAMES[group.group_size],
+                        group.group_name,
+                    )
+                except Exception as exc:
+                    logging.warning(
+                        "failed full-video corrupted annotation clip group %s/%s/%s: %s",
+                        group.dataset,
+                        GROUP_FOLDER_NAMES[group.group_size],
+                        group.group_name,
+                        exc,
+                    )
+            write_annotation_clip_summary(
+                args.full_corruption_output_parent,
+                full_corruption_results,
+                stem="gaze_corrupted_full_annotation_clip",
+                pipeline="annotation_clip_gaze_corrupted_full",
             )
 
         results = []
