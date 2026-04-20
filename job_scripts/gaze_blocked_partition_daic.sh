@@ -30,10 +30,11 @@ DEFAULT_CLIP_LENGTH="0.5"
 DEFAULT_FOCUS_BOX_RATIO="0.18"
 DEFAULT_MAX_GAZE_GAP="0.5"
 DEFAULT_GAZE_MAPPING="legacy-extraction"
+DEFAULT_RESPONSE_SELECTION="latest-submitted"
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--full-corruption-output-dir PATH] [--original-output-dir PATH] [--focus-plot-output-dir PATH] [--debug-overlay-output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--gaze-mapping legacy-extraction|measured-player] [--utt 1,2,3] [--with-final-segment-output] [--no-focus-plots] [--no-debug-overlay] [--no-overwrite]" >&2
+    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--full-corruption-output-dir PATH] [--original-output-dir PATH] [--focus-plot-output-dir PATH] [--debug-overlay-output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--gaze-mapping legacy-extraction|measured-player] [--response-selection latest-submitted|first-response] [--utt 1,2,3] [--with-final-segment-output] [--no-focus-plots] [--no-debug-overlay] [--no-overwrite]" >&2
     echo "  pupil-parent: parent folder with T{x}_{y}_annotator1/2 Pupil recordings (default: ${DEFAULT_PUPIL_PARENT})" >&2
     echo "  annotation-dir: folder with T{x}_{y}.json annotation files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  video-json: fallback ordered video list JSON (default: ${DEFAULT_VIDEO_JSON})" >&2
@@ -49,6 +50,7 @@ usage() {
     echo "  media-url-prefix: media URL prefix to replace (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
     echo "  effect: manipulation effect, default ${DEFAULT_EFFECT}" >&2
     echo "  gaze-mapping: screen-to-video transform, default ${DEFAULT_GAZE_MAPPING}" >&2
+    echo "  response-selection: annotation response selector, default ${DEFAULT_RESPONSE_SELECTION}" >&2
 }
 
 PUPIL_PARENT="${DEFAULT_PUPIL_PARENT}"
@@ -66,6 +68,7 @@ CLIP_LENGTH="${DEFAULT_CLIP_LENGTH}"
 FOCUS_BOX_RATIO="${DEFAULT_FOCUS_BOX_RATIO}"
 MAX_GAZE_GAP="${DEFAULT_MAX_GAZE_GAP}"
 GAZE_MAPPING="${DEFAULT_GAZE_MAPPING}"
+RESPONSE_SELECTION="${DEFAULT_RESPONSE_SELECTION}"
 UTT=""
 OVERWRITE=1
 SKIP_FINAL_SEGMENT_OUTPUT=1
@@ -134,6 +137,10 @@ while [[ $# -gt 0 ]]; do
             GAZE_MAPPING="${2:?Missing value for --gaze-mapping}"
             shift 2
             ;;
+        --response-selection)
+            RESPONSE_SELECTION="${2:?Missing value for --response-selection}"
+            shift 2
+            ;;
         --utt)
             UTT="${2:?Missing value for --utt}"
             shift 2
@@ -178,6 +185,11 @@ fi
 
 if [[ "${GAZE_MAPPING}" != "legacy-extraction" && "${GAZE_MAPPING}" != "measured-player" ]]; then
     echo "Invalid --gaze-mapping: ${GAZE_MAPPING}. Expected legacy-extraction or measured-player." >&2
+    exit 1
+fi
+
+if [[ "${RESPONSE_SELECTION}" != "latest-submitted" && "${RESPONSE_SELECTION}" != "first-response" ]]; then
+    echo "Invalid --response-selection: ${RESPONSE_SELECTION}. Expected latest-submitted or first-response." >&2
     exit 1
 fi
 
@@ -233,6 +245,7 @@ echo "Clip length:          ${CLIP_LENGTH}"
 echo "Focus box ratio:      ${FOCUS_BOX_RATIO}"
 echo "Max gaze gap:         ${MAX_GAZE_GAP}"
 echo "Gaze mapping:         ${GAZE_MAPPING}"
+echo "Response selection:   ${RESPONSE_SELECTION}"
 echo "Utterance groups:     ${UTT:-all}"
 echo "Overwrite:            ${OVERWRITE}"
 echo "Skip final segment:   ${SKIP_FINAL_SEGMENT_OUTPUT}"
@@ -252,6 +265,7 @@ PYTHON_ARGS=(
     --focus-box-ratio "${FOCUS_BOX_RATIO}"
     --max-gaze-gap "${MAX_GAZE_GAP}"
     --gaze-mapping "${GAZE_MAPPING}"
+    --response-selection "${RESPONSE_SELECTION}"
 )
 
 if [[ "${WRITE_FOCUS_PLOTS}" == "1" ]]; then

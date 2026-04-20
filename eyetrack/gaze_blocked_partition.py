@@ -38,6 +38,7 @@ from dataset.dialogue_partition import (  # noqa: E402
     write_summary_files,
 )
 from eyetrack.annotation_intervals import (  # noqa: E402
+    RESPONSE_SELECTION_CHOICES,
     TIME_TOLERANCE_SECONDS,
     load_all_video_timings,
 )
@@ -164,6 +165,15 @@ def parse_args() -> argparse.Namespace:
             "Screen-to-video gaze mapping. 'legacy-extraction' reproduces the "
             "64b3e28 eyetrack_annotation focus plots; 'measured-player' uses "
             "the measured 1920x1080 browser/player geometry."
+        ),
+    )
+    parser.add_argument(
+        "--response-selection",
+        choices=RESPONSE_SELECTION_CHOICES,
+        default="latest-submitted",
+        help=(
+            "Which response to read from each annotator node. "
+            "'first-response' matches the 64b3e28 extraction behavior."
         ),
     )
     parser.add_argument(
@@ -309,6 +319,7 @@ def build_gaze_index(
     system_to_pupil_offset: float | None,
     video_json: Path | None,
     gaze_mapping: str,
+    response_selection: str,
 ) -> tuple[dict[str, list[GazePoint]], dict[str, list[GazePoint]]]:
     annotation_files = find_annotation_jsons(annotation_dir)
     if not annotation_files:
@@ -325,7 +336,11 @@ def build_gaze_index(
 
     for task_number, task_instance_id, annotation_json in annotation_files:
         task_instance_name = f"T{task_number}_{task_instance_id}"
-        all_timings = load_all_video_timings(annotation_json, duration_tolerance)
+        all_timings = load_all_video_timings(
+            annotation_json,
+            duration_tolerance,
+            response_selection=response_selection,
+        )
 
         for annotator_timings in all_timings:
             recording_dir = (
@@ -451,6 +466,7 @@ def build_annotation_clip_groups(
     system_to_pupil_offset: float | None,
     video_json: Path | None,
     gaze_mapping: str,
+    response_selection: str,
 ) -> list[AnnotationClipGroup]:
     annotation_files = find_annotation_jsons(annotation_dir)
     if not annotation_files:
@@ -466,7 +482,11 @@ def build_annotation_clip_groups(
 
     for task_number, task_instance_id, annotation_json in annotation_files:
         task_instance_name = f"T{task_number}_{task_instance_id}"
-        all_timings = load_all_video_timings(annotation_json, duration_tolerance)
+        all_timings = load_all_video_timings(
+            annotation_json,
+            duration_tolerance,
+            response_selection=response_selection,
+        )
 
         for annotator_timings in all_timings:
             recording_dir = (
@@ -1731,6 +1751,7 @@ def main() -> None:
             system_to_pupil_offset=args.system_to_pupil_offset,
             video_json=args.video_json,
             gaze_mapping=args.gaze_mapping,
+            response_selection=args.response_selection,
         )
         selected_annotation_groups = [
             group for group in annotation_groups if group.group_size in selected_group_sizes
@@ -1972,6 +1993,7 @@ def main() -> None:
         system_to_pupil_offset=args.system_to_pupil_offset,
         video_json=args.video_json,
         gaze_mapping=args.gaze_mapping,
+        response_selection=args.response_selection,
     )
 
     if args.write_frame_focus_csv:

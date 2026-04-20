@@ -10,6 +10,7 @@ from typing import Any, Iterator, List, Tuple
 
 
 TIME_TOLERANCE_SECONDS = 0.5
+RESPONSE_SELECTION_CHOICES = ("latest-submitted", "first-response")
 
 
 @dataclass
@@ -31,6 +32,18 @@ class AnnotatorTimings:
     node_id: str
     global_unique_id: str | None
     timings: List[VideoTiming]
+    response_selection: str = "latest-submitted"
+    response_index: int | None = None
+    response_created: str | None = None
+    response_submitted: bool | None = None
+
+
+@dataclass
+class SelectedResponse:
+    response_index: int
+    response: dict
+    created: str | None
+    submitted: bool
 
 
 def get_indexed_value(container: Any, index: int) -> Any:
@@ -102,7 +115,24 @@ def parse_created_timestamp(value: Any) -> datetime:
         return datetime.min
 
 
-def select_latest_submitted_response(responses: Any, node_id: str) -> dict | None:
+def select_first_response(responses: Any, node_id: str) -> SelectedResponse | None:
+    try:
+        response = get_indexed_value(responses, 0)
+    except (KeyError, IndexError, TypeError) as exc:
+        logging.warning("nodes -> %s has no responses[0]; skipping annotator: %s", node_id, exc)
+        return None
+    if not isinstance(response, dict):
+        logging.warning("nodes -> %s -> responses -> 0 is not a dict; skipping.", node_id)
+        return None
+    return SelectedResponse(
+        response_index=0,
+        response=response,
+        created=None if response.get("created") is None else str(response.get("created")),
+        submitted=submitted_flag(response.get("submitted")),
+    )
+
+
+def select_latest_submitted_response(responses: Any, node_id: str) -> SelectedResponse | None:
     submitted_responses = []
     for response_index, response in iter_indexed_values(responses):
         if not isinstance(response, dict):
@@ -126,21 +156,43 @@ def select_latest_submitted_response(responses: Any, node_id: str) -> dict | Non
         return None
 
     submitted_responses.sort(key=lambda item: (item[0], item[1]))
-    return submitted_responses[-1][2]
+    _, response_index, response = submitted_responses[-1]
+    return SelectedResponse(
+        response_index=response_index,
+        response=response,
+        created=None if response.get("created") is None else str(response.get("created")),
+        submitted=submitted_flag(response.get("submitted")),
+    )
 
 
-def get_annotations(payload: dict, node_id: str) -> dict | None:
+def select_response(
+    responses: Any,
+    node_id: str,
+    response_selection: str,
+) -> SelectedResponse | None:
+    if response_selection == "latest-submitted":
+        return select_latest_submitted_response(responses, node_id)
+    if response_selection == "first-response":
+        return select_first_response(responses, node_id)
+    raise ValueError(f"Unsupported response selection: {response_selection}")
+
+
+def get_annotations(
+    payload: dict,
+    node_id: str,
+    response_selection: str = "latest-submitted",
+) -> Tuple[dict, SelectedResponse] | None:
     node = payload["nodes"][node_id]
     responses = node["responses"]
-    response = select_latest_submitted_response(responses, node_id)
-    if response is None:
+    selected_response = select_response(responses, node_id, response_selection)
+    if selected_response is None:
         return None
-    annotations = response["annotations"]
+    annotations = selected_response.response["annotations"]
     if not isinstance(annotations, dict):
         raise TypeError(
-            f"nodes -> {node_id} -> latest submitted response -> annotations must be a dict."
+            f"nodes -> {node_id} -> selected response -> annotations must be a dict."
         )
-    return annotations
+    return annotations, selected_response
 
 
 def sorted_annotation_items(annotations: dict) -> List[Tuple[int, Any]]:
@@ -296,17 +348,23 @@ def parse_video_timings(
     return timings
 
 
-def load_all_video_timings(json_path: Path, tolerance: float) -> List[AnnotatorTimings]:
+def load_all_video_timings(
+    json_path: Path,
+    tolerance: float,
+    response_selection: str = "latest-submitted",
+) -> List[AnnotatorTimings]:
     with json_path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
 
     all_timings = []
     for annotator_number, node_id, global_unique_id in get_annotator_node_ids(payload):
-        annotations = get_annotations(payload, node_id)
-        if annotations is None:
+        selected = get_annotations(payload, node_id, response_selection)
+        if selected is None:
             continue
+        annotations, selected_response = selected
         print(
             f"Annotator {annotator_number}: node {node_id}, "
+            f"response {selected_response.response_index}, "
             f"videos under annotations: {len(annotations)}"
         )
         all_timings.append(
@@ -314,6 +372,10 @@ def load_all_video_timings(json_path: Path, tolerance: float) -> List[AnnotatorT
                 annotator_number=annotator_number,
                 node_id=node_id,
                 global_unique_id=global_unique_id,
+                response_selection=response_selection,
+                response_index=selected_response.response_index,
+                response_created=selected_response.created,
+                response_submitted=selected_response.submitted,
                 timings=parse_video_timings(
                     annotations,
                     tolerance,
@@ -330,7 +392,9 @@ def print_timing_table(annotator_timings: AnnotatorTimings) -> None:
     print()
     print(
         f"Annotator {annotator_timings.annotator_number} "
-        f"(node {annotator_timings.node_id}, {annotator_timings.global_unique_id})"
+        f"(node {annotator_timings.node_id}, {annotator_timings.global_unique_id}, "
+        f"response_selection={annotator_timings.response_selection}, "
+        f"response_index={annotator_timings.response_index})"
     )
     headers = ("video", "video_start_time", "video_end_time", "video_length")
     rows = [
@@ -363,13 +427,26 @@ def parse_args() -> argparse.Namespace:
         default=TIME_TOLERANCE_SECONDS,
         help="Allowed seconds of difference between end-start and current_video_time.",
     )
+    parser.add_argument(
+        "--response-selection",
+        choices=RESPONSE_SELECTION_CHOICES,
+        default="latest-submitted",
+        help=(
+            "Which response to read from each annotator node. "
+            "'first-response' matches the 64b3e28 behavior."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     args = parse_args()
-    all_timings = load_all_video_timings(args.annotation_json, args.duration_tolerance)
+    all_timings = load_all_video_timings(
+        args.annotation_json,
+        args.duration_tolerance,
+        response_selection=args.response_selection,
+    )
     for annotator_timings in all_timings:
         print_timing_table(annotator_timings)
 

@@ -1,24 +1,25 @@
 #!/bin/bash
 #SBATCH --job-name="eyetrack_focus"
 #SBATCH --time=04:00:00
-#SBATCH --partition=compute-p1
+#SBATCH --partition=insy,general
+#SBATCH --qos=medium
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem-per-cpu=3000M
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=16G
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
+#SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/zli33/projects/vlm_social"
-SIF_PATH="/scratch/zli33/apptainers/eyetrack.sif"
-DEFAULT_PUPIL_PARENT="/scratch/zli33/data/gestalt_bench/human_eval/pupil"
-DEFAULT_ANNOTATION_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/results"
-DEFAULT_VIDEO_JSON="/scratch/zli33/data/gestalt_bench/human_eval/task2/task2.json"
-DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/extraction_focus"
-DEFAULT_LOCAL_PATH_PREFIX="/scratch/zli33/data/gestalt_bench/human_eval/videos"
+PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
+SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/eyetrack.sif"
+DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
+DEFAULT_PUPIL_PARENT="${DEFAULT_DATA_ROOT}/human_eval/pupil"
+DEFAULT_ANNOTATION_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/results"
+DEFAULT_VIDEO_JSON="${DEFAULT_DATA_ROOT}/human_eval/task2/task2.json"
+DEFAULT_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/extraction_focus_current"
+DEFAULT_LOCAL_PATH_PREFIX="${DEFAULT_DATA_ROOT}/human_eval/videos"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 DEFAULT_FOCUS_MAPPING="legacy-extraction"
 DEFAULT_RESPONSE_SELECTION="latest-submitted"
@@ -110,7 +111,6 @@ fi
 
 if [[ ! -f "${SIF_PATH}" ]]; then
     echo "Missing Apptainer image: ${SIF_PATH}" >&2
-    echo "Build it first with: cd ${PROJECT_ROOT}/apptainer && apptainer build eyetrack.sif eyetrack.def" >&2
     exit 1
 fi
 
@@ -138,6 +138,7 @@ mkdir -p "${OUTPUT_DIR}"
 
 echo "Project root:       ${PROJECT_ROOT}"
 echo "Apptainer image:    ${SIF_PATH}"
+echo "Data root:          ${DEFAULT_DATA_ROOT}"
 echo "Pupil parent:       ${PUPIL_PARENT}"
 echo "Annotation dir:     ${ANNOTATION_DIR}"
 echo "Video JSON:         ${VIDEO_JSON}"
@@ -163,7 +164,6 @@ PYTHON_ARGS=(
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
-    --bind /home/zli33:/home/zli33 \
-    --bind /scratch/zli33:/scratch/zli33 \
+    --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
     "${SIF_PATH}" \
     "${PYTHON_ARGS[@]}"

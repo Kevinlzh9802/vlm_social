@@ -20,6 +20,7 @@ from typing import List, Tuple
 
 try:
     from .annotation_intervals import (
+        RESPONSE_SELECTION_CHOICES,
         TIME_TOLERANCE_SECONDS,
         load_all_video_timings,
         print_timing_table,
@@ -37,6 +38,7 @@ try:
     )
 except ImportError:
     from annotation_intervals import (
+        RESPONSE_SELECTION_CHOICES,
         TIME_TOLERANCE_SECONDS,
         load_all_video_timings,
         print_timing_table,
@@ -62,6 +64,10 @@ TIMING_CSV_FIELDS = (
     "annotator_number",
     "node_id",
     "global_unique_id",
+    "response_selection",
+    "response_index",
+    "response_created",
+    "response_submitted",
     "video_number",
     "annotation_key",
     "video_start_time",
@@ -108,6 +114,10 @@ def write_timing_csv_rows(
                 "annotator_number": annotator_timings.annotator_number,
                 "node_id": annotator_timings.node_id,
                 "global_unique_id": annotator_timings.global_unique_id,
+                "response_selection": annotator_timings.response_selection,
+                "response_index": annotator_timings.response_index,
+                "response_created": annotator_timings.response_created,
+                "response_submitted": annotator_timings.response_submitted,
                 "video_number": timing.video_number,
                 "annotation_key": timing.annotation_key,
                 "video_start_time": timing.video_start_time,
@@ -198,6 +208,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--response-selection",
+        choices=RESPONSE_SELECTION_CHOICES,
+        default="latest-submitted",
+        help=(
+            "Which response to read from each annotator node. "
+            "'first-response' matches the 64b3e28 behavior."
+        ),
+    )
+    parser.add_argument(
         "--system-to-pupil-offset",
         type=float,
         default=None,
@@ -257,7 +276,11 @@ def main() -> None:
             task_instance_name = f"T{task_number}_{task_instance_id}"
             logging.info("processing annotation file: %s", annotation_json)
 
-            all_timings = load_all_video_timings(annotation_json, args.duration_tolerance)
+            all_timings = load_all_video_timings(
+                annotation_json,
+                args.duration_tolerance,
+                response_selection=args.response_selection,
+            )
             for annotator_timings in all_timings:
                 annotator_output_dir = (
                     args.output_dir
