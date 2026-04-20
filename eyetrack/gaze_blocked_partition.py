@@ -92,6 +92,7 @@ class AnnotationClipGroup:
     response_index: int | None = None
     response_created: str | None = None
     response_submitted: bool | None = None
+    annotation_sources: list[dict[str, object]] | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -461,6 +462,56 @@ def merge_gaze_points(existing: list[GazePoint], new_points: Iterable[GazePoint]
     return merged
 
 
+def build_annotation_source_record(
+    task_number: int,
+    task_instance_id: int,
+    task_instance_name: str,
+    annotator_timings,
+    timing,
+    annotation_json: Path,
+    recording_dir: Path,
+    video_path: Path,
+    annotation_video_path: str | None,
+    start_time: float,
+    end_time: float,
+    system_to_pupil_offset: float,
+    raw_sample_count: int,
+    mapped_sample_count: int,
+    gaze_mapping: str,
+) -> dict[str, object]:
+    return {
+        "task_number": task_number,
+        "task_instance_id": task_instance_id,
+        "task_instance": task_instance_name,
+        "annotator_number": annotator_timings.annotator_number,
+        "node_id": annotator_timings.node_id,
+        "global_unique_id": annotator_timings.global_unique_id,
+        "response_selection": annotator_timings.response_selection,
+        "response_index": annotator_timings.response_index,
+        "response_created": annotator_timings.response_created,
+        "response_submitted": annotator_timings.response_submitted,
+        "video_number": timing.video_number,
+        "annotation_key": timing.annotation_key,
+        "video_start_time": timing.video_start_time,
+        "video_end_time": timing.video_end_time,
+        "video_length": timing.video_length,
+        "current_video_time": timing.current_video_time,
+        "time_annot": timing.time_annot,
+        "annotation_video_path": annotation_video_path,
+        "resolved_video_path": str(video_path),
+        "annotation_json": str(annotation_json),
+        "recording_dir": str(recording_dir),
+        "gaze_timestamps_path": str(recording_dir / "gaze_timestamps.npy"),
+        "gaze_pldata_path": str(recording_dir / "gaze.pldata"),
+        "system_to_pupil_offset": system_to_pupil_offset,
+        "pupil_start_time": start_time,
+        "pupil_end_time": end_time,
+        "raw_gaze_sample_count": raw_sample_count,
+        "mapped_gaze_sample_count": mapped_sample_count,
+        "gaze_mapping": gaze_mapping,
+    }
+
+
 def build_annotation_clip_groups(
     recording_parent_dir: Path,
     annotation_dir: Path,
@@ -551,6 +602,23 @@ def build_annotation_clip_groups(
                             y=mapped[1],
                         )
                     )
+                annotation_source = build_annotation_source_record(
+                    task_number=task_number,
+                    task_instance_id=task_instance_id,
+                    task_instance_name=task_instance_name,
+                    annotator_timings=annotator_timings,
+                    timing=timing,
+                    annotation_json=annotation_json,
+                    recording_dir=recording_dir,
+                    video_path=video_entry.video_path,
+                    annotation_video_path=timing.video_path,
+                    start_time=start_time,
+                    end_time=end_time,
+                    system_to_pupil_offset=offset,
+                    raw_sample_count=len(samples),
+                    mapped_sample_count=len(points),
+                    gaze_mapping=gaze_mapping,
+                )
 
                 key = (
                     annotator_timings.annotator_number,
@@ -582,6 +650,7 @@ def build_annotation_clip_groups(
                         response_index=annotator_timings.response_index,
                         response_created=annotator_timings.response_created,
                         response_submitted=annotator_timings.response_submitted,
+                        annotation_sources=[annotation_source],
                     )
                 else:
                     grouped[key] = AnnotationClipGroup(
@@ -603,6 +672,10 @@ def build_annotation_clip_groups(
                         response_index=existing.response_index,
                         response_created=existing.response_created,
                         response_submitted=existing.response_submitted,
+                        annotation_sources=[
+                            *(existing.annotation_sources or []),
+                            annotation_source,
+                        ],
                     )
 
     return sorted(
@@ -1123,6 +1196,8 @@ def _write_provenance_metadata(
         "response_index": group.response_index,
         "response_created": group.response_created,
         "response_submitted": group.response_submitted,
+        "annotation_source_count": len(group.annotation_sources or []),
+        "annotation_sources": group.annotation_sources or [],
         "gaze_point_count": len(group.gaze_points),
         "avg_gaze_x": avg_x,
         "avg_gaze_y": avg_y,
@@ -1132,7 +1207,51 @@ def _write_provenance_metadata(
     )
 
     # Generate aggregated gaze scatter plot on a video frame
+    _write_annotation_sources_csv(output_dir, group)
     _write_gaze_plot(output_dir, group, source_clips)
+
+
+def _write_annotation_sources_csv(output_dir: Path, group: AnnotationClipGroup) -> None:
+    fieldnames = [
+        "task_number",
+        "task_instance_id",
+        "task_instance",
+        "annotator_number",
+        "node_id",
+        "global_unique_id",
+        "response_selection",
+        "response_index",
+        "response_created",
+        "response_submitted",
+        "video_number",
+        "annotation_key",
+        "video_start_time",
+        "video_end_time",
+        "video_length",
+        "current_video_time",
+        "time_annot",
+        "annotation_video_path",
+        "resolved_video_path",
+        "annotation_json",
+        "recording_dir",
+        "gaze_timestamps_path",
+        "gaze_pldata_path",
+        "system_to_pupil_offset",
+        "pupil_start_time",
+        "pupil_end_time",
+        "raw_gaze_sample_count",
+        "mapped_gaze_sample_count",
+        "gaze_mapping",
+    ]
+    with (output_dir / "annotation_sources.csv").open(
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for source in group.annotation_sources or []:
+            writer.writerow({field: source.get(field, "") for field in fieldnames})
 
 
 def _write_gaze_plot(
@@ -1349,6 +1468,7 @@ def materialize_annotation_focus_plot_group(
             "clip_mp4_count": 0,
             "clip_wav_count": 0,
             "gaze_point_count": len(group.gaze_points),
+            "annotation_source_count": len(group.annotation_sources or []),
             "reused": True,
         }
     if overwrite and output_dir.exists():
@@ -1368,6 +1488,7 @@ def materialize_annotation_focus_plot_group(
         "clip_mp4_count": 0,
         "clip_wav_count": 0,
         "gaze_point_count": len(group.gaze_points),
+        "annotation_source_count": len(group.annotation_sources or []),
     }
 
 
@@ -1690,6 +1811,7 @@ def write_annotation_clip_summary(
             "clip_wav_count",
             "masked_frame_count",
             "gaze_point_count",
+            "annotation_source_count",
             "skipped",
             "skip_reason",
             "reused",
