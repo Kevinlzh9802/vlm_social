@@ -22,6 +22,8 @@ DEFAULT_SOURCE_VIDEOS="${DEFAULT_DATA_ROOT}/human_eval/videos"
 DEFAULT_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation"
 DEFAULT_FULL_CORRUPTION_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full"
 DEFAULT_ORIGINAL_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/original"
+DEFAULT_FOCUS_PLOT_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/extraction_focus_from_partition"
+DEFAULT_DEBUG_OVERLAY_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/gaze_overlay_debug"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 DEFAULT_EFFECT="block"
 DEFAULT_CLIP_LENGTH="0.5"
@@ -30,7 +32,7 @@ DEFAULT_MAX_GAZE_GAP="0.5"
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--full-corruption-output-dir PATH] [--original-output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--utt 1,2,3] [--with-final-segment-output] [--no-overwrite]" >&2
+    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--full-corruption-output-dir PATH] [--original-output-dir PATH] [--focus-plot-output-dir PATH] [--debug-overlay-output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--utt 1,2,3] [--with-final-segment-output] [--no-focus-plots] [--no-debug-overlay] [--no-overwrite]" >&2
     echo "  pupil-parent: parent folder with T{x}_{y}_annotator1/2 Pupil recordings (default: ${DEFAULT_PUPIL_PARENT})" >&2
     echo "  annotation-dir: folder with T{x}_{y}.json annotation files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  video-json: fallback ordered video list JSON (default: ${DEFAULT_VIDEO_JSON})" >&2
@@ -38,7 +40,11 @@ usage() {
     echo "  output-dir: final-segment manipulated output parent (default: ${DEFAULT_OUTPUT_DIR})" >&2
     echo "  full-corruption-output-dir: whole-clip gaze-corrupted output parent (default: ${DEFAULT_FULL_CORRUPTION_OUTPUT_DIR})" >&2
     echo "  original-output-dir: unmanipulated copied output parent (default: ${DEFAULT_ORIGINAL_OUTPUT_DIR})" >&2
+    echo "  focus-plot-output-dir: partition-pipeline gaze focus plots (default: ${DEFAULT_FOCUS_PLOT_OUTPUT_DIR})" >&2
+    echo "  debug-overlay-output-dir: per-frame gaze overlay videos and CSVs (default: ${DEFAULT_DEBUG_OVERLAY_OUTPUT_DIR})" >&2
     echo "  --with-final-segment-output: also generate final-0.5s corrupted cumulative clips (default: skipped)" >&2
+    echo "  --no-focus-plots: skip partition-pipeline static gaze focus plots" >&2
+    echo "  --no-debug-overlay: skip per-frame gaze debug overlay videos" >&2
     echo "  media-url-prefix: media URL prefix to replace (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
     echo "  effect: manipulation effect, default ${DEFAULT_EFFECT}" >&2
 }
@@ -50,6 +56,8 @@ SOURCE_VIDEOS="${DEFAULT_SOURCE_VIDEOS}"
 OUTPUT_DIR="${DEFAULT_OUTPUT_DIR}"
 FULL_CORRUPTION_OUTPUT_DIR="${DEFAULT_FULL_CORRUPTION_OUTPUT_DIR}"
 ORIGINAL_OUTPUT_DIR="${DEFAULT_ORIGINAL_OUTPUT_DIR}"
+FOCUS_PLOT_OUTPUT_DIR="${DEFAULT_FOCUS_PLOT_OUTPUT_DIR}"
+DEBUG_OVERLAY_OUTPUT_DIR="${DEFAULT_DEBUG_OVERLAY_OUTPUT_DIR}"
 MEDIA_URL_PREFIX="${DEFAULT_MEDIA_URL_PREFIX}"
 EFFECT="${DEFAULT_EFFECT}"
 CLIP_LENGTH="${DEFAULT_CLIP_LENGTH}"
@@ -58,6 +66,8 @@ MAX_GAZE_GAP="${DEFAULT_MAX_GAZE_GAP}"
 UTT=""
 OVERWRITE=1
 SKIP_FINAL_SEGMENT_OUTPUT=1
+WRITE_FOCUS_PLOTS=1
+WRITE_DEBUG_OVERLAY=1
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -87,6 +97,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --original-output-dir)
             ORIGINAL_OUTPUT_DIR="${2:?Missing value for --original-output-dir}"
+            shift 2
+            ;;
+        --focus-plot-output-dir)
+            FOCUS_PLOT_OUTPUT_DIR="${2:?Missing value for --focus-plot-output-dir}"
+            shift 2
+            ;;
+        --debug-overlay-output-dir)
+            DEBUG_OVERLAY_OUTPUT_DIR="${2:?Missing value for --debug-overlay-output-dir}"
             shift 2
             ;;
         --media-url-prefix)
@@ -119,6 +137,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --with-final-segment-output)
             SKIP_FINAL_SEGMENT_OUTPUT=0
+            shift
+            ;;
+        --no-focus-plots)
+            WRITE_FOCUS_PLOTS=0
+            shift
+            ;;
+        --no-debug-overlay)
+            WRITE_DEBUG_OVERLAY=0
             shift
             ;;
         -h|--help)
@@ -170,6 +196,12 @@ if [[ ! -d "${SOURCE_VIDEOS}" ]]; then
 fi
 
 mkdir -p "${OUTPUT_DIR}" "${FULL_CORRUPTION_OUTPUT_DIR}" "${ORIGINAL_OUTPUT_DIR}"
+if [[ "${WRITE_FOCUS_PLOTS}" == "1" ]]; then
+    mkdir -p "${FOCUS_PLOT_OUTPUT_DIR}"
+fi
+if [[ "${WRITE_DEBUG_OVERLAY}" == "1" ]]; then
+    mkdir -p "${DEBUG_OVERLAY_OUTPUT_DIR}"
+fi
 
 echo "Project root:         ${PROJECT_ROOT}"
 echo "Apptainer image:      ${SIF_PATH}"
@@ -181,6 +213,8 @@ echo "Source videos:        ${SOURCE_VIDEOS}"
 echo "Final-segment output: ${OUTPUT_DIR}"
 echo "Full corruption out:  ${FULL_CORRUPTION_OUTPUT_DIR}"
 echo "Original output:      ${ORIGINAL_OUTPUT_DIR}"
+echo "Focus plot output:    $([[ "${WRITE_FOCUS_PLOTS}" == "1" ]] && echo "${FOCUS_PLOT_OUTPUT_DIR}" || echo "disabled")"
+echo "Debug overlay output: $([[ "${WRITE_DEBUG_OVERLAY}" == "1" ]] && echo "${DEBUG_OVERLAY_OUTPUT_DIR}" || echo "disabled")"
 echo "Media URL prefix:     ${MEDIA_URL_PREFIX}"
 echo "Effect:               ${EFFECT}"
 echo "Clip length:          ${CLIP_LENGTH}"
@@ -205,6 +239,14 @@ PYTHON_ARGS=(
     --focus-box-ratio "${FOCUS_BOX_RATIO}"
     --max-gaze-gap "${MAX_GAZE_GAP}"
 )
+
+if [[ "${WRITE_FOCUS_PLOTS}" == "1" ]]; then
+    PYTHON_ARGS+=(--focus-plot-output-parent "${FOCUS_PLOT_OUTPUT_DIR}")
+fi
+
+if [[ "${WRITE_DEBUG_OVERLAY}" == "1" ]]; then
+    PYTHON_ARGS+=(--debug-overlay-output-parent "${DEBUG_OVERLAY_OUTPUT_DIR}")
+fi
 
 if [[ -n "${UTT}" ]]; then
     PYTHON_ARGS+=(--utt "${UTT}")

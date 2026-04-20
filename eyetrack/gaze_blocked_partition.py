@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -125,6 +126,24 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Optional output parent for clips where gaze corruption is applied "
             "throughout each whole clip instead of only the final segment."
+        ),
+    )
+    parser.add_argument(
+        "--focus-plot-output-parent",
+        type=Path,
+        default=None,
+        help=(
+            "Optional output parent for static gaze plots generated from the "
+            "same mapped gaze points used by this script."
+        ),
+    )
+    parser.add_argument(
+        "--debug-overlay-output-parent",
+        type=Path,
+        default=None,
+        help=(
+            "Optional output parent for videos that overlay the exact per-frame "
+            "gaze point used for corruption."
         ),
     )
     parser.add_argument(
@@ -1056,6 +1075,14 @@ def _write_gaze_plot(
 ) -> None:
     """Render a scatter plot of all gaze points over a mid-video frame."""
     try:
+        if "MPLCONFIGDIR" not in os.environ:
+            mpl_config_dir = Path(tempfile.gettempdir()) / "matplotlib-cache"
+            mpl_config_dir.mkdir(parents=True, exist_ok=True)
+            os.environ["MPLCONFIGDIR"] = str(mpl_config_dir)
+        if "XDG_CACHE_HOME" not in os.environ:
+            xdg_cache_dir = Path(tempfile.gettempdir()) / "xdg-cache"
+            xdg_cache_dir.mkdir(parents=True, exist_ok=True)
+            os.environ["XDG_CACHE_HOME"] = str(xdg_cache_dir)
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
@@ -1106,6 +1133,254 @@ def _write_gaze_plot(
     fig.tight_layout(pad=0)
     fig.savefig(plot_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def draw_debug_focus_marker(frame, point: GazePoint, focus_box_ratio: float) -> None:
+    height, width = frame.shape[:2]
+    box_size = max(8, int(min(width, height) * focus_box_ratio))
+    center_x = int(point.x * width)
+    center_y = int((1.0 - point.y) * height)
+    x1 = max(0, center_x - box_size // 2)
+    y1 = max(0, center_y - box_size // 2)
+    x2 = min(width, center_x + box_size // 2)
+    y2 = min(height, center_y + box_size // 2)
+    if x2 <= x1 or y2 <= y1:
+        return
+
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+    cv2.drawMarker(
+        frame,
+        (center_x, center_y),
+        (0, 0, 255),
+        markerType=cv2.MARKER_CROSS,
+        markerSize=max(12, box_size // 2),
+        thickness=2,
+    )
+    cv2.circle(frame, (center_x, center_y), max(4, box_size // 12), (0, 255, 0), -1)
+
+
+def write_gaze_overlay_video(
+    source_path: str | Path,
+    output_path: Path,
+    frame_csv_path: Path,
+    gaze_points: list[GazePoint],
+    focus_box_ratio: float,
+    max_gaze_gap: float,
+) -> dict[str, int]:
+    source_path = Path(source_path)
+    cap = cv2.VideoCapture(str(source_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Error opening video file: {source_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if fps <= 0 or width <= 0 or height <= 0:
+        cap.release()
+        raise RuntimeError(f"Invalid video metadata for {source_path}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    frame_csv_path.parent.mkdir(parents=True, exist_ok=True)
+    overlay_frame_count = 0
+
+    with tempfile.TemporaryDirectory(prefix=f"{output_path.stem}_overlay_") as tmpdir:
+        raw_video_path = Path(tmpdir) / "overlay_raw.mp4"
+        writer = cv2.VideoWriter(
+            str(raw_video_path),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            fps,
+            (width, height),
+        )
+        if not writer.isOpened():
+            cap.release()
+            raise RuntimeError(f"Could not create temporary video writer for {raw_video_path}")
+
+        with frame_csv_path.open("w", newline="", encoding="utf-8") as csv_file:
+            csv_writer = csv.DictWriter(
+                csv_file,
+                fieldnames=[
+                    "frame_index",
+                    "frame_time_seconds",
+                    "nearest_gaze_time_seconds",
+                    "gaze_x",
+                    "gaze_y",
+                    "pixel_x",
+                    "pixel_y",
+                ],
+            )
+            csv_writer.writeheader()
+
+            frame_index = 0
+            while frame_index < total_frames:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+
+                frame_time = frame_index / fps
+                point = nearest_gaze_point(gaze_points, frame_time, max_gaze_gap)
+                if point is not None:
+                    draw_debug_focus_marker(frame, point, focus_box_ratio)
+                    overlay_frame_count += 1
+                    csv_writer.writerow(
+                        {
+                            "frame_index": frame_index,
+                            "frame_time_seconds": frame_time,
+                            "nearest_gaze_time_seconds": point.time_seconds,
+                            "gaze_x": point.x,
+                            "gaze_y": point.y,
+                            "pixel_x": int(point.x * width),
+                            "pixel_y": int((1.0 - point.y) * height),
+                        }
+                    )
+                else:
+                    csv_writer.writerow(
+                        {
+                            "frame_index": frame_index,
+                            "frame_time_seconds": frame_time,
+                            "nearest_gaze_time_seconds": "",
+                            "gaze_x": "",
+                            "gaze_y": "",
+                            "pixel_x": "",
+                            "pixel_y": "",
+                        }
+                    )
+
+                writer.write(frame)
+                frame_index += 1
+
+        writer.release()
+        cap.release()
+        encode_video_with_fallback(raw_video_path, output_path)
+
+    return {"frames": total_frames, "overlay_frames": overlay_frame_count}
+
+
+def materialize_annotation_focus_plot_group(
+    group: AnnotationClipGroup,
+    output_parent: Path,
+    overwrite: bool,
+) -> dict[str, object]:
+    source_clips = discover_sibling_clips(group.final_clip_path, group.clip_prefix)
+    if not source_clips:
+        raise FileNotFoundError(f"No sibling clips found for {group.final_clip_path}")
+    source_clips = [source_clips[-1]]
+
+    output_dir = output_dir_for_annotation_group(group, output_parent)
+    output_path = output_dir / "gaze_plot.png"
+    if output_path.exists() and not overwrite:
+        return {
+            "annotator_number": group.annotator_number,
+            "dataset": group.dataset,
+            "group_size": group.group_size,
+            "batch_name": group.batch_name,
+            "group_name": group.group_name,
+            "clip_prefix": group.clip_prefix,
+            "final_clip_path": str(group.final_clip_path),
+            "clip_output_folder": str(output_dir),
+            "source_clip_count": len(source_clips),
+            "clip_mp4_count": 0,
+            "clip_wav_count": 0,
+            "gaze_point_count": len(group.gaze_points),
+            "reused": True,
+        }
+    if overwrite and output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_provenance_metadata(output_dir, group, source_clips)
+    return {
+        "annotator_number": group.annotator_number,
+        "dataset": group.dataset,
+        "group_size": group.group_size,
+        "batch_name": group.batch_name,
+        "group_name": group.group_name,
+        "clip_prefix": group.clip_prefix,
+        "final_clip_path": str(group.final_clip_path),
+        "clip_output_folder": str(output_dir),
+        "source_clip_count": len(source_clips),
+        "clip_mp4_count": 0,
+        "clip_wav_count": 0,
+        "gaze_point_count": len(group.gaze_points),
+    }
+
+
+def materialize_debug_overlay_group(
+    group: AnnotationClipGroup,
+    output_parent: Path,
+    focus_box_ratio: float,
+    max_gaze_gap: float,
+    overwrite: bool,
+) -> dict[str, object]:
+    source_clips = discover_sibling_clips(group.final_clip_path, group.clip_prefix)
+    if not source_clips:
+        raise FileNotFoundError(f"No sibling clips found for {group.final_clip_path}")
+    source_clip_path = source_clips[-1]
+
+    output_dir = output_dir_for_annotation_group(group, output_parent)
+    output_mp4_path = output_dir / source_clip_path.name
+    output_csv_path = output_dir / f"{source_clip_path.stem}_frame_gaze.csv"
+    if output_mp4_path.exists() and not overwrite:
+        return {
+            "annotator_number": group.annotator_number,
+            "dataset": group.dataset,
+            "group_size": group.group_size,
+            "batch_name": group.batch_name,
+            "group_name": group.group_name,
+            "clip_prefix": group.clip_prefix,
+            "final_clip_path": str(group.final_clip_path),
+            "clip_output_folder": str(output_dir),
+            "source_clip_count": 1,
+            "clip_mp4_count": 1,
+            "clip_wav_count": 0,
+            "gaze_point_count": len(group.gaze_points),
+            "reused": True,
+        }
+    if overwrite and output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not group.gaze_points:
+        return {
+            "annotator_number": group.annotator_number,
+            "dataset": group.dataset,
+            "group_size": group.group_size,
+            "batch_name": group.batch_name,
+            "group_name": group.group_name,
+            "clip_prefix": group.clip_prefix,
+            "final_clip_path": str(group.final_clip_path),
+            "clip_output_folder": str(output_dir),
+            "source_clip_count": 1,
+            "clip_mp4_count": 0,
+            "clip_wav_count": 0,
+            "gaze_point_count": 0,
+            "skipped": True,
+            "skip_reason": "no_gaze_points",
+        }
+
+    stats = write_gaze_overlay_video(
+        source_path=source_clip_path,
+        output_path=output_mp4_path,
+        frame_csv_path=output_csv_path,
+        gaze_points=group.gaze_points,
+        focus_box_ratio=focus_box_ratio,
+        max_gaze_gap=max_gaze_gap,
+    )
+    _write_provenance_metadata(output_dir, group, [source_clip_path])
+    return {
+        "annotator_number": group.annotator_number,
+        "dataset": group.dataset,
+        "group_size": group.group_size,
+        "batch_name": group.batch_name,
+        "group_name": group.group_name,
+        "clip_prefix": group.clip_prefix,
+        "final_clip_path": str(group.final_clip_path),
+        "clip_output_folder": str(output_dir),
+        "source_clip_count": 1,
+        "clip_mp4_count": 1 if output_mp4_path.exists() else 0,
+        "clip_wav_count": 0,
+        "masked_frame_count": stats["overlay_frames"],
+        "gaze_point_count": len(group.gaze_points),
+    }
 
 
 def materialize_annotation_clip_group(
@@ -1431,6 +1706,88 @@ def main() -> None:
         selected_annotation_groups = [
             group for group in annotation_groups if group.group_size in selected_group_sizes
         ]
+
+        if args.focus_plot_output_parent is not None:
+            focus_plot_results = []
+            logging.info(
+                "writing partition-aligned gaze focus plots under %s",
+                args.focus_plot_output_parent,
+            )
+            for group in selected_annotation_groups:
+                try:
+                    result = materialize_annotation_focus_plot_group(
+                        group=group,
+                        output_parent=args.focus_plot_output_parent,
+                        overwrite=args.overwrite,
+                    )
+                    focus_plot_results.append(result)
+                    logging.info(
+                        "wrote focus plot for %s/%s/%s",
+                        group.dataset,
+                        GROUP_FOLDER_NAMES[group.group_size],
+                        group.group_name,
+                    )
+                except Exception as exc:
+                    logging.warning(
+                        "failed focus plot annotation clip group %s/%s/%s: %s",
+                        group.dataset,
+                        GROUP_FOLDER_NAMES[group.group_size],
+                        group.group_name,
+                        exc,
+                    )
+            write_annotation_clip_summary(
+                args.focus_plot_output_parent,
+                focus_plot_results,
+                stem="annotation_focus_plot",
+                pipeline="annotation_clip_focus_plot",
+            )
+
+        if args.debug_overlay_output_parent is not None:
+            overlay_results = []
+            logging.info(
+                "writing per-frame gaze debug overlays under %s",
+                args.debug_overlay_output_parent,
+            )
+            for group in selected_annotation_groups:
+                try:
+                    result = materialize_debug_overlay_group(
+                        group=group,
+                        output_parent=args.debug_overlay_output_parent,
+                        focus_box_ratio=args.focus_box_ratio,
+                        max_gaze_gap=args.max_gaze_gap,
+                        overwrite=args.overwrite,
+                    )
+                    overlay_results.append(result)
+                    if result.get("skipped"):
+                        logging.info(
+                            "skipped debug overlay for %s/%s/%s: %s",
+                            group.dataset,
+                            GROUP_FOLDER_NAMES[group.group_size],
+                            group.group_name,
+                            result.get("skip_reason"),
+                        )
+                        continue
+                    logging.info(
+                        "wrote debug overlay for %s/%s/%s with %s marked frames",
+                        group.dataset,
+                        GROUP_FOLDER_NAMES[group.group_size],
+                        group.group_name,
+                        result.get("masked_frame_count", 0),
+                    )
+                except Exception as exc:
+                    logging.warning(
+                        "failed debug overlay annotation clip group %s/%s/%s: %s",
+                        group.dataset,
+                        GROUP_FOLDER_NAMES[group.group_size],
+                        group.group_name,
+                        exc,
+                    )
+            write_annotation_clip_summary(
+                args.debug_overlay_output_parent,
+                overlay_results,
+                stem="gaze_debug_overlay",
+                pipeline="annotation_clip_gaze_debug_overlay",
+            )
 
         if args.original_output_parent is not None:
             original_results = []
