@@ -123,6 +123,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--skip-final-segment-output",
+        action="store_true",
+        help="Skip generating the final-0.5s corrupted cumulative clips.",
+    )
+    parser.add_argument(
         "--video-json",
         type=Path,
         default=None,
@@ -735,10 +740,20 @@ def extract_audio_segment(source_path: str | Path, output_wav_path: Path, durati
         )
 
 
+def copy_file_contents(source_path: str | Path, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_path, output_path)
+
+
+def move_file_contents(source_path: str | Path, output_path: Path) -> None:
+    copy_file_contents(source_path, output_path)
+    Path(source_path).unlink()
+
+
 def copy_or_extract_clip_audio(source_clip_path: Path, output_wav_path: Path) -> bool:
     source_wav_path = source_clip_path.with_suffix(".wav")
     if source_wav_path.exists():
-        shutil.copy2(source_wav_path, output_wav_path)
+        copy_file_contents(source_wav_path, output_wav_path)
         return True
 
     _, _, duration_seconds = get_video_properties(source_clip_path)
@@ -809,7 +824,7 @@ def concatenate_context_with_masked_target(
     temp_dir: Path,
 ) -> None:
     if not context_paths:
-        shutil.move(str(masked_target_path), output_path)
+        move_file_contents(masked_target_path, output_path)
         return
 
     visual_context_paths: list[str] = []
@@ -1002,6 +1017,8 @@ def materialize_annotation_clip_group(
     source_clips = discover_sibling_clips(group.final_clip_path, group.clip_prefix)
     if not source_clips:
         raise FileNotFoundError(f"No sibling clips found for {group.final_clip_path}")
+    if mask_full_video:
+        source_clips = [source_clips[-1]]
 
     output_dir = output_dir_for_annotation_group(group, output_parent)
     mask_mode = "full_video" if mask_full_video else "final_segment"
@@ -1077,7 +1094,7 @@ def materialize_annotation_clip_group(
                 temp_mp4_path.unlink(missing_ok=True)
                 continue
 
-            shutil.move(str(temp_mp4_path), output_mp4_path)
+            move_file_contents(temp_mp4_path, output_mp4_path)
             if copy_or_extract_clip_audio(source_clip_path, output_wav_path):
                 wav_count += 1
             if output_mp4_path.exists():
@@ -1159,7 +1176,7 @@ def materialize_original_annotation_clip_group(
     for source_clip_path in source_clips:
         output_mp4_path = output_dir / source_clip_path.name
         output_wav_path = output_dir / source_clip_path.with_suffix(".wav").name
-        shutil.copy2(source_clip_path, output_mp4_path)
+        copy_file_contents(source_clip_path, output_mp4_path)
         mp4_count += 1
         if copy_or_extract_clip_audio(source_clip_path, output_wav_path):
             wav_count += 1
@@ -1394,45 +1411,48 @@ def main() -> None:
                 pipeline="annotation_clip_gaze_corrupted_full",
             )
 
-        results = []
-        for group in selected_annotation_groups:
-            try:
-                result = materialize_annotation_clip_group(
-                    group=group,
-                    output_parent=args.output_parent,
-                    clip_length=args.clip_length,
-                    effect=args.effect,
-                    focus_box_ratio=args.focus_box_ratio,
-                    max_gaze_gap=args.max_gaze_gap,
-                    overwrite=args.overwrite,
-                )
-                results.append(result)
-                if result.get("skipped"):
+        if args.skip_final_segment_output:
+            logging.info("skipping final-segment gaze-blocked output")
+        else:
+            results = []
+            for group in selected_annotation_groups:
+                try:
+                    result = materialize_annotation_clip_group(
+                        group=group,
+                        output_parent=args.output_parent,
+                        clip_length=args.clip_length,
+                        effect=args.effect,
+                        focus_box_ratio=args.focus_box_ratio,
+                        max_gaze_gap=args.max_gaze_gap,
+                        overwrite=args.overwrite,
+                    )
+                    results.append(result)
+                    if result.get("skipped"):
+                        logging.info(
+                            "skipped manipulated clips for %s/%s/%s: %s",
+                            group.dataset,
+                            GROUP_FOLDER_NAMES[group.group_size],
+                            group.group_name,
+                            result.get("skip_reason"),
+                        )
+                        continue
                     logging.info(
-                        "skipped manipulated clips for %s/%s/%s: %s",
+                        "wrote %s clips for %s/%s/%s",
+                        result["clip_mp4_count"],
                         group.dataset,
                         GROUP_FOLDER_NAMES[group.group_size],
                         group.group_name,
-                        result.get("skip_reason"),
                     )
-                    continue
-                logging.info(
-                    "wrote %s clips for %s/%s/%s",
-                    result["clip_mp4_count"],
-                    group.dataset,
-                    GROUP_FOLDER_NAMES[group.group_size],
-                    group.group_name,
-                )
-            except Exception as exc:
-                logging.warning(
-                    "failed annotation clip group %s/%s/%s: %s",
-                    group.dataset,
-                    GROUP_FOLDER_NAMES[group.group_size],
-                    group.group_name,
-                    exc,
-                )
-        write_annotation_clip_summary(args.output_parent, results)
-        logging.info("wrote annotation-clip gaze-blocked data under %s", args.output_parent)
+                except Exception as exc:
+                    logging.warning(
+                        "failed annotation clip group %s/%s/%s: %s",
+                        group.dataset,
+                        GROUP_FOLDER_NAMES[group.group_size],
+                        group.group_name,
+                        exc,
+                    )
+            write_annotation_clip_summary(args.output_parent, results)
+            logging.info("wrote annotation-clip gaze-blocked data under %s", args.output_parent)
         return
 
     records, skipped_files = collect_video_records(args.video_folder, recursive=args.recursive)

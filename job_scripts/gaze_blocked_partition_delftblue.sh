@@ -29,7 +29,7 @@ DEFAULT_MAX_GAZE_GAP="0.5"
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--full-corruption-output-dir PATH] [--original-output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--utt 1,2,3] [--no-overwrite]" >&2
+    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--full-corruption-output-dir PATH] [--original-output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--utt 1,2,3] [--with-final-segment-output] [--no-overwrite]" >&2
     echo "  pupil-parent: parent folder with T{x}_{y}_annotator1/2 Pupil recordings (default: ${DEFAULT_PUPIL_PARENT})" >&2
     echo "  annotation-dir: folder with T{x}_{y}.json annotation files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  video-json: fallback ordered video list JSON (default: ${DEFAULT_VIDEO_JSON})" >&2
@@ -37,6 +37,7 @@ usage() {
     echo "  output-dir: final-segment manipulated output parent (default: ${DEFAULT_OUTPUT_DIR})" >&2
     echo "  full-corruption-output-dir: whole-clip gaze-corrupted output parent (default: ${DEFAULT_FULL_CORRUPTION_OUTPUT_DIR})" >&2
     echo "  original-output-dir: unmanipulated copied output parent (default: ${DEFAULT_ORIGINAL_OUTPUT_DIR})" >&2
+    echo "  --with-final-segment-output: also generate final-0.5s corrupted cumulative clips (default: skipped)" >&2
     echo "  media-url-prefix: media URL prefix to replace (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
     echo "  effect: manipulation effect, default ${DEFAULT_EFFECT}" >&2
 }
@@ -55,6 +56,7 @@ FOCUS_BOX_RATIO="${DEFAULT_FOCUS_BOX_RATIO}"
 MAX_GAZE_GAP="${DEFAULT_MAX_GAZE_GAP}"
 UTT=""
 OVERWRITE=1
+SKIP_FINAL_SEGMENT_OUTPUT=1
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -112,6 +114,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-overwrite)
             OVERWRITE=0
+            shift
+            ;;
+        --with-final-segment-output)
+            SKIP_FINAL_SEGMENT_OUTPUT=0
             shift
             ;;
         -h|--help)
@@ -180,6 +186,7 @@ echo "Focus box ratio:      ${FOCUS_BOX_RATIO}"
 echo "Max gaze gap:         ${MAX_GAZE_GAP}"
 echo "Utterance groups:     ${UTT:-all}"
 echo "Overwrite:            ${OVERWRITE}"
+echo "Skip final segment:   ${SKIP_FINAL_SEGMENT_OUTPUT}"
 
 PYTHON_ARGS=(
     python /workspace/eyetrack/gaze_blocked_partition.py
@@ -199,6 +206,10 @@ PYTHON_ARGS=(
 
 if [[ -n "${UTT}" ]]; then
     PYTHON_ARGS+=(--utt "${UTT}")
+fi
+
+if [[ "${SKIP_FINAL_SEGMENT_OUTPUT}" == "1" ]]; then
+    PYTHON_ARGS+=(--skip-final-segment-output)
 fi
 
 if [[ "${OVERWRITE}" == "1" ]]; then
