@@ -31,6 +31,9 @@ class VideoGazeData:
     samples: List[dict]
 
 
+VideoEntryIndex = Dict[tuple[int | None, int], VideoEntry]
+
+
 def load_pldata(pldata_path: Path) -> list:
     """Read a .pldata file and return a list of deserialized payloads."""
     import msgpack
@@ -168,19 +171,40 @@ def iter_video_entries(node: Any) -> Iterator[dict]:
             yield from iter_video_entries(value)
 
 
+def iter_indexed_video_entries(node: Any) -> Iterator[tuple[int | None, int, dict]]:
+    """Yield video entries keyed by optional task instance and local video index."""
+    if isinstance(node, list):
+        if all(isinstance(item, list) for item in node):
+            for task_instance_id, task_items in enumerate(node):
+                for video_index, item in enumerate(task_items):
+                    if isinstance(item, dict) and "video" in item:
+                        yield task_instance_id, video_index, item
+            return
+
+        for video_index, item in enumerate(node):
+            if isinstance(item, dict) and "video" in item:
+                yield None, video_index, item
+            else:
+                yield from iter_indexed_video_entries(item)
+        return
+
+    for list_index, item in enumerate(iter_video_entries(node)):
+        yield None, list_index, item
+
+
 def load_video_entries(
     video_json_path: Path,
     local_path_prefix: Path,
     media_url_prefix: str,
-) -> Dict[int, VideoEntry]:
+) -> VideoEntryIndex:
     with video_json_path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
 
     videos = {}
-    for list_index, item in enumerate(iter_video_entries(payload)):
-        video_id = int(item.get("id", list_index))
+    for task_instance_id, video_index, item in iter_indexed_video_entries(payload):
+        video_id = int(item.get("id", video_index))
         video_url = str(item["video"])
-        videos[list_index] = VideoEntry(
+        videos[(task_instance_id, video_index)] = VideoEntry(
             video_id=video_id,
             video_url=video_url,
             video_path=resolve_video_path(video_url, local_path_prefix, media_url_prefix),
@@ -190,15 +214,32 @@ def load_video_entries(
 
 def get_video_entry_for_timing(
     timing: VideoTiming,
-    video_entries: Dict[int, VideoEntry] | None,
+    video_entries: VideoEntryIndex | None,
     local_path_prefix: Path,
     media_url_prefix: str,
+    task_instance_id: int | None = None,
+    use_annotation_video_path: bool = False,
 ) -> VideoEntry | None:
-    # Prefer the media path recorded in each T{x}_{y}.json.  The annotation
-    # JSONs are per task instance, while a shared video JSON is indexed only by
-    # local video_number; using the shared JSON first can incorrectly map
-    # different task instances onto the same clip.
-    if timing.video_path:
+    # Default to the shared task JSON by task_instance_id first, then local
+    # video_number.  The frontend may write incorrect annotation video_path
+    # values, so only use those paths when explicitly requested.
+    if video_entries is not None:
+        lookup_keys = []
+        if task_instance_id is not None:
+            lookup_keys.append((task_instance_id, timing.video_number))
+        lookup_keys.append((None, timing.video_number))
+
+        for lookup_key in lookup_keys:
+            video_entry = video_entries.get(lookup_key)
+            if video_entry is not None and video_entry.video_path.exists():
+                return video_entry
+        logging.warning(
+            "Video JSON lookup failed for task instance %s video number %s.",
+            task_instance_id,
+            timing.video_number,
+        )
+
+    if use_annotation_video_path and timing.video_path:
         annotation_video_path = resolve_video_path(
             timing.video_path,
             local_path_prefix,
@@ -212,18 +253,9 @@ def get_video_entry_for_timing(
             )
 
         logging.warning(
-            "Annotation video path does not exist for video %s: %s; falling back to video JSON.",
+            "Annotation video path does not exist for video %s: %s.",
             timing.video_number,
             annotation_video_path,
-        )
-
-    if video_entries is not None:
-        video_entry = video_entries.get(timing.video_number)
-        if video_entry is not None and video_entry.video_path.exists():
-            return video_entry
-        logging.warning(
-            "Video JSON lookup failed for video number %s.",
-            timing.video_number,
         )
 
     logging.error(
@@ -235,13 +267,15 @@ def get_video_entry_for_timing(
 
 def extract_video_gaze_data(
     all_timings: List[AnnotatorTimings],
-    video_entries: Dict[int, VideoEntry] | None,
+    video_entries: VideoEntryIndex | None,
     timestamps: Any,
     gaze_data: list,
     system_to_pupil_offset: float,
     confidence_threshold: float,
     local_path_prefix: Path,
     media_url_prefix: str,
+    task_instance_id: int | None = None,
+    use_annotation_video_path: bool = False,
 ) -> List[VideoGazeData]:
     extracted = []
     for annotator_timings in all_timings:
@@ -259,6 +293,8 @@ def extract_video_gaze_data(
                 video_entries,
                 local_path_prefix,
                 media_url_prefix,
+                task_instance_id,
+                use_annotation_video_path,
             )
             if video_entry is None:
                 continue

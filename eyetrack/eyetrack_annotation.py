@@ -257,7 +257,16 @@ def parse_args() -> argparse.Namespace:
         "--video-json",
         type=Path,
         default=None,
-        help="Optional fallback JSON file containing the ordered video list.",
+        help="JSON file containing the ordered task-instance video lists.",
+    )
+    parser.add_argument(
+        "--use-annotation-video-path",
+        action="store_true",
+        help=(
+            "Use video_path from each annotation JSON when video-json lookup fails. "
+            "By default, annotation video_path is ignored because frontend exports "
+            "can point to the wrong first video."
+        ),
     )
     parser.add_argument(
         "--duration-tolerance",
@@ -443,6 +452,8 @@ def main() -> None:
                     confidence_threshold=args.confidence,
                     local_path_prefix=args.local_path_prefix,
                     media_url_prefix=args.media_url_prefix,
+                    task_instance_id=task_instance_id,
+                    use_annotation_video_path=args.use_annotation_video_path,
                 )
                 plot_rows = plot_focus_for_video_gaze_data(
                     video_gaze_data=video_gaze_data,

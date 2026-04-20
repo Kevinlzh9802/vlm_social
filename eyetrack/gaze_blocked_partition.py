@@ -189,7 +189,16 @@ def parse_args() -> argparse.Namespace:
         "--video-json",
         type=Path,
         default=None,
-        help="Optional fallback JSON file containing the ordered video list.",
+        help="JSON file containing the ordered task-instance video lists.",
+    )
+    parser.add_argument(
+        "--use-annotation-video-path",
+        action="store_true",
+        help=(
+            "Use video_path from each annotation JSON when video-json lookup fails. "
+            "By default, annotation video_path is ignored because frontend exports "
+            "can point to the wrong first video."
+        ),
     )
     parser.add_argument(
         "--video-folder",
@@ -329,6 +338,7 @@ def build_gaze_index(
     video_json: Path | None,
     gaze_mapping: str,
     response_selection: str,
+    use_annotation_video_path: bool,
 ) -> tuple[dict[str, list[GazePoint]], dict[str, list[GazePoint]]]:
     annotation_files = find_annotation_jsons(annotation_dir)
     if not annotation_files:
@@ -376,6 +386,8 @@ def build_gaze_index(
                     video_entries=video_entries,
                     local_path_prefix=local_path_prefix,
                     media_url_prefix=media_url_prefix,
+                    task_instance_id=task_instance_id,
+                    use_annotation_video_path=use_annotation_video_path,
                 )
                 if video_entry is None:
                     continue
@@ -526,6 +538,7 @@ def build_annotation_clip_groups(
     video_json: Path | None,
     gaze_mapping: str,
     response_selection: str,
+    use_annotation_video_path: bool,
 ) -> list[AnnotationClipGroup]:
     annotation_files = find_annotation_jsons(annotation_dir)
     if not annotation_files:
@@ -572,6 +585,8 @@ def build_annotation_clip_groups(
                     video_entries=video_entries,
                     local_path_prefix=local_path_prefix,
                     media_url_prefix=media_url_prefix,
+                    task_instance_id=task_instance_id,
+                    use_annotation_video_path=use_annotation_video_path,
                 )
                 if video_entry is None:
                     continue
@@ -1909,6 +1924,7 @@ def main() -> None:
             video_json=args.video_json,
             gaze_mapping=args.gaze_mapping,
             response_selection=args.response_selection,
+            use_annotation_video_path=args.use_annotation_video_path,
         )
         selected_annotation_groups = [
             group for group in annotation_groups if group.group_size in selected_group_sizes
@@ -2151,6 +2167,7 @@ def main() -> None:
         video_json=args.video_json,
         gaze_mapping=args.gaze_mapping,
         response_selection=args.response_selection,
+        use_annotation_video_path=args.use_annotation_video_path,
     )
 
     if args.write_frame_focus_csv:
