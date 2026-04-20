@@ -230,8 +230,8 @@ def parse_video_timings(
         start_raw = press_data["video_start_time"]
         end_raw = press_data["video_end_time"]
         if not isinstance(start_raw, str) or not isinstance(end_raw, str):
-            logging.error(
-                "Invalid timestamp type before parsing: annotator=%s node=%s "
+            logging.warning(
+                "Skipping annotation with invalid timestamp type: annotator=%s node=%s "
                 "annotation_key=%s video_number=%s "
                 "video_start_time_type=%s video_start_time=%r "
                 "video_end_time_type=%s video_end_time=%r",
@@ -244,11 +244,20 @@ def parse_video_timings(
                 type(end_raw).__name__,
                 end_raw,
             )
-            raise TypeError(
-                "video_start_time and video_end_time must be strings; "
-                f"annotator={annotator_number}, node={node_id}, "
-                f"annotation_key={annotation_key}, video_number={video_number}"
+            timings.append(
+                VideoTiming(
+                    video_number=video_number,
+                    annotation_key=annotation_key,
+                    video_start_time=None,
+                    video_end_time=None,
+                    video_path=None if press_data.get("video_path") is None else str(press_data.get("video_path")),
+                    audio_path=None if press_data.get("audio_path") is None else str(press_data.get("audio_path")),
+                    video_length=None,
+                    current_video_time=parse_optional_float(press_data.get("current_video_time")),
+                    time_annot=parse_optional_float(press_data.get("time_annot")),
+                )
             )
+            continue
         video_length = (parse_timestamp(end_raw) - parse_timestamp(start_raw)).total_seconds()
         video_path = press_data.get("video_path")
         audio_path = press_data.get("audio_path")
