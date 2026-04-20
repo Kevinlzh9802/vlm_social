@@ -1022,11 +1022,13 @@ def _write_provenance_metadata(
     group: AnnotationClipGroup,
     source_clips: list[Path],
 ) -> None:
-    """Write a single ``provenance.json`` metadata file into *output_dir*.
+    """Write ``provenance.json`` and a gaze scatter plot into *output_dir*."""
+    avg_x: float | None = None
+    avg_y: float | None = None
+    if group.gaze_points:
+        avg_x = sum(p.x for p in group.gaze_points) / len(group.gaze_points)
+        avg_y = sum(p.y for p in group.gaze_points) / len(group.gaze_points)
 
-    Contains the video JSON index, resolved and annotation video paths,
-    source clips, Pupil recording folder, and annotation JSON path.
-    """
     metadata = {
         "video_number": group.video_number,
         "resolved_video_path": str(group.final_clip_path),
@@ -1035,10 +1037,75 @@ def _write_provenance_metadata(
         "recording_dir": group.recording_dir,
         "annotation_json": group.annotation_json_path,
         "annotator_number": group.annotator_number,
+        "gaze_point_count": len(group.gaze_points),
+        "avg_gaze_x": avg_x,
+        "avg_gaze_y": avg_y,
     }
     (output_dir / "provenance.json").write_text(
         json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
     )
+
+    # Generate aggregated gaze scatter plot on a video frame
+    _write_gaze_plot(output_dir, group, source_clips)
+
+
+def _write_gaze_plot(
+    output_dir: Path,
+    group: AnnotationClipGroup,
+    source_clips: list[Path],
+) -> None:
+    """Render a scatter plot of all gaze points over a mid-video frame."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        logging.warning("matplotlib/numpy not available; skipping gaze plot")
+        return
+
+    # Read a frame from the final source clip
+    video_path = source_clips[-1] if source_clips else group.final_clip_path
+    frame = None
+    try:
+        cap = cv2.VideoCapture(str(video_path))
+        if cap.isOpened():
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, max(total // 2, 0))
+            ok, bgr = cap.read()
+            if ok:
+                frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        cap.release()
+    except Exception:
+        logging.warning("Could not read frame from %s for gaze plot", video_path)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.set_title(
+        f"Annotator {group.annotator_number}, video {group.video_number}: "
+        f"{len(group.gaze_points)} gaze points"
+    )
+
+    if frame is not None:
+        height, width = frame.shape[:2]
+        ax.imshow(frame)
+        ax.axis("off")
+    else:
+        width, height = 1.0, 1.0
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.0, 1.0)
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(True, alpha=0.25)
+
+    if group.gaze_points:
+        xs = np.array([p.x * width for p in group.gaze_points])
+        ys = np.array([(1.0 - p.y) * height for p in group.gaze_points])
+        ax.scatter(xs, ys, s=12, c="red", alpha=0.35, edgecolors="none")
+        ax.scatter([float(np.mean(xs))], [float(np.mean(ys))], s=90, c="yellow", marker="x")
+
+    plot_path = output_dir / "gaze_plot.png"
+    fig.tight_layout(pad=0)
+    fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
 def materialize_annotation_clip_group(
