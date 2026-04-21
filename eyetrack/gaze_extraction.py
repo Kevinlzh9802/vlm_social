@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Tuple
@@ -14,6 +16,7 @@ except ImportError:
 
 
 MEDIA_URL_PREFIX = "http://localhost:5000/api/media/gestalt_bench/annotation1/"
+SURFACE_EXPORT_DIR_RE = re.compile(r"^\d{3}$")
 
 
 @dataclass
@@ -34,45 +37,108 @@ class VideoGazeData:
 VideoEntryIndex = Dict[tuple[int | None, int], VideoEntry]
 
 
-def load_pldata(pldata_path: Path) -> list:
-    """Read a .pldata file and return a list of deserialized payloads."""
-    import msgpack
+def find_latest_surface_gaze_csv(recording_dir: Path) -> Path:
+    exports_dir = recording_dir / "exports"
+    if not exports_dir.is_dir():
+        raise FileNotFoundError(f"Surface export folder not found: {exports_dir}")
 
-    data = []
-    with pldata_path.open("rb") as f:
-        unpacker = msgpack.Unpacker(f, raw=False)
-        while True:
-            try:
-                topic, payload_bytes = unpacker.unpack()
-                datum = msgpack.unpackb(payload_bytes, raw=False)
-                datum["topic"] = topic
-                data.append(datum)
-            except msgpack.OutOfData:
-                break
-    return data
+    export_dirs = [
+        path
+        for path in exports_dir.iterdir()
+        if path.is_dir() and SURFACE_EXPORT_DIR_RE.fullmatch(path.name)
+    ]
+    if not export_dirs:
+        raise FileNotFoundError(
+            f"No 3-digit surface export folders found under {exports_dir}"
+        )
+
+    latest_export_dir = max(export_dirs, key=lambda path: int(path.name))
+    surface_dir = latest_export_dir / "surfaces"
+    candidates = sorted(surface_dir.glob("gaze_positions_on_surface_*.csv"))
+    if not candidates:
+        raise FileNotFoundError(
+            f"No gaze_positions_on_surface_*.csv found under {surface_dir}"
+        )
+    if len(candidates) > 1:
+        logging.warning(
+            "Multiple surface gaze CSV files found under %s; using %s",
+            surface_dir,
+            candidates[-1].name,
+        )
+    return candidates[-1]
+
+
+def gaze_source_metadata(recording_dir: Path) -> dict[str, str]:
+    surface_csv_path = find_latest_surface_gaze_csv(recording_dir)
+    return {
+        "gaze_source_type": "surface_csv",
+        "gaze_source_path": str(surface_csv_path),
+        "gaze_timestamps_path": str(recording_dir / "gaze_timestamps.npy"),
+        "gaze_pldata_path": str(recording_dir / "gaze.pldata"),
+    }
 
 
 def load_gaze(recording_dir: Path) -> Tuple[Any, list]:
-    """Load gaze timestamps and gaze data from a Pupil Core recording directory."""
+    """Load gaze timestamps and screen-referenced gaze samples from a Pupil export."""
     import numpy as np
 
-    ts_path = recording_dir / "gaze_timestamps.npy"
-    pldata_path = recording_dir / "gaze.pldata"
+    surface_csv_path = find_latest_surface_gaze_csv(recording_dir)
+    timestamps: list[float] = []
+    gaze_data: list[dict] = []
+    with surface_csv_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        required_columns = {"world_timestamp", "x_norm", "y_norm"}
+        missing_columns = required_columns - set(reader.fieldnames or [])
+        if missing_columns:
+            raise KeyError(
+                f"{surface_csv_path} is missing required columns: {sorted(missing_columns)}"
+            )
 
-    if not ts_path.exists():
-        raise FileNotFoundError(f"Gaze timestamps not found: {ts_path}")
-    if not pldata_path.exists():
-        raise FileNotFoundError(f"Gaze pldata not found: {pldata_path}")
+        for row_index, row in enumerate(reader, start=2):
+            on_surface_raw = row.get("on_surf")
+            if on_surface_raw is not None and str(on_surface_raw).strip().lower() in {
+                "0",
+                "false",
+                "no",
+            }:
+                continue
+            try:
+                timestamp = float(row["world_timestamp"])
+                x_norm = float(row["x_norm"])
+                y_norm = float(row["y_norm"])
+            except (TypeError, ValueError) as exc:
+                logging.warning(
+                    "Skipping invalid surface gaze row %s in %s: %s",
+                    row_index,
+                    surface_csv_path,
+                    exc,
+                )
+                continue
 
-    timestamps = np.load(ts_path)
-    gaze_data = load_pldata(pldata_path)
-    if len(timestamps) != len(gaze_data):
-        logging.warning(
-            "timestamp count (%s) != gaze datum count (%s). Using minimum of both.",
-            len(timestamps),
-            len(gaze_data),
-        )
-    return timestamps, gaze_data
+            confidence_raw = row.get("confidence")
+            try:
+                confidence = 1.0 if confidence_raw in (None, "") else float(confidence_raw)
+            except (TypeError, ValueError):
+                confidence = 1.0
+
+            timestamps.append(timestamp)
+            gaze_data.append(
+                {
+                    "timestamp": timestamp,
+                    "norm_pos": [x_norm, y_norm],
+                    "norm_pos_x": x_norm,
+                    # Surface CSV coordinates already use Pupil-style normalization:
+                    # bottom-left=(0,0), top-right=(1,1).
+                    "norm_pos_y": y_norm,
+                    "confidence": confidence,
+                }
+            )
+
+    if not timestamps:
+        logging.warning("No usable surface gaze rows found in %s", surface_csv_path)
+        return np.array([], dtype=float), []
+
+    return np.array(timestamps, dtype=float), gaze_data
 
 
 def extract_gaze_in_interval(
@@ -94,12 +160,17 @@ def extract_gaze_in_interval(
         confidence = datum.get("confidence", 0.0)
         if confidence < confidence_threshold:
             continue
-        norm_pos = datum.get("norm_pos") or [None, None]
+        norm_pos = datum.get("norm_pos")
+        if norm_pos is not None:
+            norm_pos_x, norm_pos_y = norm_pos[0], norm_pos[1]
+        else:
+            norm_pos_x = datum.get("norm_pos_x")
+            norm_pos_y = datum.get("norm_pos_y")
         results.append(
             {
                 "timestamp": float(timestamps[idx]),
-                "norm_pos_x": norm_pos[0],
-                "norm_pos_y": norm_pos[1],
+                "norm_pos_x": norm_pos_x,
+                "norm_pos_y": norm_pos_y,
                 "confidence": confidence,
             }
         )
@@ -158,6 +229,20 @@ def resolve_video_path(video_url: str, local_path_prefix: Path, media_url_prefix
         )
         relative_path = video_url
     return local_path_prefix.joinpath(*unquote(relative_path).lstrip("/\\").split("/"))
+
+
+def resolve_optional_media_path(
+    media_url: str | None,
+    local_path_prefix: Path,
+    media_url_prefix: str,
+) -> Path | None:
+    if not media_url:
+        return None
+    media_path = resolve_video_path(media_url, local_path_prefix, media_url_prefix)
+    if not media_path.exists():
+        logging.warning("Resolved media path does not exist: %s", media_path)
+        return None
+    return media_path
 
 
 def iter_video_entries(node: Any) -> Iterator[dict]:

@@ -4,7 +4,7 @@ Extract and plot eye-focus data for annotated video-watching intervals.
 This CLI coordinates three pieces:
   1. Read video time intervals from each T{x}_{y}.json annotation file.
   2. Match each annotation/annotator to recording_parent/T{x}_{y}_annotator{1,2}
-     and extract Pupil Core gaze samples for those intervals and videos.
+     and extract surface-export gaze samples for those intervals and videos.
   3. Map screen gaze coordinates to the assumed video rectangle and plot them under
      output_dir/T{x}_{y}_annotator{1,2}.
 """
@@ -32,6 +32,7 @@ try:
     from .gaze_extraction import (
         MEDIA_URL_PREFIX,
         extract_video_gaze_data,
+        gaze_source_metadata,
         load_gaze,
         load_recording_time_offset,
         load_video_entries,
@@ -50,6 +51,7 @@ except ImportError:
     from gaze_extraction import (
         MEDIA_URL_PREFIX,
         extract_video_gaze_data,
+        gaze_source_metadata,
         load_gaze,
         load_recording_time_offset,
         load_video_entries,
@@ -100,6 +102,8 @@ EXTRACTION_SUMMARY_FIELDS = (
     "resolved_video_path",
     "plot_path",
     "recording_dir",
+    "gaze_source_type",
+    "gaze_source_path",
     "gaze_timestamps_path",
     "gaze_pldata_path",
     "system_to_pupil_offset",
@@ -181,6 +185,7 @@ def write_extraction_summary_rows(
         (timing.video_number, timing.annotation_key): timing
         for timing in annotator_timings.timings
     }
+    gaze_source = gaze_source_metadata(recording_dir)
     for plot_row in plot_rows:
         timing = timing_by_key.get(
             (plot_row["video_number"], plot_row["annotation_key"])
@@ -216,8 +221,10 @@ def write_extraction_summary_rows(
                 "resolved_video_path": plot_row["video_path"],
                 "plot_path": plot_row["plot_path"],
                 "recording_dir": str(recording_dir),
-                "gaze_timestamps_path": str(recording_dir / "gaze_timestamps.npy"),
-                "gaze_pldata_path": str(recording_dir / "gaze.pldata"),
+                "gaze_source_type": gaze_source["gaze_source_type"],
+                "gaze_source_path": gaze_source["gaze_source_path"],
+                "gaze_timestamps_path": gaze_source["gaze_timestamps_path"],
+                "gaze_pldata_path": gaze_source["gaze_pldata_path"],
                 "system_to_pupil_offset": system_to_pupil_offset,
                 "confidence_threshold": confidence_threshold,
                 "focus_mapping": focus_mapping,

@@ -51,10 +51,12 @@ from eyetrack.gaze_extraction import (  # noqa: E402
     MEDIA_URL_PREFIX,
     annotation_time_to_pupil_time,
     extract_gaze_in_interval,
+    gaze_source_metadata,
     get_video_entry_for_timing,
     load_gaze,
     load_recording_time_offset,
     load_video_entries,
+    resolve_optional_media_path,
 )
 
 
@@ -81,6 +83,8 @@ class AnnotationClipGroup:
     clip_prefix: str
     final_clip_path: Path
     gaze_points: list[GazePoint]
+    annotation_resolved_video_path: str | None = None
+    annotation_resolved_audio_path: str | None = None
     # Provenance metadata
     task_number: int | None = None
     task_instance_id: int | None = None
@@ -190,6 +194,16 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="JSON file containing the ordered task-instance video lists.",
+    )
+    parser.add_argument(
+        "--full-corruption-localization-source",
+        choices=("annotation-media", "video-json"),
+        default="annotation-media",
+        help=(
+            "Which media reference to use when grouping and sourcing the full-corruption "
+            "outputs. 'annotation-media' uses press_data video_path/audio_path; "
+            "'video-json' uses task2.json indexing."
+        ),
     )
     parser.add_argument(
         "--use-annotation-video-path",
@@ -493,6 +507,7 @@ def build_annotation_source_record(
     raw_sample_count: int,
     mapped_sample_count: int,
     gaze_mapping: str,
+    gaze_source: dict[str, str],
 ) -> dict[str, object]:
     return {
         "task_number": task_number,
@@ -516,8 +531,10 @@ def build_annotation_source_record(
         "resolved_video_path": str(video_path),
         "annotation_json": str(annotation_json),
         "recording_dir": str(recording_dir),
-        "gaze_timestamps_path": str(recording_dir / "gaze_timestamps.npy"),
-        "gaze_pldata_path": str(recording_dir / "gaze.pldata"),
+        "gaze_source_type": gaze_source["gaze_source_type"],
+        "gaze_source_path": gaze_source["gaze_source_path"],
+        "gaze_timestamps_path": gaze_source["gaze_timestamps_path"],
+        "gaze_pldata_path": gaze_source["gaze_pldata_path"],
         "system_to_pupil_offset": system_to_pupil_offset,
         "pupil_start_time": start_time,
         "pupil_end_time": end_time,
@@ -525,6 +542,48 @@ def build_annotation_source_record(
         "mapped_gaze_sample_count": mapped_sample_count,
         "gaze_mapping": gaze_mapping,
     }
+
+
+def resolve_annotation_media_paths(
+    timing,
+    local_path_prefix: Path,
+    media_url_prefix: str,
+) -> tuple[Path | None, Path | None]:
+    return (
+        resolve_optional_media_path(
+            timing.video_path,
+            local_path_prefix,
+            media_url_prefix,
+        ),
+        resolve_optional_media_path(
+            timing.audio_path,
+            local_path_prefix,
+            media_url_prefix,
+        ),
+    )
+
+
+def choose_clip_localization_video_path(
+    clip_localization_source: str,
+    annotation_media_video_path: Path | None,
+    indexed_video_path: Path,
+    task_instance_name: str,
+    annotator_number: int,
+    video_number: int,
+) -> Path:
+    if clip_localization_source != "annotation-media":
+        return indexed_video_path
+    if annotation_media_video_path is not None:
+        return annotation_media_video_path
+
+    logging.warning(
+        "Falling back to video-json localization for %s annotator %s video %s "
+        "because press_data video_path is unavailable.",
+        task_instance_name,
+        annotator_number,
+        video_number,
+    )
+    return indexed_video_path
 
 
 def build_annotation_clip_groups(
@@ -539,6 +598,7 @@ def build_annotation_clip_groups(
     gaze_mapping: str,
     response_selection: str,
     use_annotation_video_path: bool,
+    clip_localization_source: str = "video-json",
 ) -> list[AnnotationClipGroup]:
     annotation_files = find_annotation_jsons(annotation_dir)
     if not annotation_files:
@@ -570,6 +630,7 @@ def build_annotation_clip_groups(
                 continue
 
             timestamps, gaze_data = load_gaze(recording_dir)
+            gaze_source = gaze_source_metadata(recording_dir)
             offset = (
                 system_to_pupil_offset
                 if system_to_pupil_offset is not None
@@ -591,13 +652,51 @@ def build_annotation_clip_groups(
                 if video_entry is None:
                     continue
 
+                annotation_media_video_path, annotation_media_audio_path = (
+                    resolve_annotation_media_paths(
+                        timing,
+                        local_path_prefix,
+                        media_url_prefix,
+                    )
+                )
+                localization_video_path = choose_clip_localization_video_path(
+                    clip_localization_source=clip_localization_source,
+                    annotation_media_video_path=annotation_media_video_path,
+                    indexed_video_path=video_entry.video_path,
+                    task_instance_name=task_instance_name,
+                    annotator_number=annotator_timings.annotator_number,
+                    video_number=timing.video_number,
+                )
+
                 try:
                     dataset, group_size, batch_name, group_name, clip_prefix, _ = (
-                        parse_annotation_clip_layout(video_entry.video_path)
+                        parse_annotation_clip_layout(localization_video_path)
                     )
                 except ValueError as exc:
-                    logging.warning("Skipping annotation clip with unsupported layout: %s", exc)
-                    continue
+                    if (
+                        clip_localization_source == "annotation-media"
+                        and localization_video_path != video_entry.video_path
+                    ):
+                        logging.warning(
+                            "Annotation media layout parse failed for %s; falling back to "
+                            "video-json path %s",
+                            localization_video_path,
+                            video_entry.video_path,
+                        )
+                        localization_video_path = video_entry.video_path
+                        try:
+                            dataset, group_size, batch_name, group_name, clip_prefix, _ = (
+                                parse_annotation_clip_layout(localization_video_path)
+                            )
+                        except ValueError:
+                            logging.warning(
+                                "Skipping annotation clip with unsupported layout after fallback: %s",
+                                exc,
+                            )
+                            continue
+                    else:
+                        logging.warning("Skipping annotation clip with unsupported layout: %s", exc)
+                        continue
 
                 start_time = annotation_time_to_pupil_time(timing.video_start_time, offset)
                 end_time = annotation_time_to_pupil_time(timing.video_end_time, offset)
@@ -628,7 +727,7 @@ def build_annotation_clip_groups(
                     timing=timing,
                     annotation_json=annotation_json,
                     recording_dir=recording_dir,
-                    video_path=video_entry.video_path,
+                    video_path=localization_video_path,
                     annotation_video_path=timing.video_path,
                     start_time=start_time,
                     end_time=end_time,
@@ -636,6 +735,7 @@ def build_annotation_clip_groups(
                     raw_sample_count=len(samples),
                     mapped_sample_count=len(points),
                     gaze_mapping=gaze_mapping,
+                    gaze_source=gaze_source,
                 )
 
                 key = (
@@ -645,7 +745,7 @@ def build_annotation_clip_groups(
                     batch_name,
                     group_name,
                     clip_prefix,
-                    canonical_path(video_entry.video_path),
+                    canonical_path(localization_video_path),
                 )
                 existing = grouped.get(key)
                 if existing is None:
@@ -656,8 +756,14 @@ def build_annotation_clip_groups(
                         batch_name=batch_name,
                         group_name=group_name,
                         clip_prefix=clip_prefix,
-                        final_clip_path=video_entry.video_path,
+                        final_clip_path=localization_video_path,
                         gaze_points=merge_gaze_points([], points),
+                        annotation_resolved_video_path=(
+                            None if annotation_media_video_path is None else str(annotation_media_video_path)
+                        ),
+                        annotation_resolved_audio_path=(
+                            None if annotation_media_audio_path is None else str(annotation_media_audio_path)
+                        ),
                         task_number=task_number,
                         task_instance_id=task_instance_id,
                         task_instance=task_instance_name,
@@ -683,6 +789,8 @@ def build_annotation_clip_groups(
                         clip_prefix=existing.clip_prefix,
                         final_clip_path=existing.final_clip_path,
                         gaze_points=merge_gaze_points(existing.gaze_points, points),
+                        annotation_resolved_video_path=existing.annotation_resolved_video_path,
+                        annotation_resolved_audio_path=existing.annotation_resolved_audio_path,
                         task_number=existing.task_number,
                         task_instance_id=existing.task_instance_id,
                         task_instance=existing.task_instance,
@@ -940,7 +1048,15 @@ def move_file_contents(source_path: str | Path, output_path: Path) -> None:
     Path(source_path).unlink()
 
 
-def copy_or_extract_clip_audio(source_clip_path: Path, output_wav_path: Path) -> bool:
+def copy_or_extract_clip_audio(
+    source_clip_path: Path,
+    output_wav_path: Path,
+    preferred_audio_source_path: Path | None = None,
+) -> bool:
+    if preferred_audio_source_path is not None and preferred_audio_source_path.exists():
+        copy_file_contents(preferred_audio_source_path, output_wav_path)
+        return True
+
     source_wav_path = source_clip_path.with_suffix(".wav")
     if source_wav_path.exists():
         copy_file_contents(source_wav_path, output_wav_path)
@@ -1214,6 +1330,8 @@ def _write_provenance_metadata(
         "annotation_key": group.annotation_key,
         "resolved_video_path": str(group.final_clip_path),
         "annotation_video_path": group.annotation_video_path,
+        "annotation_resolved_video_path": group.annotation_resolved_video_path,
+        "annotation_resolved_audio_path": group.annotation_resolved_audio_path,
         "source_clips": [str(p) for p in source_clips],
         "recording_dir": group.recording_dir,
         "annotation_json": group.annotation_json_path,
@@ -1259,6 +1377,8 @@ def _write_annotation_sources_csv(output_dir: Path, group: AnnotationClipGroup) 
         "time_annot",
         "annotation_video_path",
         "resolved_video_path",
+        "gaze_source_type",
+        "gaze_source_path",
         "annotation_json",
         "recording_dir",
         "gaze_timestamps_path",
@@ -1609,12 +1729,19 @@ def materialize_annotation_clip_group(
     max_gaze_gap: float,
     overwrite: bool,
     mask_full_video: bool = False,
+    use_annotation_media_for_full_video: bool = False,
 ) -> dict[str, object]:
     source_clips = discover_sibling_clips(group.final_clip_path, group.clip_prefix)
     if not source_clips:
         raise FileNotFoundError(f"No sibling clips found for {group.final_clip_path}")
+    preferred_audio_source_path = None
     if mask_full_video:
-        source_clips = [source_clips[-1]]
+        if use_annotation_media_for_full_video and group.annotation_resolved_video_path is not None:
+            source_clips = [Path(group.annotation_resolved_video_path)]
+        else:
+            source_clips = [source_clips[-1]]
+        if use_annotation_media_for_full_video and group.annotation_resolved_audio_path is not None:
+            preferred_audio_source_path = Path(group.annotation_resolved_audio_path)
 
     output_dir = output_dir_for_annotation_group(group, output_parent)
     mask_mode = "full_video" if mask_full_video else "final_segment"
@@ -1691,7 +1818,11 @@ def materialize_annotation_clip_group(
                 continue
 
             move_file_contents(temp_mp4_path, output_mp4_path)
-            if copy_or_extract_clip_audio(source_clip_path, output_wav_path):
+            if copy_or_extract_clip_audio(
+                source_clip_path,
+                output_wav_path,
+                preferred_audio_source_path=preferred_audio_source_path,
+            ):
                 wav_count += 1
             if output_mp4_path.exists():
                 mp4_count += 1
@@ -1925,6 +2056,7 @@ def main() -> None:
             gaze_mapping=args.gaze_mapping,
             response_selection=args.response_selection,
             use_annotation_video_path=args.use_annotation_video_path,
+            clip_localization_source="video-json",
         )
         selected_annotation_groups = [
             group for group in annotation_groups if group.group_size in selected_group_sizes
@@ -2052,12 +2184,33 @@ def main() -> None:
             )
 
         if args.full_corruption_output_parent is not None:
+            full_corruption_groups = selected_annotation_groups
+            if args.full_corruption_localization_source != "video-json":
+                full_corruption_groups = [
+                    group
+                    for group in build_annotation_clip_groups(
+                        recording_parent_dir=args.recording_parent_dir,
+                        annotation_dir=args.annotation_dir,
+                        local_path_prefix=args.local_path_prefix,
+                        media_url_prefix=args.media_url_prefix,
+                        confidence_threshold=args.confidence,
+                        duration_tolerance=args.duration_tolerance,
+                        system_to_pupil_offset=args.system_to_pupil_offset,
+                        video_json=args.video_json,
+                        gaze_mapping=args.gaze_mapping,
+                        response_selection=args.response_selection,
+                        use_annotation_video_path=args.use_annotation_video_path,
+                        clip_localization_source=args.full_corruption_localization_source,
+                    )
+                    if group.group_size in selected_group_sizes
+                ]
             full_corruption_results = []
             logging.info(
-                "building full-video gaze-corrupted clips under %s",
+                "building full-video gaze-corrupted clips under %s using %s localization",
                 args.full_corruption_output_parent,
+                args.full_corruption_localization_source,
             )
-            for group in selected_annotation_groups:
+            for group in full_corruption_groups:
                 try:
                     result = materialize_annotation_clip_group(
                         group=group,
