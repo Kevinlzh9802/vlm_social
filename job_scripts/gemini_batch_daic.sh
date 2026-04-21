@@ -27,6 +27,7 @@ prompt_choice=""
 utt_count=""
 batch_number=""
 gemini_mode="2.5-flash"
+annotator_number=""
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -48,8 +49,11 @@ while [ "$#" -gt 0 ]; do
         --gemini-mode)
             if [ "$#" -lt 2 ]; then echo "[ERROR] Missing value for $1" >&2; exit 1; fi
             gemini_mode="$2"; shift 2 ;;
+        -annotator|--annotator)
+            if [ "$#" -lt 2 ]; then echo "[ERROR] Missing value for $1" >&2; exit 1; fi
+            annotator_number="$2"; shift 2 ;;
         -h|--help)
-            echo "Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --utt <1|2|3> --batch <number> --prompt <prompt_choice> [--gemini-mode <mode>] [--poll-interval <seconds>]" >&2
+            echo "Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --utt <1|2|3> --batch <number> --prompt <prompt_choice> [--gemini-mode <mode>] [--annotator <n>] [--poll-interval <seconds>]" >&2
             exit 0 ;;
         -*)
             echo "[ERROR] Unknown option: $1" >&2; exit 1 ;;
@@ -61,7 +65,7 @@ done
 # ---------------------------------------------------------------------------
 # Required-argument checks
 # ---------------------------------------------------------------------------
-usage_msg="Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --utt <1|2|3> --batch <number> --prompt <prompt_choice> [--gemini-mode <mode>] [--poll-interval <seconds>]"
+usage_msg="Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --utt <1|2|3> --batch <number> --prompt <prompt_choice> [--gemini-mode <mode>] [--annotator <n>] [--poll-interval <seconds>]"
 
 if [ -z "$dataset_name" ]; then echo "[ERROR] --dataset is required" >&2; echo "$usage_msg" >&2; exit 1; fi
 if [ -z "$prompt_choice" ]; then echo "[ERROR] --prompt is required" >&2; echo "$usage_msg" >&2; exit 1; fi
@@ -88,6 +92,13 @@ case "$batch_number" in
         echo "[ERROR] Invalid batch number: $batch_number (expected a positive integer)" >&2; exit 1 ;;
 esac
 
+if [ -n "$annotator_number" ]; then
+    case "$annotator_number" in
+        ''|*[!0-9]*)
+            echo "[ERROR] Invalid annotator number: $annotator_number (expected a positive integer)" >&2; exit 1 ;;
+    esac
+fi
+
 batch_id=$(printf "%02d" "$batch_number")
 
 # ---------------------------------------------------------------------------
@@ -95,20 +106,26 @@ batch_id=$(printf "%02d" "$batch_number")
 # ---------------------------------------------------------------------------
 project_dir="${SLURM_SUBMIT_DIR:-.}"
 sif_file=/tudelft.net/staff-umbrella/neon/apptainer/gemini.sif
-# gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
-# results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench
+gestalt_data_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
+default_gestalt_root="${gestalt_data_root}/human_eval/samples"
+default_output_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini
 
-gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench/human_eval/samples
-results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval
+if [ -n "$annotator_number" ]; then
+    gestalt_root="${gestalt_data_root}/human_eval/task2/manipulation_full/annotator${annotator_number}"
+    output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results"
+else
+    gestalt_root="${default_gestalt_root}"
+    output_root="${default_output_root}"
+fi
 
 data_parent="${gestalt_root}/${dataset_name}/context/${utt_count}-utt_group/batch${batch_id}"
-output_dir="${results_root}/gemini/${dataset_name}/context/${utt_count}-utt_group/${gemini_mode}_${prompt_choice}_single-turn"
+output_dir="${output_root}/${dataset_name}/context/${utt_count}-utt_group/${gemini_mode}_${prompt_choice}_single-turn"
 output_json="${output_dir}/batch${batch_id}.json"
 
 inference_script="api_models/gemini_batch.py"
 prompt_config="${project_dir}/api_models/configs/prompts.json"
 api_key_file=/home/nfs/zli33/keys/gemini_api.txt
-registry_file="${results_root}/gemini/gemini_registry.json"
+registry_file="${output_root}/gemini_registry.json"
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -151,7 +168,10 @@ echo "[INFO] project_dir    = $project_dir"
 echo "[INFO] dataset        = $dataset_name"
 echo "[INFO] utt            = $utt_count"
 echo "[INFO] batch          = $batch_id"
+echo "[INFO] annotator      = ${annotator_number:-default}"
+echo "[INFO] gestalt_root   = $gestalt_root"
 echo "[INFO] data_parent    = $data_parent"
+echo "[INFO] output_root    = $output_root"
 echo "[INFO] gemini_mode    = $gemini_mode"
 echo "[INFO] prompt_config  = $prompt_config"
 echo "[INFO] prompt_choice  = $prompt_choice"
@@ -163,7 +183,7 @@ echo ""
 apptainer exec \
     --bind "$project_dir":/workspace \
     --bind "${gestalt_root}":"${gestalt_root}" \
-    --bind "${results_root}":"${results_root}" \
+    --bind "${output_root}":"${output_root}" \
     --bind "$api_key_file":"$api_key_file":ro \
     --pwd /workspace \
     "$sif_file" \
