@@ -60,8 +60,9 @@ from eyetrack.gaze_extraction import (  # noqa: E402
 )
 
 
-DEFAULT_FOCUS_BOX_RATIO = 0.18
+DEFAULT_FOCUS_REGION_RATIO = 0.18
 GAZE_MAPPING_CHOICES = ("legacy-extraction", "measured-player")
+FOCUS_REGION_SHAPES = ("circle", "square")
 CLIP_STEM_RE = re.compile(r"^(?P<prefix>.+)_clip(?P<index>\d+)$")
 GROUP_BATCH_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b(?P<batch>\d+)$")
 
@@ -275,10 +276,18 @@ def parse_args() -> argparse.Namespace:
         help="How to hide the focus region in the final segment.",
     )
     parser.add_argument(
+        "--focus-region-ratio",
         "--focus-box-ratio",
         type=float,
-        default=DEFAULT_FOCUS_BOX_RATIO,
-        help="Focus box size as a fraction of min(frame_width, frame_height).",
+        dest="focus_region_ratio",
+        default=DEFAULT_FOCUS_REGION_RATIO,
+        help="Focus region size as a fraction of min(frame_width, frame_height).",
+    )
+    parser.add_argument(
+        "--focus-region-shape",
+        choices=FOCUS_REGION_SHAPES,
+        default="circle",
+        help="Shape of the corrupted focus region.",
     )
     parser.add_argument(
         "--max-gaze-gap",
@@ -893,10 +902,11 @@ def apply_focus_mask(
     frame,
     point: GazePoint,
     effect: str,
-    focus_box_ratio: float,
+    focus_region_ratio: float,
+    focus_region_shape: str,
 ) -> None:
     height, width = frame.shape[:2]
-    box_size = max(8, int(min(width, height) * focus_box_ratio))
+    box_size = max(8, int(min(width, height) * focus_region_ratio))
     center_x = int(point.x * width)
     center_y = int((1.0 - point.y) * height)
     x1 = max(0, center_x - box_size // 2)
@@ -907,12 +917,28 @@ def apply_focus_mask(
         return
 
     if effect == "block":
-        frame[y1:y2, x1:x2] = (0, 0, 0)
+        if focus_region_shape == "square":
+            frame[y1:y2, x1:x2] = (0, 0, 0)
+        else:
+            radius = max(1, box_size // 2)
+            cv2.circle(frame, (center_x, center_y), radius, (0, 0, 0), -1)
         return
 
-    roi = frame[y1:y2, x1:x2]
     kernel = max(15, (box_size // 2) | 1)
-    frame[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (kernel, kernel), 0)
+    if focus_region_shape == "square":
+        roi = frame[y1:y2, x1:x2]
+        frame[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (kernel, kernel), 0)
+        return
+
+    blurred = cv2.GaussianBlur(frame, (kernel, kernel), 0)
+    mask = cv2.circle(
+        frame.copy()[:, :, 0] * 0,
+        (center_x, center_y),
+        max(1, box_size // 2),
+        255,
+        -1,
+    )
+    frame[mask > 0] = blurred[mask > 0]
 
 
 def encode_video_with_fallback(raw_video_path: Path, output_path: Path) -> None:
@@ -958,7 +984,8 @@ def write_masked_target_prefix_video(
     clip_length: float,
     gaze_points: list[GazePoint],
     effect: str,
-    focus_box_ratio: float,
+    focus_region_ratio: float,
+    focus_region_shape: str,
     max_gaze_gap: float,
     mask_full_video: bool = False,
 ) -> dict[str, int]:
@@ -1002,7 +1029,7 @@ def write_masked_target_prefix_video(
             if frame_time >= mask_start_time:
                 point = nearest_gaze_point(gaze_points, frame_time, max_gaze_gap)
                 if point is not None:
-                    apply_focus_mask(frame, point, effect, focus_box_ratio)
+                    apply_focus_mask(frame, point, effect, focus_region_ratio, focus_region_shape)
                     masked_frame_count += 1
 
             writer.write(frame)
@@ -1147,7 +1174,8 @@ def materialize_gaze_group_context(
     clip_length: float,
     gaze_points: list[GazePoint],
     effect: str,
-    focus_box_ratio: float,
+    focus_region_ratio: float,
+    focus_region_shape: str,
     max_gaze_gap: float,
     cut: int | None,
     overwrite: bool,
@@ -1194,7 +1222,8 @@ def materialize_gaze_group_context(
                 clip_length=clip_length,
                 gaze_points=gaze_points,
                 effect=effect,
-                focus_box_ratio=focus_box_ratio,
+                focus_region_ratio=focus_region_ratio,
+                focus_region_shape=focus_region_shape,
                 max_gaze_gap=max_gaze_gap,
             )
             concatenate_context_with_masked_target(
@@ -1240,7 +1269,8 @@ def materialize_gaze_triplet(
     exact_gaze_index: dict[str, list[GazePoint]],
     name_gaze_index: dict[str, list[GazePoint]],
     effect: str,
-    focus_box_ratio: float,
+    focus_region_ratio: float,
+    focus_region_shape: str,
     max_gaze_gap: float,
     cut: int | None,
     overwrite: bool,
@@ -1264,7 +1294,8 @@ def materialize_gaze_triplet(
                 clip_length=clip_length,
                 gaze_points=gaze_points,
                 effect=effect,
-                focus_box_ratio=focus_box_ratio,
+                focus_region_ratio=focus_region_ratio,
+                focus_region_shape=focus_region_shape,
                 max_gaze_gap=max_gaze_gap,
                 cut=cut,
                 overwrite=overwrite,
@@ -1468,9 +1499,14 @@ def _write_gaze_plot(
     plt.close(fig)
 
 
-def draw_debug_focus_marker(frame, point: GazePoint, focus_box_ratio: float) -> None:
+def draw_debug_focus_marker(
+    frame,
+    point: GazePoint,
+    focus_region_ratio: float,
+    focus_region_shape: str,
+) -> None:
     height, width = frame.shape[:2]
-    box_size = max(8, int(min(width, height) * focus_box_ratio))
+    box_size = max(8, int(min(width, height) * focus_region_ratio))
     center_x = int(point.x * width)
     center_y = int((1.0 - point.y) * height)
     x1 = max(0, center_x - box_size // 2)
@@ -1480,7 +1516,10 @@ def draw_debug_focus_marker(frame, point: GazePoint, focus_box_ratio: float) -> 
     if x2 <= x1 or y2 <= y1:
         return
 
-    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+    if focus_region_shape == "square":
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+    else:
+        cv2.circle(frame, (center_x, center_y), max(1, box_size // 2), (0, 255, 255), 2)
     cv2.drawMarker(
         frame,
         (center_x, center_y),
@@ -1497,7 +1536,8 @@ def write_gaze_overlay_video(
     output_path: Path,
     frame_csv_path: Path,
     gaze_points: list[GazePoint],
-    focus_box_ratio: float,
+    focus_region_ratio: float,
+    focus_region_shape: str,
     max_gaze_gap: float,
 ) -> dict[str, int]:
     source_path = Path(source_path)
@@ -1553,7 +1593,7 @@ def write_gaze_overlay_video(
                 frame_time = frame_index / fps
                 point = nearest_gaze_point(gaze_points, frame_time, max_gaze_gap)
                 if point is not None:
-                    draw_debug_focus_marker(frame, point, focus_box_ratio)
+                    draw_debug_focus_marker(frame, point, focus_region_ratio, focus_region_shape)
                     overlay_frame_count += 1
                     csv_writer.writerow(
                         {
@@ -1644,7 +1684,8 @@ def materialize_annotation_focus_plot_group(
 def materialize_debug_overlay_group(
     group: AnnotationClipGroup,
     output_parent: Path,
-    focus_box_ratio: float,
+    focus_region_ratio: float,
+    focus_region_shape: str,
     max_gaze_gap: float,
     overwrite: bool,
 ) -> dict[str, object]:
@@ -1699,7 +1740,8 @@ def materialize_debug_overlay_group(
         output_path=output_mp4_path,
         frame_csv_path=output_csv_path,
         gaze_points=group.gaze_points,
-        focus_box_ratio=focus_box_ratio,
+        focus_region_ratio=focus_region_ratio,
+        focus_region_shape=focus_region_shape,
         max_gaze_gap=max_gaze_gap,
     )
     _write_provenance_metadata(output_dir, group, [source_clip_path])
@@ -1725,7 +1767,8 @@ def materialize_annotation_clip_group(
     output_parent: Path,
     clip_length: float,
     effect: str,
-    focus_box_ratio: float,
+    focus_region_ratio: float,
+    focus_region_shape: str,
     max_gaze_gap: float,
     overwrite: bool,
     mask_full_video: bool = False,
@@ -1808,7 +1851,8 @@ def materialize_annotation_clip_group(
                 clip_length=clip_length,
                 gaze_points=group.gaze_points,
                 effect=effect,
-                focus_box_ratio=focus_box_ratio,
+                focus_region_ratio=focus_region_ratio,
+                focus_region_shape=focus_region_shape,
                 max_gaze_gap=max_gaze_gap,
                 mask_full_video=mask_full_video,
             )
@@ -2025,14 +2069,16 @@ def write_frame_focus_csv(
 def build_gaze_partition_summary(
     base_summary: dict[str, object],
     effect: str,
-    focus_box_ratio: float,
+    focus_region_ratio: float,
+    focus_region_shape: str,
     max_gaze_gap: float,
 ) -> dict[str, object]:
     return {
         **base_summary,
         "pipeline": "gaze_blocked_partition",
         "effect": effect,
-        "focus_box_ratio": focus_box_ratio,
+        "focus_region_ratio": focus_region_ratio,
+        "focus_region_shape": focus_region_shape,
         "max_gaze_gap_seconds": max_gaze_gap,
     }
 
@@ -2109,7 +2155,8 @@ def main() -> None:
                     result = materialize_debug_overlay_group(
                         group=group,
                         output_parent=args.debug_overlay_output_parent,
-                        focus_box_ratio=args.focus_box_ratio,
+                        focus_region_ratio=args.focus_region_ratio,
+                        focus_region_shape=args.focus_region_shape,
                         max_gaze_gap=args.max_gaze_gap,
                         overwrite=args.overwrite,
                     )
@@ -2217,7 +2264,8 @@ def main() -> None:
                         output_parent=args.full_corruption_output_parent,
                         clip_length=args.clip_length,
                         effect=args.effect,
-                        focus_box_ratio=args.focus_box_ratio,
+                        focus_region_ratio=args.focus_region_ratio,
+                        focus_region_shape=args.focus_region_shape,
                         max_gaze_gap=args.max_gaze_gap,
                         overwrite=args.overwrite,
                         mask_full_video=True,
@@ -2266,7 +2314,8 @@ def main() -> None:
                         output_parent=args.output_parent,
                         clip_length=args.clip_length,
                         effect=args.effect,
-                        focus_box_ratio=args.focus_box_ratio,
+                        focus_region_ratio=args.focus_region_ratio,
+                        focus_region_shape=args.focus_region_shape,
                         max_gaze_gap=args.max_gaze_gap,
                         overwrite=args.overwrite,
                     )
@@ -2355,7 +2404,8 @@ def main() -> None:
                 exact_gaze_index=exact_gaze_index,
                 name_gaze_index=name_gaze_index,
                 effect=args.effect,
-                focus_box_ratio=args.focus_box_ratio,
+                focus_region_ratio=args.focus_region_ratio,
+                focus_region_shape=args.focus_region_shape,
                 max_gaze_gap=args.max_gaze_gap,
                 cut=args.cut,
                 overwrite=args.overwrite,
@@ -2389,7 +2439,8 @@ def main() -> None:
     output_summary = build_gaze_partition_summary(
         base_summary=base_summary,
         effect=args.effect,
-        focus_box_ratio=args.focus_box_ratio,
+        focus_region_ratio=args.focus_region_ratio,
+        focus_region_shape=args.focus_region_shape,
         max_gaze_gap=args.max_gaze_gap,
     )
     write_summary_files(output_summary, output_context_parent)

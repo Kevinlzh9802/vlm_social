@@ -23,7 +23,8 @@ DEFAULT_FULL_CORRUPTION_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipu
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 DEFAULT_EFFECT="block"
 DEFAULT_CLIP_LENGTH="0.5"
-DEFAULT_FOCUS_BOX_RATIO="0.3"
+DEFAULT_FOCUS_REGION_RATIO="0.3"
+DEFAULT_FOCUS_REGION_SHAPE="circle"
 DEFAULT_MAX_GAZE_GAP="0.5"
 DEFAULT_GAZE_MAPPING="measured-player"
 DEFAULT_RESPONSE_SELECTION="latest-submitted"
@@ -31,7 +32,7 @@ DEFAULT_FULL_CORRUPTION_LOCALIZATION_SOURCE="annotation-media"
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-box-ratio RATIO] [--max-gaze-gap SEC] [--gaze-mapping legacy-extraction|measured-player] [--response-selection latest-submitted|first-response] [--full-corruption-localization-source annotation-media|video-json] [--utt 1,2,3] [--no-overwrite]" >&2
+    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-region-ratio RATIO] [--focus-region-shape circle|square] [--max-gaze-gap SEC] [--gaze-mapping legacy-extraction|measured-player] [--response-selection latest-submitted|first-response] [--full-corruption-localization-source annotation-media|video-json] [--utt 1,2,3] [--no-overwrite]" >&2
     echo "  pupil-parent: parent folder with T{x}_{y}_annotator1/2 Pupil recordings (default: ${DEFAULT_PUPIL_PARENT})" >&2
     echo "  annotation-dir: folder with T{x}_{y}.json annotation files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  video-json: fallback ordered video list JSON (default: ${DEFAULT_VIDEO_JSON})" >&2
@@ -51,7 +52,8 @@ FULL_CORRUPTION_OUTPUT_DIR="${DEFAULT_FULL_CORRUPTION_OUTPUT_DIR}"
 MEDIA_URL_PREFIX="${DEFAULT_MEDIA_URL_PREFIX}"
 EFFECT="${DEFAULT_EFFECT}"
 CLIP_LENGTH="${DEFAULT_CLIP_LENGTH}"
-FOCUS_BOX_RATIO="${DEFAULT_FOCUS_BOX_RATIO}"
+FOCUS_REGION_RATIO="${DEFAULT_FOCUS_REGION_RATIO}"
+FOCUS_REGION_SHAPE="${DEFAULT_FOCUS_REGION_SHAPE}"
 MAX_GAZE_GAP="${DEFAULT_MAX_GAZE_GAP}"
 GAZE_MAPPING="${DEFAULT_GAZE_MAPPING}"
 RESPONSE_SELECTION="${DEFAULT_RESPONSE_SELECTION}"
@@ -93,8 +95,12 @@ while [[ $# -gt 0 ]]; do
             CLIP_LENGTH="${2:?Missing value for --clip-length}"
             shift 2
             ;;
-        --focus-box-ratio)
-            FOCUS_BOX_RATIO="${2:?Missing value for --focus-box-ratio}"
+        --focus-region-ratio|--focus-box-ratio)
+            FOCUS_REGION_RATIO="${2:?Missing value for $1}"
+            shift 2
+            ;;
+        --focus-region-shape)
+            FOCUS_REGION_SHAPE="${2:?Missing value for --focus-region-shape}"
             shift 2
             ;;
         --max-gaze-gap)
@@ -158,6 +164,11 @@ if [[ "${FULL_CORRUPTION_LOCALIZATION_SOURCE}" != "annotation-media" && "${FULL_
     exit 1
 fi
 
+if [[ "${FOCUS_REGION_SHAPE}" != "circle" && "${FOCUS_REGION_SHAPE}" != "square" ]]; then
+    echo "Invalid --focus-region-shape: ${FOCUS_REGION_SHAPE}. Expected circle or square." >&2
+    exit 1
+fi
+
 if [[ ! -f "${SIF_PATH}" ]]; then
     echo "Missing Apptainer image: ${SIF_PATH}" >&2
     echo "Build or copy the eyetrack image to: ${SIF_PATH}" >&2
@@ -197,7 +208,8 @@ echo "Full corruption out:  ${FULL_CORRUPTION_OUTPUT_DIR}"
 echo "Media URL prefix:     ${MEDIA_URL_PREFIX}"
 echo "Effect:               ${EFFECT}"
 echo "Clip length:          ${CLIP_LENGTH}"
-echo "Focus box ratio:      ${FOCUS_BOX_RATIO}"
+echo "Focus region ratio:   ${FOCUS_REGION_RATIO}"
+echo "Focus region shape:   ${FOCUS_REGION_SHAPE}"
 echo "Max gaze gap:         ${MAX_GAZE_GAP}"
 echo "Gaze mapping:         ${GAZE_MAPPING}"
 echo "Response selection:   ${RESPONSE_SELECTION}"
@@ -220,7 +232,8 @@ PYTHON_ARGS=(
     --full-corruption-output-parent "${FULL_CORRUPTION_OUTPUT_DIR}"
     --effect "${EFFECT}"
     --clip-length "${CLIP_LENGTH}"
-    --focus-box-ratio "${FOCUS_BOX_RATIO}"
+    --focus-region-ratio "${FOCUS_REGION_RATIO}"
+    --focus-region-shape "${FOCUS_REGION_SHAPE}"
     --max-gaze-gap "${MAX_GAZE_GAP}"
     --gaze-mapping "${GAZE_MAPPING}"
     --response-selection "${RESPONSE_SELECTION}"
