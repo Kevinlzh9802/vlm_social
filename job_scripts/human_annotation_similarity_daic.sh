@@ -15,7 +15,7 @@ set -euo pipefail
 PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
 SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
-DEFAULT_TASK_JSON="${DEFAULT_DATA_ROOT}/human_eval/task1.json"
+DEFAULT_TASK_JSON="${DEFAULT_DATA_ROOT}/human_eval/task1/task1.json"
 DEFAULT_ANNOTATION_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/annotations"
 DEFAULT_EXTRACTION_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/annotation_extracted"
 DEFAULT_PLOT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/plots"
