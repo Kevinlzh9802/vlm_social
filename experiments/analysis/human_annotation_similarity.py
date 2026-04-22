@@ -324,6 +324,12 @@ def collect_clip_to_final_bins(
     return grouped_values
 
 
+def mean_similarity_by_ratio(grouped_values: dict[float, list[float]]) -> tuple[list[float], list[float]]:
+    ratios = sorted(grouped_values)
+    means = [float(np.mean(grouped_values[ratio])) for ratio in ratios]
+    return ratios, means
+
+
 def plot_case_percentiles(
     dataset_name: str,
     utt_count: int,
@@ -348,6 +354,34 @@ def plot_case_percentiles(
         f"Observed clip ratio (rounded to nearest 1/{progress_partitions})"
     )
     plt.ylabel("Cosine similarity to full clip")
+    plt.xlim(0.0, 1.02)
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+
+
+def plot_case_average(
+    dataset_name: str,
+    utt_count: int,
+    prompt_name: str,
+    grouped_values: dict[float, list[float]],
+    output_path: Path,
+    progress_partitions: int,
+) -> None:
+    ratios, mean_values = mean_similarity_by_ratio(grouped_values)
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(ratios, mean_values, color="#4C78A8", linewidth=1.8, marker="o", label="Mean")
+    plt.title(
+        f"Human Partial-to-Full Similarity | {dataset_name} | {utt_count}-utt | {prompt_name} | Mean"
+    )
+    plt.xlabel(
+        f"Observed clip ratio (rounded to nearest 1/{progress_partitions})"
+    )
+    plt.ylabel("Average cosine similarity to full clip")
     plt.xlim(0.0, 1.02)
     plt.ylim(-0.05, 1.05)
     plt.grid(True, alpha=0.25)
@@ -386,6 +420,30 @@ def plot_overall_percentiles(
     plt.close()
 
 
+def plot_overall_average(
+    prompt_name: str,
+    grouped_values: dict[float, list[float]],
+    output_path: Path,
+    progress_partitions: int,
+) -> None:
+    ratios, mean_values = mean_similarity_by_ratio(grouped_values)
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(ratios, mean_values, color="#4C78A8", linewidth=1.8, marker="o", label="Mean")
+    plt.title(f"Human Partial-to-Full Similarity | All Datasets | {prompt_name} | Mean")
+    plt.xlabel(
+        f"Observed clip ratio (rounded to nearest 1/{progress_partitions})"
+    )
+    plt.ylabel("Average cosine similarity to full clip")
+    plt.xlim(0.0, 1.02)
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+
+
 def summarize_case_bins(
     dataset_name: str,
     utt_count: int,
@@ -409,6 +467,7 @@ def summarize_case_bins(
                 "bin_index": bin_index,
                 "progress_ratio": ratio,
                 "sample_count": len(values),
+                "mean_similarity": float(np.mean(values)),
                 "percentile_25": float(np.percentile(values, 25)),
                 "percentile_50": float(np.percentile(values, 50)),
                 "percentile_75": float(np.percentile(values, 75)),
@@ -438,6 +497,7 @@ def summarize_overall_bins(
                 "bin_index": bin_index,
                 "progress_ratio": ratio,
                 "sample_count": len(values),
+                "mean_similarity": float(np.mean(values)),
                 "percentile_25": float(np.percentile(values, 25)),
                 "percentile_50": float(np.percentile(values, 50)),
                 "percentile_75": float(np.percentile(values, 75)),
@@ -454,6 +514,7 @@ def write_summary_csv(path: Path, rows: Sequence[dict[str, object]]) -> None:
         "bin_index",
         "progress_ratio",
         "sample_count",
+        "mean_similarity",
         "percentile_25",
         "percentile_50",
         "percentile_75",
@@ -741,6 +802,20 @@ def main() -> None:
             )
             print(f"[INFO] Saved {plot_path}")
 
+            mean_plot_path = (
+                prompt_output_dir
+                / f"{dataset_name}_{utt_count}utt_partial_to_full_mean.png"
+            )
+            plot_case_average(
+                dataset_name=dataset_name,
+                utt_count=utt_count,
+                prompt_name=prompt_name,
+                grouped_values=grouped_values,
+                output_path=mean_plot_path,
+                progress_partitions=args.progress_partitions,
+            )
+            print(f"[INFO] Saved {mean_plot_path}")
+
         overall_metrics = [
             metric
             for metrics_list in case_metrics.values()
@@ -773,6 +848,15 @@ def main() -> None:
                 progress_partitions=args.progress_partitions,
             )
             print(f"[INFO] Saved {overall_plot_path}")
+
+            overall_mean_plot_path = plot_dir / prompt_name / "all_datasets_partial_to_full_mean.png"
+            plot_overall_average(
+                prompt_name=prompt_name,
+                grouped_values=overall_grouped_values,
+                output_path=overall_mean_plot_path,
+                progress_partitions=args.progress_partitions,
+            )
+            print(f"[INFO] Saved {overall_mean_plot_path}")
 
     summary_csv_path = plot_data_dir / "partial_to_full_percentiles.csv"
     summary_json_path = plot_data_dir / "partial_to_full_percentiles.json"

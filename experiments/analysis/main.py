@@ -279,6 +279,12 @@ def collect_clip_to_final_bins(
     return grouped_values
 
 
+def mean_similarity_by_ratio(grouped_values: dict[float, list[float]]) -> tuple[list[float], list[float]]:
+    ratios = sorted(grouped_values)
+    means = [float(np.mean(grouped_values[ratio])) for ratio in ratios]
+    return ratios, means
+
+
 def plot_clip_to_final_scatter(
     utterance_metrics: Sequence[UtteranceMetrics],
     title: str,
@@ -356,6 +362,42 @@ def plot_clip_to_final_scatter(
     plt.close()
 
 
+def plot_clip_to_final_mean(
+    utterance_metrics: Sequence[UtteranceMetrics],
+    title: str,
+    progress_partitions: int,
+    output_path: Path,
+) -> None:
+    grouped_values = collect_clip_to_final_bins(
+        utterance_metrics=utterance_metrics,
+        progress_partitions=progress_partitions,
+    )
+    if not grouped_values:
+        return
+
+    ratios, mean_values = mean_similarity_by_ratio(grouped_values)
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(
+        ratios,
+        mean_values,
+        color="#4C78A8",
+        marker="o",
+        linewidth=1.8,
+        label="Mean",
+    )
+    plt.title(title)
+    plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
+    plt.ylabel("Average cosine similarity to final clip")
+    plt.xlim(0.0, 1.02)
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+
+
 def plot_combined_clip_to_final_percentile_lines(
     case_metrics: dict[str, list[UtteranceMetrics]],
     percentile: int,
@@ -400,6 +442,55 @@ def plot_combined_clip_to_final_percentile_lines(
     )
     plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
     plt.ylabel("Cosine similarity to final clip")
+    plt.xlim(0.0, 1.02)
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+    return True
+
+
+def plot_combined_clip_to_final_mean_lines(
+    case_metrics: dict[str, list[UtteranceMetrics]],
+    utt_group_size: int,
+    task_name: str,
+    progress_partitions: int,
+    output_path: Path,
+) -> bool:
+    plt.figure(figsize=(8, 6))
+    plotted_any = False
+
+    for model_label in sorted(case_metrics):
+        grouped_values = collect_clip_to_final_bins(
+            utterance_metrics=case_metrics[model_label],
+            progress_partitions=progress_partitions,
+        )
+        if not grouped_values:
+            print(
+                f"[WARN] No usable utterances for combined mean plot: "
+                f"model={model_label}, utt={utt_group_size}, task={task_name}"
+            )
+            continue
+
+        ratios, mean_values = mean_similarity_by_ratio(grouped_values)
+        plt.plot(ratios, mean_values, marker="o", linewidth=1.8, label=model_label)
+        plotted_any = True
+
+    if not plotted_any:
+        plt.close()
+        print(
+            f"[WARN] No usable utterances for combined clip-to-final mean plot: "
+            f"utt={utt_group_size}, task={task_name}"
+        )
+        return False
+
+    plt.title(
+        f"Combined Clip-to-Final Similarity | {utt_group_size}-utt | {task_name} | Mean"
+    )
+    plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
+    plt.ylabel("Average cosine similarity to final clip")
     plt.xlim(0.0, 1.02)
     plt.ylim(-0.05, 1.05)
     plt.grid(True, alpha=0.25)
@@ -635,6 +726,18 @@ def generate_combined_outputs(
                     output_path=output_path,
                 )
 
+            mean_output_path = (
+                plots_root
+                / f"combined_clip_to_final_mean_{utt_group_size}utt_{task_name}.png"
+            )
+            plot_combined_clip_to_final_mean_lines(
+                case_metrics=case_metrics,
+                utt_group_size=utt_group_size,
+                task_name=task_name,
+                progress_partitions=progress_partitions,
+                output_path=mean_output_path,
+            )
+
             st_output_path = (
                 plots_root
                 / f"combined_st_vs_threshold_{utt_group_size}utt_{task_name}.png"
@@ -731,6 +834,15 @@ def analyze_dataset(
             include_scatter=False,
         )
         print(f"[INFO] Saved {clip_to_final_percentile_path}")
+
+        clip_to_final_mean_path = output_dir / "clip_to_final_similarity_mean_only.png"
+        plot_clip_to_final_mean(
+            utterance_metrics=utterance_metrics,
+            title=f"{title} | Mean Only",
+            progress_partitions=progress_partitions,
+            output_path=clip_to_final_mean_path,
+        )
+        print(f"[INFO] Saved {clip_to_final_mean_path}")
 
         neighbor_path = output_dir / "neighbor_similarity_by_clip_count.png"
         plot_neighbor_similarity_by_clip_count(
