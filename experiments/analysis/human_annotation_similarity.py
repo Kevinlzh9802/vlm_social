@@ -357,6 +357,35 @@ def plot_case_percentiles(
     plt.close()
 
 
+def plot_overall_percentiles(
+    prompt_name: str,
+    grouped_values: dict[float, list[float]],
+    output_path: Path,
+    progress_partitions: int,
+) -> None:
+    ratios = sorted(grouped_values)
+    percentile_25 = [float(np.percentile(grouped_values[ratio], 25)) for ratio in ratios]
+    percentile_50 = [float(np.percentile(grouped_values[ratio], 50)) for ratio in ratios]
+    percentile_75 = [float(np.percentile(grouped_values[ratio], 75)) for ratio in ratios]
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(ratios, percentile_25, color="#E45756", linewidth=1.8, label="25th percentile")
+    plt.plot(ratios, percentile_50, color="#4C78A8", linewidth=1.8, label="50th percentile")
+    plt.plot(ratios, percentile_75, color="#72B7B2", linewidth=1.8, label="75th percentile")
+    plt.title(f"Human Partial-to-Full Similarity | All Datasets | {prompt_name}")
+    plt.xlabel(
+        f"Observed clip ratio (rounded to nearest 1/{progress_partitions})"
+    )
+    plt.ylabel("Cosine similarity to full clip")
+    plt.xlim(0.0, 1.02)
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+
+
 def summarize_case_bins(
     dataset_name: str,
     utt_count: int,
@@ -377,6 +406,35 @@ def summarize_case_bins(
                 "prompt": prompt_name,
                 "dataset": dataset_name,
                 "utt_count": utt_count,
+                "bin_index": bin_index,
+                "progress_ratio": ratio,
+                "sample_count": len(values),
+                "percentile_25": float(np.percentile(values, 25)),
+                "percentile_50": float(np.percentile(values, 50)),
+                "percentile_75": float(np.percentile(values, 75)),
+            }
+        )
+    return rows
+
+
+def summarize_overall_bins(
+    prompt_name: str,
+    utterance_metrics: Sequence[UtteranceMetrics],
+    progress_partitions: int,
+) -> list[dict[str, object]]:
+    grouped_values = collect_clip_to_final_bins(
+        utterance_metrics=utterance_metrics,
+        progress_partitions=progress_partitions,
+    )
+    rows: list[dict[str, object]] = []
+    for ratio in sorted(grouped_values):
+        bin_index = int(round(ratio * progress_partitions))
+        values = grouped_values[ratio]
+        rows.append(
+            {
+                "prompt": prompt_name,
+                "dataset": "all",
+                "utt_count": "all",
                 "bin_index": bin_index,
                 "progress_ratio": ratio,
                 "sample_count": len(values),
@@ -423,10 +481,18 @@ def write_summary_json(
 
     for prompt_name in sorted(prompt_case_metrics):
         case_metrics = prompt_case_metrics[prompt_name]
+        overall_bin_rows = [
+            row
+            for row in bin_rows
+            if row["prompt"] == prompt_name
+            and row["dataset"] == "all"
+            and row["utt_count"] == "all"
+        ]
         payload["prompts"].append(
             {
                 "prompt": prompt_name,
                 "case_count": len(case_metrics),
+                "overall_bin_rows": overall_bin_rows,
                 "cases": [
                     {
                         "dataset": dataset_name,
@@ -466,6 +532,36 @@ def build_plot_point_rows(
                     "prompt": prompt_name,
                     "dataset": dataset_name,
                     "utt_count": utt_count,
+                    "utterance_index": utterance_index,
+                    "clip_position": clip_position,
+                    "clip_count": metrics.clip_count,
+                    "progress_ratio_raw": raw_progress_ratio,
+                    "progress_ratio_binned": quantize_progress_ratio(
+                        raw_progress_ratio,
+                        progress_partitions,
+                    ),
+                    "similarity_to_full": similarity,
+                }
+            )
+    return rows
+
+
+def build_overall_plot_point_rows(
+    prompt_name: str,
+    utterance_metrics: Sequence[UtteranceMetrics],
+    progress_partitions: int,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for utterance_index, metrics in enumerate(utterance_metrics, start=1):
+        for clip_position, similarity in enumerate(
+            metrics.clip_to_final_similarities, start=1
+        ):
+            raw_progress_ratio = clip_position / metrics.clip_count
+            rows.append(
+                {
+                    "prompt": prompt_name,
+                    "dataset": "all",
+                    "utt_count": "all",
                     "utterance_index": utterance_index,
                     "clip_position": clip_position,
                     "clip_count": metrics.clip_count,
@@ -644,6 +740,39 @@ def main() -> None:
                 progress_partitions=args.progress_partitions,
             )
             print(f"[INFO] Saved {plot_path}")
+
+        overall_metrics = [
+            metric
+            for metrics_list in case_metrics.values()
+            for metric in metrics_list
+        ]
+        if overall_metrics:
+            all_bin_rows.extend(
+                summarize_overall_bins(
+                    prompt_name=prompt_name,
+                    utterance_metrics=overall_metrics,
+                    progress_partitions=args.progress_partitions,
+                )
+            )
+            all_point_rows.extend(
+                build_overall_plot_point_rows(
+                    prompt_name=prompt_name,
+                    utterance_metrics=overall_metrics,
+                    progress_partitions=args.progress_partitions,
+                )
+            )
+            overall_grouped_values = collect_clip_to_final_bins(
+                utterance_metrics=overall_metrics,
+                progress_partitions=args.progress_partitions,
+            )
+            overall_plot_path = plot_dir / prompt_name / "all_datasets_partial_to_full_percentiles.png"
+            plot_overall_percentiles(
+                prompt_name=prompt_name,
+                grouped_values=overall_grouped_values,
+                output_path=overall_plot_path,
+                progress_partitions=args.progress_partitions,
+            )
+            print(f"[INFO] Saved {overall_plot_path}")
 
     summary_csv_path = plot_data_dir / "partial_to_full_percentiles.csv"
     summary_json_path = plot_data_dir / "partial_to_full_percentiles.json"
