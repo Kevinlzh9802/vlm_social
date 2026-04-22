@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -117,6 +118,42 @@ def sorted_items(mapping: dict[str, Any]) -> list[tuple[str, Any]]:
     )
 
 
+def iter_indexed_values(values: Any, context: str) -> list[tuple[int, Any]]:
+    if isinstance(values, list):
+        return list(enumerate(values))
+    if isinstance(values, dict):
+        return [(int(key), value) for key, value in sorted_items(values)]
+    raise ValueError(f"{context} must be a list or object, got {type(values).__name__}")
+
+
+def parse_created_timestamp(value: Any) -> datetime:
+    if value is None:
+        return datetime.min
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(float(value))
+
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+        return parsed.replace(tzinfo=None)
+    except ValueError:
+        return datetime.min
+
+
+def response_created_value(response: dict[str, Any]) -> Any:
+    created = response.get("created")
+    if created is not None:
+        return created
+    annotations = response.get("annotations")
+    if isinstance(annotations, dict):
+        annotation_created = annotations.get("created")
+        if annotation_created is not None:
+            return annotation_created
+    return None
+
+
 def get_journey_for_annotator(
     payload: dict[str, Any],
     annotator_number: int,
@@ -140,16 +177,29 @@ def get_node_id_for_journey(journey: dict[str, Any], journey_index: int) -> str:
 
 
 def select_latest_submitted_response(
-    responses: dict[str, Any],
-) -> tuple[str, dict[str, Any]]:
-    submitted_candidates: list[tuple[str, dict[str, Any]]] = []
-    for response_key, response_value in sorted_items(responses):
-        response = get_dict(response_value, f"responses[{response_key}]")
+    responses: Any,
+    node_id: str,
+) -> tuple[int, dict[str, Any]]:
+    submitted_candidates: list[tuple[datetime, int, dict[str, Any]]] = []
+    for response_index, response_value in iter_indexed_values(
+        responses, f"nodes[{node_id}].responses"
+    ):
+        response = get_dict(
+            response_value, f"nodes[{node_id}].responses[{response_index}]"
+        )
         if coerce_bool(response.get("submitted")):
-            submitted_candidates.append((response_key, response))
+            submitted_candidates.append(
+                (
+                    parse_created_timestamp(response_created_value(response)),
+                    response_index,
+                    response,
+                )
+            )
     if not submitted_candidates:
         raise ValueError("no submitted response found")
-    return submitted_candidates[-1]
+    submitted_candidates.sort(key=lambda item: (item[0], item[1]))
+    _, response_index, response = submitted_candidates[-1]
+    return response_index, response
 
 
 def last_ordered_value(value: Any, context: str) -> Any:
@@ -194,8 +244,8 @@ def parse_annotation_file_for_annotator(
 
     nodes = get_dict(payload.get("nodes"), "nodes")
     node = get_dict(nodes.get(node_id), f"nodes[{node_id}]")
-    responses = get_dict(node.get("responses"), f"nodes[{node_id}].responses")
-    response_index, response = select_latest_submitted_response(responses)
+    responses = node.get("responses")
+    response_index, response = select_latest_submitted_response(responses, node_id)
     annotations = get_dict(
         response.get("annotations"),
         f"nodes[{node_id}].responses[{response_index}].annotations",
@@ -213,7 +263,7 @@ def parse_annotation_file_for_annotator(
                 "journey_index": journey_index,
                 "node_id": node_id,
                 "response_index": response_index,
-                "response_created": response.get("created"),
+                "response_created": response_created_value(response),
                 "response_submitted": response.get("submitted"),
                 "annotation_key": annotation_key,
                 "participant": annotation.get("participant"),
