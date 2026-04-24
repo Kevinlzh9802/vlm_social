@@ -84,6 +84,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip scatter points in per-folder clip-to-final plots and draw percentile lines only.",
     )
+    parser.add_argument(
+        "--human-annotation-summary-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Optional partial_to_full_percentiles.csv from "
+            "human_annotation_similarity.py. When set, additional aggregate "
+            "plots overlay human annotation partial-to-full similarity with "
+            "model clip-to-final similarity under each utterance/task condition."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -283,6 +294,52 @@ def mean_similarity_by_ratio(grouped_values: dict[float, list[float]]) -> tuple[
     ratios = sorted(grouped_values)
     means = [float(np.mean(grouped_values[ratio])) for ratio in ratios]
     return ratios, means
+
+
+def load_human_annotation_summary_csv(
+    summary_csv_path: Path,
+) -> dict[tuple[int, str], dict[str, list[tuple[float, float]]]]:
+    summary_path = summary_csv_path.expanduser().resolve()
+    if not summary_path.is_file():
+        raise FileNotFoundError(f"Human annotation summary CSV does not exist: {summary_path}")
+
+    human_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    with summary_path.open("r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+            if row.get("dataset") != "all":
+                continue
+
+            prompt_name = str(row.get("prompt", "")).strip()
+            utt_count_text = str(row.get("utt_count", "")).strip()
+            if prompt_name not in TASK_NAMES or not utt_count_text.isdigit():
+                continue
+
+            case_key = (int(utt_count_text), prompt_name)
+            try:
+                progress_ratio = float(row["progress_ratio"])
+                stat_values = {
+                    "mean": float(row["mean_similarity"]),
+                    "p25": float(row["percentile_25"]),
+                    "p50": float(row["percentile_50"]),
+                    "p75": float(row["percentile_75"]),
+                }
+            except (KeyError, TypeError, ValueError) as exc:
+                print(f"[WARN] Skipping malformed human summary row {row}: {exc}")
+                continue
+
+            for stat_name, stat_value in stat_values.items():
+                human_summary[case_key][stat_name].append((progress_ratio, stat_value))
+
+    return {
+        case_key: {
+            stat_name: sorted(points, key=lambda item: item[0])
+            for stat_name, points in stat_rows.items()
+        }
+        for case_key, stat_rows in human_summary.items()
+    }
 
 
 def plot_clip_to_final_scatter(
@@ -501,6 +558,105 @@ def plot_combined_clip_to_final_mean_lines(
     return True
 
 
+def plot_combined_human_model_partial_to_full_lines(
+    case_metrics: dict[str, list[UtteranceMetrics]],
+    human_case_summary: dict[str, list[tuple[float, float]]],
+    stat_name: str,
+    utt_group_size: int,
+    task_name: str,
+    progress_partitions: int,
+    output_path: Path,
+    percentile: int | None = None,
+) -> bool:
+    plt.figure(figsize=(9, 6))
+    plotted_any = False
+    color_map = plt.cm.get_cmap("tab10")
+    if stat_name == "mean":
+        title_suffix = "Mean"
+        ylabel = "Average cosine similarity to full clip"
+        legend_suffix = "mean"
+    elif stat_name == "percentile" and percentile is not None:
+        title_suffix = f"p{percentile}"
+        ylabel = f"{percentile}th percentile cosine similarity to full clip"
+        legend_suffix = f"p{percentile}"
+    else:
+        raise ValueError(f"Unsupported stat_name={stat_name} percentile={percentile}")
+
+    for model_index, model_label in enumerate(sorted(case_metrics)):
+        grouped_values = collect_clip_to_final_bins(
+            utterance_metrics=case_metrics[model_label],
+            progress_partitions=progress_partitions,
+        )
+        if not grouped_values:
+            print(
+                f"[WARN] No usable utterances for human/model aggregate plot: "
+                f"model={model_label}, utt={utt_group_size}, task={task_name}, stat={stat_name}"
+            )
+            continue
+
+        if stat_name == "mean":
+            ratios, stat_values = mean_similarity_by_ratio(grouped_values)
+        else:
+            ratios = sorted(grouped_values)
+            stat_values = [
+                float(np.percentile(grouped_values[ratio], percentile))
+                for ratio in ratios
+            ]
+
+        plt.plot(
+            ratios,
+            stat_values,
+            color=color_map(model_index % 10),
+            marker="o",
+            linewidth=1.8,
+            label=f"{model_label} {legend_suffix}",
+        )
+        plotted_any = True
+
+    human_stat_key = "mean" if stat_name == "mean" else f"p{percentile}"
+    human_points = human_case_summary.get(human_stat_key, [])
+    if human_points:
+        ratios = [ratio for ratio, _ in human_points]
+        values = [value for _, value in human_points]
+        plt.plot(
+            ratios,
+            values,
+            color="#111111",
+            linestyle="--",
+            marker="s",
+            linewidth=2.2,
+            label=f"Human annotations {human_stat_key}",
+        )
+        plotted_any = True
+    else:
+        print(
+            f"[WARN] No human annotation summary for aggregate plot: "
+            f"utt={utt_group_size}, task={task_name}, stat={human_stat_key}"
+        )
+
+    if not plotted_any:
+        plt.close()
+        print(
+            f"[WARN] No usable data for combined human/model partial-to-full plot: "
+            f"utt={utt_group_size}, task={task_name}, stat={human_stat_key}"
+        )
+        return False
+
+    plt.title(
+        f"Human and Model Partial-to-Full Similarity | {utt_group_size}-utt | {task_name} | {title_suffix}"
+    )
+    plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
+    plt.ylabel(ylabel)
+    plt.xlim(0.0, 1.02)
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+    return True
+
+
 def plot_neighbor_similarity_by_clip_count(
     utterance_metrics: Sequence[UtteranceMetrics],
     title: str,
@@ -706,11 +862,17 @@ def generate_combined_outputs(
     combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
     turnover_thresholds: Sequence[float],
     progress_partitions: int,
+    human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None = None,
 ) -> None:
     for utt_group_size in UTTERANCE_GROUP_SIZES:
         for task_name in TASK_NAMES:
             case_key = (utt_group_size, task_name)
             case_metrics = combined_case_metrics.get(case_key, {})
+            human_case_summary = (
+                human_annotation_summary.get(case_key, {})
+                if human_annotation_summary is not None
+                else {}
+            )
 
             for percentile in (25, 50, 75):
                 output_path = (
@@ -726,6 +888,23 @@ def generate_combined_outputs(
                     output_path=output_path,
                 )
 
+                if human_annotation_summary is not None:
+                    human_model_output_path = (
+                        plots_root
+                        / f"combined_human_model_partial_to_full_p{percentile}_{utt_group_size}utt_{task_name}.png"
+                    )
+                    if plot_combined_human_model_partial_to_full_lines(
+                        case_metrics=case_metrics,
+                        human_case_summary=human_case_summary,
+                        stat_name="percentile",
+                        percentile=percentile,
+                        utt_group_size=utt_group_size,
+                        task_name=task_name,
+                        progress_partitions=progress_partitions,
+                        output_path=human_model_output_path,
+                    ):
+                        print(f"[INFO] Saved {human_model_output_path}")
+
             mean_output_path = (
                 plots_root
                 / f"combined_clip_to_final_mean_{utt_group_size}utt_{task_name}.png"
@@ -737,6 +916,22 @@ def generate_combined_outputs(
                 progress_partitions=progress_partitions,
                 output_path=mean_output_path,
             )
+
+            if human_annotation_summary is not None:
+                human_model_mean_output_path = (
+                    plots_root
+                    / f"combined_human_model_partial_to_full_mean_{utt_group_size}utt_{task_name}.png"
+                )
+                if plot_combined_human_model_partial_to_full_lines(
+                    case_metrics=case_metrics,
+                    human_case_summary=human_case_summary,
+                    stat_name="mean",
+                    utt_group_size=utt_group_size,
+                    task_name=task_name,
+                    progress_partitions=progress_partitions,
+                    output_path=human_model_mean_output_path,
+                ):
+                    print(f"[INFO] Saved {human_model_mean_output_path}")
 
             st_output_path = (
                 plots_root
@@ -870,6 +1065,16 @@ def main() -> None:
     plots_root = resolve_plots_root(results_root)
     plots_root.mkdir(parents=True, exist_ok=True)
 
+    human_annotation_summary = None
+    if args.human_annotation_summary_csv is not None:
+        human_annotation_summary = load_human_annotation_summary_csv(
+            args.human_annotation_summary_csv
+        )
+        print(
+            "[INFO] Loaded human annotation summary cases: "
+            f"{len(human_annotation_summary)} from {args.human_annotation_summary_csv}"
+        )
+
     if args.model_path is not None:
         model_loc = str(args.model_path.expanduser().resolve())
         print(f"[INFO] Loading embedding model from local path: {model_loc}")
@@ -912,6 +1117,7 @@ def main() -> None:
         combined_case_metrics=combined_case_metrics,
         turnover_thresholds=args.turnover_thresholds,
         progress_partitions=args.progress_partitions,
+        human_annotation_summary=human_annotation_summary,
     )
 
 

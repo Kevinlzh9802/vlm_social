@@ -1,0 +1,175 @@
+#!/bin/bash
+#SBATCH --job-name="analysis"
+#SBATCH --time=02:00:00
+#SBATCH --partition=insy,general
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=8G
+#SBATCH --mail-type=END
+#SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
+#SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
+
+set -euo pipefail
+
+PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
+SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
+DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
+DEFAULT_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/results"
+DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_percentiles.csv"
+DEFAULT_MODEL="all-MiniLM-L6-v2"
+DEFAULT_MODEL_PATH=""
+DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
+
+usage() {
+    echo "Usage:" >&2
+    echo "  sbatch $0 [--results-root PATH] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
+    echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
+    echo "  human-annotation-summary-csv: partial_to_full_percentiles.csv from human_annotation_similarity.py (default: ${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV})" >&2
+    echo "  --skip-human-overlay: generate model-only aggregate plots without human annotation overlays" >&2
+    echo "  model: SentenceTransformer model name, used when --model-path is not set (default: ${DEFAULT_MODEL})" >&2
+    echo "  model-path: optional local directory with pre-downloaded SentenceTransformer model" >&2
+    echo "  turnover-thresholds: semantic-turnover thresholds (default: ${DEFAULT_THRESHOLDS[*]})" >&2
+    echo "  progress-partitions: number of clip-progress bins (default: 20)" >&2
+    echo "  --with-scatter: include scatter points in per-folder clip-to-final plots (default: disabled)" >&2
+    echo "" >&2
+    echo "If the human summary CSV is missing, run:" >&2
+    echo "  sbatch job_scripts/human_annotation_similarity_daic.sh" >&2
+}
+
+RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
+HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV}"
+MODEL="${DEFAULT_MODEL}"
+MODEL_PATH="${DEFAULT_MODEL_PATH}"
+THRESHOLDS=("${DEFAULT_THRESHOLDS[@]}")
+PROGRESS_PARTITIONS="20"
+NO_SCATTER=1
+SKIP_HUMAN_OVERLAY=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --results-root)
+            RESULTS_ROOT="${2:?Missing value for --results-root}"
+            shift 2
+            ;;
+        --human-annotation-summary-csv)
+            HUMAN_ANNOTATION_SUMMARY_CSV="${2:?Missing value for --human-annotation-summary-csv}"
+            shift 2
+            ;;
+        --skip-human-overlay)
+            SKIP_HUMAN_OVERLAY=1
+            shift
+            ;;
+        --model)
+            MODEL="${2:?Missing value for --model}"
+            shift 2
+            ;;
+        --model-path)
+            MODEL_PATH="${2:?Missing value for --model-path}"
+            shift 2
+            ;;
+        --turnover-thresholds)
+            THRESHOLDS=()
+            shift
+            while [[ $# -gt 0 && "$1" != --* ]]; do
+                THRESHOLDS+=("$1")
+                shift
+            done
+            if [[ ${#THRESHOLDS[@]} -eq 0 ]]; then
+                echo "Missing value(s) for --turnover-thresholds" >&2
+                exit 1
+            fi
+            ;;
+        --progress-partitions)
+            PROGRESS_PARTITIONS="${2:?Missing value for --progress-partitions}"
+            shift 2
+            ;;
+        --with-scatter)
+            NO_SCATTER=0
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --*)
+            usage
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            usage
+            echo "Unexpected positional argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+case "${PROGRESS_PARTITIONS}" in
+    ''|*[!0-9]*)
+        echo "Invalid --progress-partitions: ${PROGRESS_PARTITIONS}. Expected a positive integer." >&2
+        exit 1
+        ;;
+esac
+
+if [[ ! -f "${SIF_PATH}" ]]; then
+    echo "Missing Apptainer image: ${SIF_PATH}" >&2
+    echo "Build or copy it from ${PROJECT_ROOT}/apptainer/analysis.def first." >&2
+    exit 1
+fi
+
+if [[ ! -d "${RESULTS_ROOT}" ]]; then
+    echo "Results root does not exist: ${RESULTS_ROOT}" >&2
+    exit 1
+fi
+
+if [[ "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_ANNOTATION_SUMMARY_CSV}" ]]; then
+    echo "Human annotation summary CSV does not exist: ${HUMAN_ANNOTATION_SUMMARY_CSV}" >&2
+    echo "Run human_annotation_similarity_daic.sh first or pass --skip-human-overlay." >&2
+    exit 1
+fi
+
+if [[ -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; then
+    echo "Model path does not exist: ${MODEL_PATH}" >&2
+    exit 1
+fi
+
+mkdir -p /home/nfs/zli33/slurm_outputs/vlm_social
+
+echo "Project root:                  ${PROJECT_ROOT}"
+echo "Apptainer image:               ${SIF_PATH}"
+echo "Results root:                  ${RESULTS_ROOT}"
+echo "Human annotation summary CSV:  ${HUMAN_ANNOTATION_SUMMARY_CSV}"
+echo "Skip human overlay:            ${SKIP_HUMAN_OVERLAY}"
+echo "Model name:                    ${MODEL}"
+echo "Model path:                    ${MODEL_PATH:-<download by name>}"
+echo "Thresholds:                    ${THRESHOLDS[*]}"
+echo "Progress partitions:           ${PROGRESS_PARTITIONS}"
+echo "No scatter:                    ${NO_SCATTER}"
+
+PYTHON_ARGS=(
+    python /workspace/experiments/analysis/main.py
+    --results-root "${RESULTS_ROOT}"
+    --model "${MODEL}"
+    --turnover-thresholds "${THRESHOLDS[@]}"
+    --progress-partitions "${PROGRESS_PARTITIONS}"
+)
+
+if [[ -n "${MODEL_PATH}" ]]; then
+    PYTHON_ARGS+=(--model-path "${MODEL_PATH}")
+fi
+
+if [[ "${SKIP_HUMAN_OVERLAY}" == "0" ]]; then
+    PYTHON_ARGS+=(--human-annotation-summary-csv "${HUMAN_ANNOTATION_SUMMARY_CSV}")
+fi
+
+if [[ "${NO_SCATTER}" == "1" ]]; then
+    PYTHON_ARGS+=(--no-scatter)
+fi
+
+srun apptainer exec \
+    --bind "${PROJECT_ROOT}:/workspace" \
+    --bind /home/nfs/zli33:/home/nfs/zli33 \
+    --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
+    "${SIF_PATH}" \
+    "${PYTHON_ARGS[@]}"
