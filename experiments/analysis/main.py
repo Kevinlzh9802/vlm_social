@@ -105,6 +105,32 @@ def parse_args() -> argparse.Namespace:
             "model clip-to-final similarity under each utterance/task condition."
         ),
     )
+    parser.add_argument(
+        "--save-plot-data",
+        action="store_true",
+        help=(
+            "Save computed aggregate similarity data so combined plots can be "
+            "regenerated without reading result JSON files or embedding text again."
+        ),
+    )
+    parser.add_argument(
+        "--plot-data-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory for --save-plot-data outputs. Defaults to "
+            "<plots-root>/plot_data."
+        ),
+    )
+    parser.add_argument(
+        "--from-plot-data",
+        type=Path,
+        default=None,
+        help=(
+            "Regenerate combined plots from analysis_plot_data.json and skip "
+            "reading result JSON files or embedding text."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -899,6 +925,327 @@ def write_wastp_table(
     output_md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def serialize_human_annotation_summary(
+    human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+) -> list[dict[str, object]]:
+    if human_annotation_summary is None:
+        return []
+
+    rows: list[dict[str, object]] = []
+    for (utt_group_size, task_name), stat_rows in sorted(human_annotation_summary.items()):
+        for stat_name, points in sorted(stat_rows.items()):
+            for progress_ratio, similarity in points:
+                rows.append(
+                    {
+                        "utt_group_size": utt_group_size,
+                        "task": task_name,
+                        "stat": stat_name,
+                        "progress_ratio": progress_ratio,
+                        "similarity": similarity,
+                    }
+                )
+    return rows
+
+
+def write_plot_data_json(
+    output_path: Path,
+    results_root: Path,
+    additional_results_roots: Sequence[Path],
+    plots_root: Path,
+    model_location: str,
+    turnover_thresholds: Sequence[float],
+    progress_partitions: int,
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    human_annotation_summary_csv: Path | None,
+    human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+) -> None:
+    cases: list[dict[str, object]] = []
+    for (utt_group_size, task_name), case_metrics in sorted(combined_case_metrics.items()):
+        models: list[dict[str, object]] = []
+        for model_label, utterance_metrics in sorted(case_metrics.items()):
+            models.append(
+                {
+                    "model": model_label,
+                    "utterances": [
+                        {
+                            "clip_count": metrics.clip_count,
+                            "clip_to_final_similarities": metrics.clip_to_final_similarities,
+                            "neighboring_similarities": metrics.neighboring_similarities,
+                        }
+                        for metrics in utterance_metrics
+                    ],
+                }
+            )
+        cases.append(
+            {
+                "utt_group_size": utt_group_size,
+                "task": task_name,
+                "models": models,
+            }
+        )
+
+    payload = {
+        "schema_version": 1,
+        "description": (
+            "Aggregate analysis plot data. The model utterance metrics and human "
+            "summary rows are sufficient to regenerate combined clip-to-final, "
+            "human/model partial-to-full, ST-threshold, and WASTP outputs without "
+            "reading result JSON files or embedding text again."
+        ),
+        "results_root": str(results_root.resolve()),
+        "additional_results_roots": [
+            str(root.resolve()) for root in additional_results_roots
+        ],
+        "plots_root": str(plots_root.resolve()),
+        "model_location": model_location,
+        "turnover_thresholds": [float(value) for value in turnover_thresholds],
+        "progress_partitions": progress_partitions,
+        "human_annotation_summary_csv": (
+            str(human_annotation_summary_csv.expanduser().resolve())
+            if human_annotation_summary_csv is not None
+            else None
+        ),
+        "human_annotation_summary": serialize_human_annotation_summary(
+            human_annotation_summary
+        ),
+        "cases": cases,
+    }
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def write_plot_data_points_csv(
+    output_path: Path,
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    progress_partitions: int,
+) -> None:
+    fieldnames = [
+        "utt_group_size",
+        "task",
+        "model",
+        "utterance_index",
+        "clip_position",
+        "clip_count",
+        "progress_ratio_raw",
+        "progress_ratio_binned",
+        "clip_to_final_similarity",
+        "neighboring_similarity_to_next",
+    ]
+    with output_path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for (utt_group_size, task_name), case_metrics in sorted(combined_case_metrics.items()):
+            for model_label, utterance_metrics in sorted(case_metrics.items()):
+                for utterance_index, metrics in enumerate(utterance_metrics, start=1):
+                    for clip_position, similarity in enumerate(
+                        metrics.clip_to_final_similarities, start=1
+                    ):
+                        neighboring_similarity = (
+                            metrics.neighboring_similarities[clip_position - 1]
+                            if clip_position <= len(metrics.neighboring_similarities)
+                            else ""
+                        )
+                        progress_ratio_raw = clip_position / metrics.clip_count
+                        writer.writerow(
+                            {
+                                "utt_group_size": utt_group_size,
+                                "task": task_name,
+                                "model": model_label,
+                                "utterance_index": utterance_index,
+                                "clip_position": clip_position,
+                                "clip_count": metrics.clip_count,
+                                "progress_ratio_raw": progress_ratio_raw,
+                                "progress_ratio_binned": quantize_progress_ratio(
+                                    progress_ratio_raw,
+                                    progress_partitions,
+                                ),
+                                "clip_to_final_similarity": similarity,
+                                "neighboring_similarity_to_next": neighboring_similarity,
+                            }
+                        )
+
+
+def write_plot_data_bins_csv(
+    output_path: Path,
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    progress_partitions: int,
+) -> None:
+    fieldnames = [
+        "utt_group_size",
+        "task",
+        "model",
+        "bin_index",
+        "progress_ratio",
+        "sample_count",
+        "mean_similarity",
+        "percentile_25",
+        "percentile_50",
+        "percentile_75",
+    ]
+    with output_path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for (utt_group_size, task_name), case_metrics in sorted(combined_case_metrics.items()):
+            for model_label, utterance_metrics in sorted(case_metrics.items()):
+                grouped_values = collect_clip_to_final_bins(
+                    utterance_metrics=utterance_metrics,
+                    progress_partitions=progress_partitions,
+                )
+                for progress_ratio in sorted(grouped_values):
+                    values = grouped_values[progress_ratio]
+                    writer.writerow(
+                        {
+                            "utt_group_size": utt_group_size,
+                            "task": task_name,
+                            "model": model_label,
+                            "bin_index": int(round(progress_ratio * progress_partitions)),
+                            "progress_ratio": progress_ratio,
+                            "sample_count": len(values),
+                            "mean_similarity": float(np.mean(values)),
+                            "percentile_25": float(np.percentile(values, 25)),
+                            "percentile_50": float(np.percentile(values, 50)),
+                            "percentile_75": float(np.percentile(values, 75)),
+                        }
+                    )
+
+
+def write_human_plot_data_csv(
+    output_path: Path,
+    human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+) -> None:
+    fieldnames = [
+        "utt_group_size",
+        "task",
+        "stat",
+        "progress_ratio",
+        "similarity",
+    ]
+    with output_path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in serialize_human_annotation_summary(human_annotation_summary):
+            writer.writerow(row)
+
+
+def write_analysis_plot_data(
+    output_dir: Path,
+    results_root: Path,
+    additional_results_roots: Sequence[Path],
+    plots_root: Path,
+    model_location: str,
+    turnover_thresholds: Sequence[float],
+    progress_partitions: int,
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    human_annotation_summary_csv: Path | None,
+    human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "analysis_plot_data.json"
+    points_csv_path = output_dir / "analysis_plot_points.csv"
+    bins_csv_path = output_dir / "analysis_plot_bins.csv"
+    human_csv_path = output_dir / "analysis_human_annotation_summary.csv"
+
+    write_plot_data_json(
+        output_path=json_path,
+        results_root=results_root,
+        additional_results_roots=additional_results_roots,
+        plots_root=plots_root,
+        model_location=model_location,
+        turnover_thresholds=turnover_thresholds,
+        progress_partitions=progress_partitions,
+        combined_case_metrics=combined_case_metrics,
+        human_annotation_summary_csv=human_annotation_summary_csv,
+        human_annotation_summary=human_annotation_summary,
+    )
+    write_plot_data_points_csv(
+        output_path=points_csv_path,
+        combined_case_metrics=combined_case_metrics,
+        progress_partitions=progress_partitions,
+    )
+    write_plot_data_bins_csv(
+        output_path=bins_csv_path,
+        combined_case_metrics=combined_case_metrics,
+        progress_partitions=progress_partitions,
+    )
+    write_human_plot_data_csv(
+        output_path=human_csv_path,
+        human_annotation_summary=human_annotation_summary,
+    )
+
+    print(f"[INFO] Saved {json_path}")
+    print(f"[INFO] Saved {points_csv_path}")
+    print(f"[INFO] Saved {bins_csv_path}")
+    print(f"[INFO] Saved {human_csv_path}")
+
+
+def load_analysis_plot_data(
+    input_path: Path,
+) -> tuple[
+    Path,
+    dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    list[float],
+    int,
+    dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+]:
+    payload = json.loads(input_path.expanduser().resolve().read_text(encoding="utf-8"))
+    if payload.get("schema_version") != 1:
+        raise ValueError(
+            f"Unsupported plot data schema_version: {payload.get('schema_version')}"
+        )
+
+    plots_root = Path(payload["plots_root"]).expanduser().resolve()
+    turnover_thresholds = [float(value) for value in payload["turnover_thresholds"]]
+    progress_partitions = int(payload["progress_partitions"])
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+
+    for case in payload.get("cases", []):
+        utt_group_size = int(case["utt_group_size"])
+        task_name = str(case["task"])
+        for model_entry in case.get("models", []):
+            model_label = str(model_entry["model"])
+            for utterance in model_entry.get("utterances", []):
+                combined_case_metrics[(utt_group_size, task_name)][model_label].append(
+                    UtteranceMetrics(
+                        clip_count=int(utterance["clip_count"]),
+                        clip_to_final_similarities=[
+                            float(value)
+                            for value in utterance["clip_to_final_similarities"]
+                        ],
+                        neighboring_similarities=[
+                            float(value)
+                            for value in utterance["neighboring_similarities"]
+                        ],
+                    )
+                )
+
+    human_rows = payload.get("human_annotation_summary", [])
+    human_annotation_summary = None
+    if human_rows:
+        human_annotation_summary = defaultdict(lambda: defaultdict(list))
+        for row in human_rows:
+            human_annotation_summary[
+                (int(row["utt_group_size"]), str(row["task"]))
+            ][str(row["stat"])].append(
+                (float(row["progress_ratio"]), float(row["similarity"]))
+            )
+        human_annotation_summary = {
+            case_key: {
+                stat_name: sorted(points, key=lambda item: item[0])
+                for stat_name, points in stat_rows.items()
+            }
+            for case_key, stat_rows in human_annotation_summary.items()
+        }
+
+    return (
+        plots_root,
+        combined_case_metrics,
+        turnover_thresholds,
+        progress_partitions,
+        human_annotation_summary,
+    )
+
+
 def generate_combined_outputs(
     plots_root: Path,
     combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
@@ -1103,12 +1450,36 @@ def analyze_dataset(
 
 def main() -> None:
     args = parse_args()
+    if args.from_plot_data is not None:
+        (
+            plots_root,
+            combined_case_metrics,
+            turnover_thresholds,
+            progress_partitions,
+            human_annotation_summary,
+        ) = load_analysis_plot_data(args.from_plot_data)
+        plots_root.mkdir(parents=True, exist_ok=True)
+        print(f"[INFO] Regenerating combined plots from {args.from_plot_data}")
+        generate_combined_outputs(
+            plots_root=plots_root,
+            combined_case_metrics=combined_case_metrics,
+            turnover_thresholds=turnover_thresholds,
+            progress_partitions=progress_partitions,
+            human_annotation_summary=human_annotation_summary,
+        )
+        return
+
     results_root = resolve_results_root(args.results_root)
     additional_results_roots = resolve_additional_results_roots(
         args.additional_results_root
     )
     plots_root = resolve_plots_root(results_root)
     plots_root.mkdir(parents=True, exist_ok=True)
+    plot_data_dir = (
+        args.plot_data_dir.expanduser().resolve()
+        if args.plot_data_dir is not None
+        else (plots_root / "plot_data").resolve()
+    )
 
     human_annotation_summary = None
     if args.human_annotation_summary_csv is not None:
@@ -1167,6 +1538,20 @@ def main() -> None:
                 include_scatter=not args.no_scatter,
                 combined_case_metrics=combined_case_metrics,
             )
+
+    if args.save_plot_data:
+        write_analysis_plot_data(
+            output_dir=plot_data_dir,
+            results_root=results_root,
+            additional_results_roots=additional_results_roots,
+            plots_root=plots_root,
+            model_location=model_loc,
+            turnover_thresholds=args.turnover_thresholds,
+            progress_partitions=args.progress_partitions,
+            combined_case_metrics=combined_case_metrics,
+            human_annotation_summary_csv=args.human_annotation_summary_csv,
+            human_annotation_summary=human_annotation_summary,
+        )
 
     generate_combined_outputs(
         plots_root=plots_root,

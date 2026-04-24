@@ -18,18 +18,23 @@ DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/results"
 DEFAULT_GEMINI_RESULTS_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini"
 DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_percentiles.csv"
+DEFAULT_PLOT_DATA_DIR="${DEFAULT_DATA_ROOT}/plots/plot_data"
+DEFAULT_PLOT_DATA_JSON="${DEFAULT_PLOT_DATA_DIR}/analysis_plot_data.json"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
 DEFAULT_MODEL_PATH=""
 DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--skip-gemini] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--skip-gemini] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--save-plot-data] [--plot-data-dir PATH] [--from-plot-data PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
     echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
     echo "  --skip-gemini: do not include Gemini partial-to-full similarity lines" >&2
     echo "  human-annotation-summary-csv: partial_to_full_percentiles.csv from human_annotation_similarity.py (default: ${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV})" >&2
     echo "  --skip-human-overlay: generate model-only aggregate plots without human annotation overlays" >&2
+    echo "  --save-plot-data: save numeric plot data after embedding so plots can be regenerated without re-embedding" >&2
+    echo "  plot-data-dir: output folder for --save-plot-data (default: ${DEFAULT_PLOT_DATA_DIR})" >&2
+    echo "  from-plot-data: regenerate aggregate plots from a saved analysis_plot_data.json and skip embedding (default cache path: ${DEFAULT_PLOT_DATA_JSON})" >&2
     echo "  model: SentenceTransformer model name, used when --model-path is not set (default: ${DEFAULT_MODEL})" >&2
     echo "  model-path: optional local directory with pre-downloaded SentenceTransformer model" >&2
     echo "  turnover-thresholds: semantic-turnover thresholds (default: ${DEFAULT_THRESHOLDS[*]})" >&2
@@ -43,6 +48,8 @@ usage() {
 RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
 GEMINI_RESULTS_ROOT="${DEFAULT_GEMINI_RESULTS_ROOT}"
 HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV}"
+PLOT_DATA_DIR="${DEFAULT_PLOT_DATA_DIR}"
+FROM_PLOT_DATA=""
 MODEL="${DEFAULT_MODEL}"
 MODEL_PATH="${DEFAULT_MODEL_PATH}"
 THRESHOLDS=("${DEFAULT_THRESHOLDS[@]}")
@@ -50,6 +57,7 @@ PROGRESS_PARTITIONS="20"
 NO_SCATTER=1
 SKIP_HUMAN_OVERLAY=0
 SKIP_GEMINI=0
+SAVE_PLOT_DATA=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -72,6 +80,18 @@ while [[ $# -gt 0 ]]; do
         --skip-human-overlay)
             SKIP_HUMAN_OVERLAY=1
             shift
+            ;;
+        --save-plot-data)
+            SAVE_PLOT_DATA=1
+            shift
+            ;;
+        --plot-data-dir)
+            PLOT_DATA_DIR="${2:?Missing value for --plot-data-dir}"
+            shift 2
+            ;;
+        --from-plot-data)
+            FROM_PLOT_DATA="${2:?Missing value for --from-plot-data}"
+            shift 2
             ;;
         --model)
             MODEL="${2:?Missing value for --model}"
@@ -131,29 +151,37 @@ if [[ ! -f "${SIF_PATH}" ]]; then
     exit 1
 fi
 
-if [[ ! -d "${RESULTS_ROOT}" ]]; then
+if [[ -n "${FROM_PLOT_DATA}" && ! -f "${FROM_PLOT_DATA}" ]]; then
+    echo "Plot data JSON does not exist: ${FROM_PLOT_DATA}" >&2
+    exit 1
+fi
+
+if [[ -z "${FROM_PLOT_DATA}" && ! -d "${RESULTS_ROOT}" ]]; then
     echo "Results root does not exist: ${RESULTS_ROOT}" >&2
     exit 1
 fi
 
-if [[ "${SKIP_GEMINI}" == "0" && ! -d "${GEMINI_RESULTS_ROOT}" ]]; then
+if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_GEMINI}" == "0" && ! -d "${GEMINI_RESULTS_ROOT}" ]]; then
     echo "Gemini results root does not exist: ${GEMINI_RESULTS_ROOT}" >&2
     echo "Run gemini_retrieve_daic.sh after Gemini jobs complete, pass --gemini-results-root, or pass --skip-gemini." >&2
     exit 1
 fi
 
-if [[ "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_ANNOTATION_SUMMARY_CSV}" ]]; then
+if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_ANNOTATION_SUMMARY_CSV}" ]]; then
     echo "Human annotation summary CSV does not exist: ${HUMAN_ANNOTATION_SUMMARY_CSV}" >&2
     echo "Run human_annotation_similarity_daic.sh first or pass --skip-human-overlay." >&2
     exit 1
 fi
 
-if [[ -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; then
+if [[ -z "${FROM_PLOT_DATA}" && -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; then
     echo "Model path does not exist: ${MODEL_PATH}" >&2
     exit 1
 fi
 
 mkdir -p /home/nfs/zli33/slurm_outputs/vlm_social
+if [[ "${SAVE_PLOT_DATA}" == "1" ]]; then
+    mkdir -p "${PLOT_DATA_DIR}"
+fi
 
 echo "Project root:                  ${PROJECT_ROOT}"
 echo "Apptainer image:               ${SIF_PATH}"
@@ -162,34 +190,48 @@ echo "Gemini results root:           ${GEMINI_RESULTS_ROOT}"
 echo "Skip Gemini:                   ${SKIP_GEMINI}"
 echo "Human annotation summary CSV:  ${HUMAN_ANNOTATION_SUMMARY_CSV}"
 echo "Skip human overlay:            ${SKIP_HUMAN_OVERLAY}"
+echo "Save plot data:                ${SAVE_PLOT_DATA}"
+echo "Plot data dir:                 ${PLOT_DATA_DIR}"
+echo "From plot data:                ${FROM_PLOT_DATA:-<disabled>}"
 echo "Model name:                    ${MODEL}"
 echo "Model path:                    ${MODEL_PATH:-<download by name>}"
 echo "Thresholds:                    ${THRESHOLDS[*]}"
 echo "Progress partitions:           ${PROGRESS_PARTITIONS}"
 echo "No scatter:                    ${NO_SCATTER}"
 
-PYTHON_ARGS=(
-    python /workspace/experiments/analysis/main.py
-    --results-root "${RESULTS_ROOT}"
-    --model "${MODEL}"
-    --turnover-thresholds "${THRESHOLDS[@]}"
-    --progress-partitions "${PROGRESS_PARTITIONS}"
-)
+if [[ -n "${FROM_PLOT_DATA}" ]]; then
+    PYTHON_ARGS=(
+        python /workspace/experiments/analysis/main.py
+        --from-plot-data "${FROM_PLOT_DATA}"
+    )
+else
+    PYTHON_ARGS=(
+        python /workspace/experiments/analysis/main.py
+        --results-root "${RESULTS_ROOT}"
+        --model "${MODEL}"
+        --turnover-thresholds "${THRESHOLDS[@]}"
+        --progress-partitions "${PROGRESS_PARTITIONS}"
+    )
 
-if [[ "${SKIP_GEMINI}" == "0" ]]; then
-    PYTHON_ARGS+=(--additional-results-root "${GEMINI_RESULTS_ROOT}")
-fi
+    if [[ "${SKIP_GEMINI}" == "0" ]]; then
+        PYTHON_ARGS+=(--additional-results-root "${GEMINI_RESULTS_ROOT}")
+    fi
 
-if [[ -n "${MODEL_PATH}" ]]; then
-    PYTHON_ARGS+=(--model-path "${MODEL_PATH}")
-fi
+    if [[ -n "${MODEL_PATH}" ]]; then
+        PYTHON_ARGS+=(--model-path "${MODEL_PATH}")
+    fi
 
-if [[ "${SKIP_HUMAN_OVERLAY}" == "0" ]]; then
-    PYTHON_ARGS+=(--human-annotation-summary-csv "${HUMAN_ANNOTATION_SUMMARY_CSV}")
-fi
+    if [[ "${SKIP_HUMAN_OVERLAY}" == "0" ]]; then
+        PYTHON_ARGS+=(--human-annotation-summary-csv "${HUMAN_ANNOTATION_SUMMARY_CSV}")
+    fi
 
-if [[ "${NO_SCATTER}" == "1" ]]; then
-    PYTHON_ARGS+=(--no-scatter)
+    if [[ "${SAVE_PLOT_DATA}" == "1" ]]; then
+        PYTHON_ARGS+=(--save-plot-data --plot-data-dir "${PLOT_DATA_DIR}")
+    fi
+
+    if [[ "${NO_SCATTER}" == "1" ]]; then
+        PYTHON_ARGS+=(--no-scatter)
+    fi
 fi
 
 srun apptainer exec \
