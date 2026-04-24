@@ -42,7 +42,6 @@ from eyetrack.annotation_intervals import (  # noqa: E402
     TIME_TOLERANCE_SECONDS,
     load_all_video_timings,
 )
-from eyetrack.eyetrack_annotation import find_annotation_jsons  # noqa: E402
 from eyetrack.focus_plot import (  # noqa: E402
     map_screen_sample_to_video_point,
     map_screen_sample_to_video_point_legacy_extraction,
@@ -65,6 +64,10 @@ GAZE_MAPPING_CHOICES = ("legacy-extraction", "measured-player")
 FOCUS_REGION_SHAPES = ("circle", "square")
 CLIP_STEM_RE = re.compile(r"^(?P<prefix>.+)_clip(?P<index>\d+)$")
 GROUP_BATCH_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b(?P<batch>\d+)$")
+PUPIL_RECORDING_FILE_RE = re.compile(
+    r"^T(?P<task_number>\d+)_(?P<task_instance_id>\d+)_annotator(?P<annotator_number>\d+)\.json$"
+)
+OVERWRITE_COUNT = 0
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,15 @@ class AnnotationClipGroup:
     annotation_sources: list[dict[str, object]] | None = None
 
 
+@dataclass(frozen=True)
+class PupilRecordingSpec:
+    task_number: int
+    task_instance_id: int
+    annotator_number: int
+    marker_path: Path
+    recording_dir: Path
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -118,7 +130,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "recording_parent_dir",
         type=Path,
-        help="Parent folder containing Pupil Core recordings named T{x}_{y}_annotator1/2.",
+        help=(
+            "Parent folder containing Pupil Core recording marker files named "
+            "T{x}_{y}_annotator{n}.json."
+        ),
     )
     parser.add_argument(
         "annotation_dir",
@@ -321,6 +336,74 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def discover_pupil_recording_specs(recording_parent_dir: Path) -> list[PupilRecordingSpec]:
+    specs = []
+    seen: set[tuple[int, int, int]] = set()
+    for path in recording_parent_dir.iterdir():
+        if not path.is_file():
+            continue
+        match = PUPIL_RECORDING_FILE_RE.fullmatch(path.name)
+        if match is None:
+            continue
+        task_number = int(match.group("task_number"))
+        task_instance_id = int(match.group("task_instance_id"))
+        annotator_number = int(match.group("annotator_number"))
+        key = (task_number, task_instance_id, annotator_number)
+        if key in seen:
+            logging.warning("Duplicate Pupil marker for %s: %s", key, path)
+            continue
+        seen.add(key)
+        specs.append(
+            PupilRecordingSpec(
+                task_number=task_number,
+                task_instance_id=task_instance_id,
+                annotator_number=annotator_number,
+                marker_path=path,
+                recording_dir=path.with_suffix(""),
+            )
+        )
+
+    if not specs:
+        raise FileNotFoundError(
+            "No Pupil recording marker files named like "
+            f"T{{x}}_{{y}}_annotator{{n}}.json found in {recording_parent_dir}"
+        )
+
+    return sorted(
+        specs,
+        key=lambda item: (item.task_number, item.task_instance_id, item.annotator_number),
+    )
+
+
+def annotation_json_for_recording_spec(
+    annotation_dir: Path,
+    recording_spec: PupilRecordingSpec,
+) -> Path:
+    return annotation_dir / f"T{recording_spec.task_number}_{recording_spec.task_instance_id}.json"
+
+
+def select_annotator_timings(all_timings, recording_spec: PupilRecordingSpec):
+    for annotator_timings in all_timings:
+        if annotator_timings.annotator_number == recording_spec.annotator_number:
+            return annotator_timings
+    return None
+
+
+def record_output_overwrite(target_path: Path, context: str) -> None:
+    global OVERWRITE_COUNT
+    logging.warning("Overwriting existing %s output: %s", context, target_path)
+    OVERWRITE_COUNT += 1
+
+
+def remove_output_dir_for_overwrite(output_dir: Path, context: str) -> None:
+    record_output_overwrite(output_dir, context)
+    shutil.rmtree(output_dir)
+
+
+def log_overwrite_summary() -> None:
+    logging.warning("Total output overwrites: %s", OVERWRITE_COUNT)
+
+
 def map_sample_to_video_point(
     sample: dict,
     gaze_mapping: str,
@@ -363,11 +446,7 @@ def build_gaze_index(
     response_selection: str,
     use_annotation_video_path: bool,
 ) -> tuple[dict[str, list[GazePoint]], dict[str, list[GazePoint]]]:
-    annotation_files = find_annotation_jsons(annotation_dir)
-    if not annotation_files:
-        raise FileNotFoundError(
-            f"No annotation JSON files named like T{{x}}_{{y}}.json found in {annotation_dir}"
-        )
+    recording_specs = discover_pupil_recording_specs(recording_parent_dir)
 
     video_entries = None
     if video_json is not None:
@@ -376,74 +455,98 @@ def build_gaze_index(
     exact_index: dict[str, list[GazePoint]] = defaultdict(list)
     name_index: dict[str, list[GazePoint]] = defaultdict(list)
 
-    for task_number, task_instance_id, annotation_json in annotation_files:
+    for recording_spec in recording_specs:
+        task_number = recording_spec.task_number
+        task_instance_id = recording_spec.task_instance_id
         task_instance_name = f"T{task_number}_{task_instance_id}"
+        annotation_json = annotation_json_for_recording_spec(annotation_dir, recording_spec)
+        if not annotation_json.is_file():
+            logging.warning(
+                "Skipping Pupil marker %s because annotation JSON is missing: %s",
+                recording_spec.marker_path,
+                annotation_json,
+            )
+            continue
         all_timings = load_all_video_timings(
             annotation_json,
             duration_tolerance,
             response_selection=response_selection,
         )
 
-        for annotator_timings in all_timings:
-            recording_dir = (
-                recording_parent_dir
-                / f"{task_instance_name}_annotator{annotator_timings.annotator_number}"
+        annotator_timings = select_annotator_timings(all_timings, recording_spec)
+        if annotator_timings is None:
+            logging.warning(
+                "Skipping Pupil marker %s because annotator %s is absent from %s",
+                recording_spec.marker_path,
+                recording_spec.annotator_number,
+                annotation_json,
             )
-            if not recording_dir.is_dir():
-                logging.warning("Skipping missing Pupil recording folder: %s", recording_dir)
+            continue
+        if annotator_timings.response_submitted is not True:
+            logging.warning(
+                "Skipping %s annotator %s because selected response submitted=%s",
+                task_instance_name,
+                recording_spec.annotator_number,
+                annotator_timings.response_submitted,
+            )
+            continue
+
+        recording_dir = recording_spec.recording_dir
+        if not recording_dir.is_dir():
+            logging.warning("Skipping missing Pupil recording folder: %s", recording_dir)
+            continue
+
+        timestamps, gaze_data = load_gaze(recording_dir)
+        offset = (
+            system_to_pupil_offset
+            if system_to_pupil_offset is not None
+            else load_recording_time_offset(recording_dir)
+        )
+
+        for timing in annotator_timings.timings:
+            if timing.video_start_time is None or timing.video_end_time is None:
                 continue
 
-            timestamps, gaze_data = load_gaze(recording_dir)
-            offset = (
-                system_to_pupil_offset
-                if system_to_pupil_offset is not None
-                else load_recording_time_offset(recording_dir)
+            video_entry = get_video_entry_for_timing(
+                timing=timing,
+                video_entries=video_entries,
+                local_path_prefix=local_path_prefix,
+                media_url_prefix=media_url_prefix,
+                task_instance_id=task_instance_id,
+                use_annotation_video_path=use_annotation_video_path,
+            )
+            if video_entry is None:
+                continue
+
+            start_time = annotation_time_to_pupil_time(timing.video_start_time, offset)
+            end_time = annotation_time_to_pupil_time(timing.video_end_time, offset)
+            samples = extract_gaze_in_interval(
+                timestamps=timestamps,
+                gaze_data=gaze_data,
+                start_time=start_time,
+                end_time=end_time,
+                confidence_threshold=confidence_threshold,
             )
 
-            for timing in annotator_timings.timings:
-                if timing.video_start_time is None or timing.video_end_time is None:
+            points: list[GazePoint] = []
+            for sample in samples:
+                mapped = map_sample_to_video_point(sample, gaze_mapping)
+                if mapped is None:
                     continue
-
-                video_entry = get_video_entry_for_timing(
-                    timing=timing,
-                    video_entries=video_entries,
-                    local_path_prefix=local_path_prefix,
-                    media_url_prefix=media_url_prefix,
-                    task_instance_id=task_instance_id,
-                    use_annotation_video_path=use_annotation_video_path,
-                )
-                if video_entry is None:
-                    continue
-
-                start_time = annotation_time_to_pupil_time(timing.video_start_time, offset)
-                end_time = annotation_time_to_pupil_time(timing.video_end_time, offset)
-                samples = extract_gaze_in_interval(
-                    timestamps=timestamps,
-                    gaze_data=gaze_data,
-                    start_time=start_time,
-                    end_time=end_time,
-                    confidence_threshold=confidence_threshold,
-                )
-
-                points: list[GazePoint] = []
-                for sample in samples:
-                    mapped = map_sample_to_video_point(sample, gaze_mapping)
-                    if mapped is None:
-                        continue
-                    points.append(
-                        GazePoint(
-                            time_seconds=float(sample["timestamp"]) - start_time,
-                            x=mapped[0],
-                            y=mapped[1],
-                        )
+                points.append(
+                    GazePoint(
+                        time_seconds=float(sample["timestamp"]) - start_time,
+                        x=mapped[0],
+                        y=mapped[1],
                     )
-
-                add_gaze_points(
-                    exact_index=exact_index,
-                    name_index=name_index,
-                    video_path=video_entry.video_path,
-                    points=points,
                 )
+
+            add_gaze_points(
+                exact_index=exact_index,
+                name_index=name_index,
+                video_path=video_entry.video_path,
+                points=points,
+            )
 
     for points in exact_index.values():
         points.sort(key=lambda point: point.time_seconds)
@@ -609,11 +712,7 @@ def build_annotation_clip_groups(
     use_annotation_video_path: bool,
     clip_localization_source: str = "video-json",
 ) -> list[AnnotationClipGroup]:
-    annotation_files = find_annotation_jsons(annotation_dir)
-    if not annotation_files:
-        raise FileNotFoundError(
-            f"No annotation JSON files named like T{{x}}_{{y}}.json found in {annotation_dir}"
-        )
+    recording_specs = discover_pupil_recording_specs(recording_parent_dir)
 
     video_entries = None
     if video_json is not None:
@@ -621,203 +720,227 @@ def build_annotation_clip_groups(
 
     grouped: dict[tuple[int, str, int, str | None, str, str, str], AnnotationClipGroup] = {}
 
-    for task_number, task_instance_id, annotation_json in annotation_files:
+    for recording_spec in recording_specs:
+        task_number = recording_spec.task_number
+        task_instance_id = recording_spec.task_instance_id
         task_instance_name = f"T{task_number}_{task_instance_id}"
+        annotation_json = annotation_json_for_recording_spec(annotation_dir, recording_spec)
+        if not annotation_json.is_file():
+            logging.warning(
+                "Skipping Pupil marker %s because annotation JSON is missing: %s",
+                recording_spec.marker_path,
+                annotation_json,
+            )
+            continue
         all_timings = load_all_video_timings(
             annotation_json,
             duration_tolerance,
             response_selection=response_selection,
         )
 
-        for annotator_timings in all_timings:
-            recording_dir = (
-                recording_parent_dir
-                / f"{task_instance_name}_annotator{annotator_timings.annotator_number}"
+        annotator_timings = select_annotator_timings(all_timings, recording_spec)
+        if annotator_timings is None:
+            logging.warning(
+                "Skipping Pupil marker %s because annotator %s is absent from %s",
+                recording_spec.marker_path,
+                recording_spec.annotator_number,
+                annotation_json,
             )
-            if not recording_dir.is_dir():
-                logging.warning("Skipping missing Pupil recording folder: %s", recording_dir)
+            continue
+        if annotator_timings.response_submitted is not True:
+            logging.warning(
+                "Skipping %s annotator %s because selected response submitted=%s",
+                task_instance_name,
+                recording_spec.annotator_number,
+                annotator_timings.response_submitted,
+            )
+            continue
+
+        recording_dir = recording_spec.recording_dir
+        if not recording_dir.is_dir():
+            logging.warning("Skipping missing Pupil recording folder: %s", recording_dir)
+            continue
+
+        timestamps, gaze_data = load_gaze(recording_dir)
+        gaze_source = gaze_source_metadata(recording_dir)
+        offset = (
+            system_to_pupil_offset
+            if system_to_pupil_offset is not None
+            else load_recording_time_offset(recording_dir)
+        )
+
+        for timing in annotator_timings.timings:
+            if timing.video_start_time is None or timing.video_end_time is None:
                 continue
 
-            timestamps, gaze_data = load_gaze(recording_dir)
-            gaze_source = gaze_source_metadata(recording_dir)
-            offset = (
-                system_to_pupil_offset
-                if system_to_pupil_offset is not None
-                else load_recording_time_offset(recording_dir)
+            video_entry = get_video_entry_for_timing(
+                timing=timing,
+                video_entries=video_entries,
+                local_path_prefix=local_path_prefix,
+                media_url_prefix=media_url_prefix,
+                task_instance_id=task_instance_id,
+                use_annotation_video_path=use_annotation_video_path,
+            )
+            if video_entry is None:
+                continue
+
+            annotation_media_video_path, annotation_media_audio_path = (
+                resolve_annotation_media_paths(
+                    timing,
+                    local_path_prefix,
+                    media_url_prefix,
+                )
+            )
+            localization_video_path = choose_clip_localization_video_path(
+                clip_localization_source=clip_localization_source,
+                annotation_media_video_path=annotation_media_video_path,
+                indexed_video_path=video_entry.video_path,
+                task_instance_name=task_instance_name,
+                annotator_number=annotator_timings.annotator_number,
+                video_number=timing.video_number,
             )
 
-            for timing in annotator_timings.timings:
-                if timing.video_start_time is None or timing.video_end_time is None:
-                    continue
-
-                video_entry = get_video_entry_for_timing(
-                    timing=timing,
-                    video_entries=video_entries,
-                    local_path_prefix=local_path_prefix,
-                    media_url_prefix=media_url_prefix,
-                    task_instance_id=task_instance_id,
-                    use_annotation_video_path=use_annotation_video_path,
+            try:
+                dataset, group_size, batch_name, group_name, clip_prefix, _ = (
+                    parse_annotation_clip_layout(localization_video_path)
                 )
-                if video_entry is None:
-                    continue
-
-                annotation_media_video_path, annotation_media_audio_path = (
-                    resolve_annotation_media_paths(
-                        timing,
-                        local_path_prefix,
-                        media_url_prefix,
+            except ValueError as exc:
+                if (
+                    clip_localization_source == "annotation-media"
+                    and localization_video_path != video_entry.video_path
+                ):
+                    logging.warning(
+                        "Annotation media layout parse failed for %s; falling back to "
+                        "video-json path %s",
+                        localization_video_path,
+                        video_entry.video_path,
                     )
-                )
-                localization_video_path = choose_clip_localization_video_path(
-                    clip_localization_source=clip_localization_source,
-                    annotation_media_video_path=annotation_media_video_path,
-                    indexed_video_path=video_entry.video_path,
-                    task_instance_name=task_instance_name,
-                    annotator_number=annotator_timings.annotator_number,
-                    video_number=timing.video_number,
-                )
-
-                try:
-                    dataset, group_size, batch_name, group_name, clip_prefix, _ = (
-                        parse_annotation_clip_layout(localization_video_path)
-                    )
-                except ValueError as exc:
-                    if (
-                        clip_localization_source == "annotation-media"
-                        and localization_video_path != video_entry.video_path
-                    ):
+                    localization_video_path = video_entry.video_path
+                    try:
+                        dataset, group_size, batch_name, group_name, clip_prefix, _ = (
+                            parse_annotation_clip_layout(localization_video_path)
+                        )
+                    except ValueError:
                         logging.warning(
-                            "Annotation media layout parse failed for %s; falling back to "
-                            "video-json path %s",
-                            localization_video_path,
-                            video_entry.video_path,
+                            "Skipping annotation clip with unsupported layout after fallback: %s",
+                            exc,
                         )
-                        localization_video_path = video_entry.video_path
-                        try:
-                            dataset, group_size, batch_name, group_name, clip_prefix, _ = (
-                                parse_annotation_clip_layout(localization_video_path)
-                            )
-                        except ValueError:
-                            logging.warning(
-                                "Skipping annotation clip with unsupported layout after fallback: %s",
-                                exc,
-                            )
-                            continue
-                    else:
-                        logging.warning("Skipping annotation clip with unsupported layout: %s", exc)
                         continue
+                else:
+                    logging.warning("Skipping annotation clip with unsupported layout: %s", exc)
+                    continue
 
-                start_time = annotation_time_to_pupil_time(timing.video_start_time, offset)
-                end_time = annotation_time_to_pupil_time(timing.video_end_time, offset)
-                samples = extract_gaze_in_interval(
-                    timestamps=timestamps,
-                    gaze_data=gaze_data,
-                    start_time=start_time,
-                    end_time=end_time,
-                    confidence_threshold=confidence_threshold,
-                )
-                points = []
-                for sample in samples:
-                    mapped = map_sample_to_video_point(sample, gaze_mapping)
-                    if mapped is None:
-                        continue
-                    points.append(
-                        GazePoint(
-                            time_seconds=float(sample["timestamp"]) - start_time,
-                            x=mapped[0],
-                            y=mapped[1],
-                        )
+            start_time = annotation_time_to_pupil_time(timing.video_start_time, offset)
+            end_time = annotation_time_to_pupil_time(timing.video_end_time, offset)
+            samples = extract_gaze_in_interval(
+                timestamps=timestamps,
+                gaze_data=gaze_data,
+                start_time=start_time,
+                end_time=end_time,
+                confidence_threshold=confidence_threshold,
+            )
+            points = []
+            for sample in samples:
+                mapped = map_sample_to_video_point(sample, gaze_mapping)
+                if mapped is None:
+                    continue
+                points.append(
+                    GazePoint(
+                        time_seconds=float(sample["timestamp"]) - start_time,
+                        x=mapped[0],
+                        y=mapped[1],
                     )
-                annotation_source = build_annotation_source_record(
+                )
+            annotation_source = build_annotation_source_record(
+                task_number=task_number,
+                task_instance_id=task_instance_id,
+                task_instance_name=task_instance_name,
+                annotator_timings=annotator_timings,
+                timing=timing,
+                annotation_json=annotation_json,
+                recording_dir=recording_dir,
+                video_path=localization_video_path,
+                annotation_video_path=timing.video_path,
+                start_time=start_time,
+                end_time=end_time,
+                system_to_pupil_offset=offset,
+                raw_sample_count=len(samples),
+                mapped_sample_count=len(points),
+                gaze_mapping=gaze_mapping,
+                gaze_source=gaze_source,
+            )
+
+            key = (
+                annotator_timings.annotator_number,
+                dataset,
+                group_size,
+                batch_name,
+                group_name,
+                clip_prefix,
+                canonical_path(localization_video_path),
+            )
+            existing = grouped.get(key)
+            if existing is None:
+                grouped[key] = AnnotationClipGroup(
+                    annotator_number=annotator_timings.annotator_number,
+                    dataset=dataset,
+                    group_size=group_size,
+                    batch_name=batch_name,
+                    group_name=group_name,
+                    clip_prefix=clip_prefix,
+                    final_clip_path=localization_video_path,
+                    gaze_points=merge_gaze_points([], points),
+                    annotation_resolved_video_path=(
+                        None if annotation_media_video_path is None else str(annotation_media_video_path)
+                    ),
+                    annotation_resolved_audio_path=(
+                        None if annotation_media_audio_path is None else str(annotation_media_audio_path)
+                    ),
                     task_number=task_number,
                     task_instance_id=task_instance_id,
-                    task_instance_name=task_instance_name,
-                    annotator_timings=annotator_timings,
-                    timing=timing,
-                    annotation_json=annotation_json,
-                    recording_dir=recording_dir,
-                    video_path=localization_video_path,
+                    task_instance=task_instance_name,
+                    video_number=timing.video_number,
+                    annotation_key=timing.annotation_key,
                     annotation_video_path=timing.video_path,
-                    start_time=start_time,
-                    end_time=end_time,
-                    system_to_pupil_offset=offset,
-                    raw_sample_count=len(samples),
-                    mapped_sample_count=len(points),
+                    annotation_json_path=str(annotation_json),
+                    recording_dir=str(recording_dir),
                     gaze_mapping=gaze_mapping,
-                    gaze_source=gaze_source,
+                    response_selection=annotator_timings.response_selection,
+                    response_index=annotator_timings.response_index,
+                    response_created=annotator_timings.response_created,
+                    response_submitted=annotator_timings.response_submitted,
+                    annotation_sources=[annotation_source],
                 )
-
-                key = (
-                    annotator_timings.annotator_number,
-                    dataset,
-                    group_size,
-                    batch_name,
-                    group_name,
-                    clip_prefix,
-                    canonical_path(localization_video_path),
+            else:
+                grouped[key] = AnnotationClipGroup(
+                    annotator_number=existing.annotator_number,
+                    dataset=existing.dataset,
+                    group_size=existing.group_size,
+                    batch_name=existing.batch_name,
+                    group_name=existing.group_name,
+                    clip_prefix=existing.clip_prefix,
+                    final_clip_path=existing.final_clip_path,
+                    gaze_points=merge_gaze_points(existing.gaze_points, points),
+                    annotation_resolved_video_path=existing.annotation_resolved_video_path,
+                    annotation_resolved_audio_path=existing.annotation_resolved_audio_path,
+                    task_number=existing.task_number,
+                    task_instance_id=existing.task_instance_id,
+                    task_instance=existing.task_instance,
+                    video_number=existing.video_number,
+                    annotation_key=existing.annotation_key,
+                    annotation_video_path=existing.annotation_video_path,
+                    annotation_json_path=existing.annotation_json_path,
+                    recording_dir=existing.recording_dir,
+                    gaze_mapping=existing.gaze_mapping,
+                    response_selection=existing.response_selection,
+                    response_index=existing.response_index,
+                    response_created=existing.response_created,
+                    response_submitted=existing.response_submitted,
+                    annotation_sources=[
+                        *(existing.annotation_sources or []),
+                        annotation_source,
+                    ],
                 )
-                existing = grouped.get(key)
-                if existing is None:
-                    grouped[key] = AnnotationClipGroup(
-                        annotator_number=annotator_timings.annotator_number,
-                        dataset=dataset,
-                        group_size=group_size,
-                        batch_name=batch_name,
-                        group_name=group_name,
-                        clip_prefix=clip_prefix,
-                        final_clip_path=localization_video_path,
-                        gaze_points=merge_gaze_points([], points),
-                        annotation_resolved_video_path=(
-                            None if annotation_media_video_path is None else str(annotation_media_video_path)
-                        ),
-                        annotation_resolved_audio_path=(
-                            None if annotation_media_audio_path is None else str(annotation_media_audio_path)
-                        ),
-                        task_number=task_number,
-                        task_instance_id=task_instance_id,
-                        task_instance=task_instance_name,
-                        video_number=timing.video_number,
-                        annotation_key=timing.annotation_key,
-                        annotation_video_path=timing.video_path,
-                        annotation_json_path=str(annotation_json),
-                        recording_dir=str(recording_dir),
-                        gaze_mapping=gaze_mapping,
-                        response_selection=annotator_timings.response_selection,
-                        response_index=annotator_timings.response_index,
-                        response_created=annotator_timings.response_created,
-                        response_submitted=annotator_timings.response_submitted,
-                        annotation_sources=[annotation_source],
-                    )
-                else:
-                    grouped[key] = AnnotationClipGroup(
-                        annotator_number=existing.annotator_number,
-                        dataset=existing.dataset,
-                        group_size=existing.group_size,
-                        batch_name=existing.batch_name,
-                        group_name=existing.group_name,
-                        clip_prefix=existing.clip_prefix,
-                        final_clip_path=existing.final_clip_path,
-                        gaze_points=merge_gaze_points(existing.gaze_points, points),
-                        annotation_resolved_video_path=existing.annotation_resolved_video_path,
-                        annotation_resolved_audio_path=existing.annotation_resolved_audio_path,
-                        task_number=existing.task_number,
-                        task_instance_id=existing.task_instance_id,
-                        task_instance=existing.task_instance,
-                        video_number=existing.video_number,
-                        annotation_key=existing.annotation_key,
-                        annotation_video_path=existing.annotation_video_path,
-                        annotation_json_path=existing.annotation_json_path,
-                        recording_dir=existing.recording_dir,
-                        gaze_mapping=existing.gaze_mapping,
-                        response_selection=existing.response_selection,
-                        response_index=existing.response_index,
-                        response_created=existing.response_created,
-                        response_submitted=existing.response_submitted,
-                        annotation_sources=[
-                            *(existing.annotation_sources or []),
-                            annotation_source,
-                        ],
-                    )
 
     return sorted(
         grouped.values(),
@@ -845,9 +968,7 @@ def discover_sibling_clips(final_clip_path: Path, clip_prefix: str) -> list[Path
 def output_dir_for_annotation_group(group: AnnotationClipGroup, output_parent: Path) -> Path:
     output_dir = (
         output_parent
-        / f"annotator{group.annotator_number}"
         / group.dataset
-        / "context"
         / GROUP_FOLDER_NAMES[group.group_size]
     )
     if group.batch_name is not None:
@@ -1659,8 +1780,8 @@ def materialize_annotation_focus_plot_group(
             "annotation_source_count": len(group.annotation_sources or []),
             "reused": True,
         }
-    if overwrite and output_dir.exists():
-        shutil.rmtree(output_dir)
+    if overwrite and output_path.exists():
+        record_output_overwrite(output_path, "focus plot")
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_provenance_metadata(output_dir, group, source_clips)
     return {
@@ -1714,7 +1835,7 @@ def materialize_debug_overlay_group(
             "reused": True,
         }
     if overwrite and output_dir.exists():
-        shutil.rmtree(output_dir)
+        remove_output_dir_for_overwrite(output_dir, "debug overlay")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if not group.gaze_points:
@@ -1790,7 +1911,7 @@ def materialize_annotation_clip_group(
     mask_mode = "full_video" if mask_full_video else "final_segment"
     if not group.gaze_points:
         if overwrite and output_dir.exists():
-            shutil.rmtree(output_dir)
+            remove_output_dir_for_overwrite(output_dir, mask_mode)
         return {
             "annotator_number": group.annotator_number,
             "dataset": group.dataset,
@@ -1831,7 +1952,7 @@ def materialize_annotation_clip_group(
                 "gaze_point_count": len(group.gaze_points),
                 "reused": True,
             }
-        shutil.rmtree(output_dir)
+        remove_output_dir_for_overwrite(output_dir, mask_mode)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mp4_count = 0
@@ -1942,7 +2063,7 @@ def materialize_original_annotation_clip_group(
                 "gaze_point_count": len(group.gaze_points),
                 "reused": True,
             }
-        shutil.rmtree(output_dir)
+        remove_output_dir_for_overwrite(output_dir, "original copy")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mp4_count = 0
@@ -2347,6 +2468,7 @@ def main() -> None:
                     )
             write_annotation_clip_summary(args.output_parent, results)
             logging.info("wrote annotation-clip gaze-blocked data under %s", args.output_parent)
+        log_overwrite_summary()
         return
 
     records, skipped_files = collect_video_records(args.video_folder, recursive=args.recursive)
@@ -2449,6 +2571,7 @@ def main() -> None:
         encoding="utf-8",
     )
     logging.info("wrote gaze-blocked context data under %s", output_context_parent)
+    log_overwrite_summary()
 
 
 if __name__ == "__main__":
