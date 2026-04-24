@@ -64,8 +64,8 @@ GAZE_MAPPING_CHOICES = ("legacy-extraction", "measured-player")
 FOCUS_REGION_SHAPES = ("circle", "square")
 CLIP_STEM_RE = re.compile(r"^(?P<prefix>.+)_clip(?P<index>\d+)$")
 GROUP_BATCH_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b(?P<batch>\d+)$")
-PUPIL_RECORDING_FILE_RE = re.compile(
-    r"^T(?P<task_number>\d+)_(?P<task_instance_id>\d+)_annotator(?P<annotator_number>\d+)\.json$"
+PUPIL_RECORDING_DIR_RE = re.compile(
+    r"^T(?P<task_number>\d+)_(?P<task_instance_id>\d+)_annotator(?P<annotator_number>\d+)$"
 )
 OVERWRITE_COUNT = 0
 
@@ -111,7 +111,6 @@ class PupilRecordingSpec:
     task_number: int
     task_instance_id: int
     annotator_number: int
-    marker_path: Path
     recording_dir: Path
 
 
@@ -131,8 +130,8 @@ def parse_args() -> argparse.Namespace:
         "recording_parent_dir",
         type=Path,
         help=(
-            "Parent folder containing Pupil Core recording marker files named "
-            "T{x}_{y}_annotator{n}.json."
+            "Parent folder containing Pupil Core recording folders named "
+            "T{x}_{y}_annotator{n}."
         ),
     )
     parser.add_argument(
@@ -340,9 +339,9 @@ def discover_pupil_recording_specs(recording_parent_dir: Path) -> list[PupilReco
     specs = []
     seen: set[tuple[int, int, int]] = set()
     for path in recording_parent_dir.iterdir():
-        if not path.is_file():
+        if not path.is_dir():
             continue
-        match = PUPIL_RECORDING_FILE_RE.fullmatch(path.name)
+        match = PUPIL_RECORDING_DIR_RE.fullmatch(path.name)
         if match is None:
             continue
         task_number = int(match.group("task_number"))
@@ -350,7 +349,7 @@ def discover_pupil_recording_specs(recording_parent_dir: Path) -> list[PupilReco
         annotator_number = int(match.group("annotator_number"))
         key = (task_number, task_instance_id, annotator_number)
         if key in seen:
-            logging.warning("Duplicate Pupil marker for %s: %s", key, path)
+            logging.warning("Duplicate Pupil recording folder for %s: %s", key, path)
             continue
         seen.add(key)
         specs.append(
@@ -358,15 +357,14 @@ def discover_pupil_recording_specs(recording_parent_dir: Path) -> list[PupilReco
                 task_number=task_number,
                 task_instance_id=task_instance_id,
                 annotator_number=annotator_number,
-                marker_path=path,
-                recording_dir=path.with_suffix(""),
+                recording_dir=path,
             )
         )
 
     if not specs:
         raise FileNotFoundError(
-            "No Pupil recording marker files named like "
-            f"T{{x}}_{{y}}_annotator{{n}}.json found in {recording_parent_dir}"
+            "No Pupil recording folders named like "
+            f"T{{x}}_{{y}}_annotator{{n}} found in {recording_parent_dir}"
         )
 
     return sorted(
@@ -462,8 +460,8 @@ def build_gaze_index(
         annotation_json = annotation_json_for_recording_spec(annotation_dir, recording_spec)
         if not annotation_json.is_file():
             logging.warning(
-                "Skipping Pupil marker %s because annotation JSON is missing: %s",
-                recording_spec.marker_path,
+                "Skipping Pupil recording folder %s because annotation JSON is missing: %s",
+                recording_spec.recording_dir,
                 annotation_json,
             )
             continue
@@ -476,8 +474,8 @@ def build_gaze_index(
         annotator_timings = select_annotator_timings(all_timings, recording_spec)
         if annotator_timings is None:
             logging.warning(
-                "Skipping Pupil marker %s because annotator %s is absent from %s",
-                recording_spec.marker_path,
+                "Skipping Pupil recording folder %s because annotator %s is absent from %s",
+                recording_spec.recording_dir,
                 recording_spec.annotator_number,
                 annotation_json,
             )
@@ -727,8 +725,8 @@ def build_annotation_clip_groups(
         annotation_json = annotation_json_for_recording_spec(annotation_dir, recording_spec)
         if not annotation_json.is_file():
             logging.warning(
-                "Skipping Pupil marker %s because annotation JSON is missing: %s",
-                recording_spec.marker_path,
+                "Skipping Pupil recording folder %s because annotation JSON is missing: %s",
+                recording_spec.recording_dir,
                 annotation_json,
             )
             continue
@@ -741,8 +739,8 @@ def build_annotation_clip_groups(
         annotator_timings = select_annotator_timings(all_timings, recording_spec)
         if annotator_timings is None:
             logging.warning(
-                "Skipping Pupil marker %s because annotator %s is absent from %s",
-                recording_spec.marker_path,
+                "Skipping Pupil recording folder %s because annotator %s is absent from %s",
+                recording_spec.recording_dir,
                 recording_spec.annotator_number,
                 annotation_json,
             )
