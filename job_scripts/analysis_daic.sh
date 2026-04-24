@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="analysis"
-#SBATCH --time=08:00:00
+#SBATCH --time=06:00:00
 #SBATCH --partition=insy,general
 #SBATCH --qos=medium
 #SBATCH --ntasks=1

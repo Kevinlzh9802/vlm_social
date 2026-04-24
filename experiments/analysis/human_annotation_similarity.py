@@ -506,6 +506,22 @@ def summarize_overall_bins(
     return rows
 
 
+def summarize_all_datasets_utt_bins(
+    prompt_name: str,
+    utt_count: int,
+    utterance_metrics: Sequence[UtteranceMetrics],
+    progress_partitions: int,
+) -> list[dict[str, object]]:
+    rows = summarize_case_bins(
+        dataset_name="all",
+        utt_count=utt_count,
+        prompt_name=prompt_name,
+        utterance_metrics=utterance_metrics,
+        progress_partitions=progress_partitions,
+    )
+    return rows
+
+
 def write_summary_csv(path: Path, rows: Sequence[dict[str, object]]) -> None:
     fieldnames = [
         "prompt",
@@ -549,11 +565,19 @@ def write_summary_json(
             and row["dataset"] == "all"
             and row["utt_count"] == "all"
         ]
+        all_datasets_utt_bin_rows = [
+            row
+            for row in bin_rows
+            if row["prompt"] == prompt_name
+            and row["dataset"] == "all"
+            and row["utt_count"] != "all"
+        ]
         payload["prompts"].append(
             {
                 "prompt": prompt_name,
                 "case_count": len(case_metrics),
                 "overall_bin_rows": overall_bin_rows,
+                "all_datasets_utt_bin_rows": all_datasets_utt_bin_rows,
                 "cases": [
                     {
                         "dataset": dataset_name,
@@ -815,6 +839,66 @@ def main() -> None:
                 progress_partitions=args.progress_partitions,
             )
             print(f"[INFO] Saved {mean_plot_path}")
+
+        for utt_count in sorted({case_key[1] for case_key in case_metrics}):
+            all_datasets_utt_metrics = [
+                metric
+                for (dataset_name, case_utt_count), metrics_list in case_metrics.items()
+                if case_utt_count == utt_count
+                for metric in metrics_list
+            ]
+            if not all_datasets_utt_metrics:
+                continue
+
+            all_bin_rows.extend(
+                summarize_all_datasets_utt_bins(
+                    prompt_name=prompt_name,
+                    utt_count=utt_count,
+                    utterance_metrics=all_datasets_utt_metrics,
+                    progress_partitions=args.progress_partitions,
+                )
+            )
+            all_point_rows.extend(
+                build_plot_point_rows(
+                    prompt_name=prompt_name,
+                    dataset_name="all",
+                    utt_count=utt_count,
+                    utterance_metrics=all_datasets_utt_metrics,
+                    progress_partitions=args.progress_partitions,
+                )
+            )
+
+            all_datasets_utt_grouped_values = collect_clip_to_final_bins(
+                utterance_metrics=all_datasets_utt_metrics,
+                progress_partitions=args.progress_partitions,
+            )
+            all_datasets_utt_plot_path = (
+                prompt_output_dir
+                / f"all_datasets_{utt_count}utt_partial_to_full_percentiles.png"
+            )
+            plot_case_percentiles(
+                dataset_name="all",
+                utt_count=utt_count,
+                prompt_name=prompt_name,
+                grouped_values=all_datasets_utt_grouped_values,
+                output_path=all_datasets_utt_plot_path,
+                progress_partitions=args.progress_partitions,
+            )
+            print(f"[INFO] Saved {all_datasets_utt_plot_path}")
+
+            all_datasets_utt_mean_plot_path = (
+                prompt_output_dir
+                / f"all_datasets_{utt_count}utt_partial_to_full_mean.png"
+            )
+            plot_case_average(
+                dataset_name="all",
+                utt_count=utt_count,
+                prompt_name=prompt_name,
+                grouped_values=all_datasets_utt_grouped_values,
+                output_path=all_datasets_utt_mean_plot_path,
+                progress_partitions=args.progress_partitions,
+            )
+            print(f"[INFO] Saved {all_datasets_utt_mean_plot_path}")
 
         overall_metrics = [
             metric
