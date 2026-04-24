@@ -51,10 +51,10 @@ PROMPT_FIELD_MAP = {
     "intention": "speaker_intention",
     "affordance": "response",
 }
-CLIP_FILE_RE = re.compile(r"^(?P<prefix>.+)_clip(?P<index>\d+)\.[^.]+$")
+CLIP_FILE_RE = re.compile(r"^(?P<prefix>.+)_clip_?(?P<index>\d+)\.[^.]+$")
 BATCH_FOLDER_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b\d+$")
 DIALOGUE_KEY_PATTERN = re.compile(r"^d\d+u\d+$")
-FILE_CLIP_PATTERN = re.compile(r"^(?P<prefix>d\d+u\d+)_clip(?P<index>\d+)$")
+FILE_CLIP_PATTERN = re.compile(r"^(?P<prefix>.+)_clip_?(?P<index>\d+)$")
 UTT_GROUP_PATTERN = re.compile(r"^(?P<size>[123])-utt_group$")
 MODEL_SIZE_PATTERN = re.compile(r"(?P<size>\d+[Bb])(?:[_-]|$)")
 ERROR_TEXT_PATTERN = re.compile(
@@ -125,6 +125,16 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Root results folder containing model subfolders such as qwen2.5 or ming-lite-omni.",
+    )
+    parser.add_argument(
+        "--additional-results-root",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Additional result root to include, e.g. the Gemini results tree "
+            "created by gemini_retrieve_daic.sh. May be passed multiple times."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -312,6 +322,16 @@ def resolve_results_root(explicit_root: Path | None) -> Path:
     )
 
 
+def resolve_additional_results_roots(explicit_roots: Sequence[Path]) -> list[Path]:
+    roots: list[Path] = []
+    for explicit_root in explicit_roots:
+        root = explicit_root.expanduser().resolve()
+        if not root.is_dir():
+            raise FileNotFoundError(f"Additional results root does not exist: {root}")
+        roots.append(root)
+    return roots
+
+
 def has_dataset_structure(root: Path) -> bool:
     return any((root / dataset_name).is_dir() for dataset_name in DATASET_NAMES)
 
@@ -340,13 +360,26 @@ def iter_result_folders(dataset_root: Path) -> list[Path]:
 def find_dialogue_entries(payload: object) -> list[tuple[str, object]]:
     found: list[tuple[str, object]] = []
 
-    def _walk(node: object) -> None:
+    def _walk(node: object, parent_key: str | None = None) -> None:
         if isinstance(node, dict):
             for key, value in node.items():
                 if isinstance(key, str) and DIALOGUE_KEY_PATTERN.fullmatch(key):
                     found.append((key, value))
-                _walk(value)
+                _walk(value, key if isinstance(key, str) else None)
         elif isinstance(node, list):
+            if parent_key is None or DIALOGUE_KEY_PATTERN.fullmatch(parent_key) is None:
+                grouped_by_file_prefix: dict[str, list[object]] = defaultdict(list)
+                for item in node:
+                    if not isinstance(item, dict):
+                        continue
+                    file_name = item.get("file")
+                    if not isinstance(file_name, str):
+                        continue
+                    match = FILE_CLIP_PATTERN.fullmatch(file_name)
+                    if match is not None:
+                        grouped_by_file_prefix[match.group("prefix")].append(item)
+                found.extend(sorted(grouped_by_file_prefix.items()))
+
             for item in node:
                 _walk(item)
 
@@ -418,6 +451,15 @@ def parse_task_name(result_folder: Path) -> str | None:
 
 def build_model_label(model_root: Path, result_folder: Path) -> str:
     model_name = model_root.name
+    if model_name.lower() == "gemini":
+        leaf_name = result_folder.name.lower()
+        for task_name in TASK_NAMES:
+            suffix = f"_{task_name}_single-turn"
+            if leaf_name.endswith(suffix):
+                gemini_mode = result_folder.name[: -len(suffix)]
+                return f"{model_name}-{gemini_mode}"
+        return model_name
+
     if "ming-lite-omni" in model_name.lower():
         return model_name
 
@@ -506,15 +548,25 @@ def build_human_sequences(
 
 
 def index_model_sequences(
-    results_root: Path,
+    results_roots: Sequence[Path],
 ) -> tuple[dict[tuple[str, str, str, int, str], list[tuple[int, str]]], list[str]]:
     indexed_sequences: dict[tuple[str, str, str, int, str], tuple[tuple[int, str], list[tuple[int, str]]]] = {}
     warnings: list[str] = []
 
-    model_roots = iter_model_roots(results_root)
+    model_roots: list[Path] = []
+    for results_root in results_roots:
+        current_model_roots = iter_model_roots(results_root)
+        if not current_model_roots:
+            warnings.append(
+                f"No model result folders with dataset structure found under {results_root}"
+            )
+            continue
+        model_roots.extend(current_model_roots)
+
     if not model_roots:
         raise FileNotFoundError(
-            f"No model result folders with dataset structure found under {results_root}"
+            "No model result folders with dataset structure found under "
+            f"{[str(root) for root in results_roots]}"
         )
 
     for model_root in model_roots:
@@ -816,12 +868,16 @@ def write_summary_json(
     path: Path,
     source_path: Path,
     results_root: Path,
+    additional_results_roots: Sequence[Path],
     rows: Sequence[dict[str, object]],
     warnings: Sequence[str],
 ) -> None:
     payload = {
         "source": str(source_path.resolve()),
         "results_root": str(results_root.resolve()),
+        "additional_results_roots": [
+            str(root.resolve()) for root in additional_results_roots
+        ],
         "row_count": len(rows),
         "rows": list(rows),
         "warnings": list(warnings),
@@ -916,6 +972,9 @@ def main() -> None:
         analysis_source_path = csv_path
 
     results_root = resolve_results_root(args.results_root)
+    additional_results_roots = resolve_additional_results_roots(
+        args.additional_results_root
+    )
 
     from sentence_transformers import SentenceTransformer
 
@@ -927,7 +986,9 @@ def main() -> None:
         print(f"[INFO] Loading embedding model by name: {model_loc}")
     embedding_model = SentenceTransformer(model_loc)
 
-    model_sequences, model_index_warnings = index_model_sequences(results_root)
+    model_sequences, model_index_warnings = index_model_sequences(
+        [results_root, *additional_results_roots]
+    )
     model_labels = sorted({key[0] for key in model_sequences})
 
     all_warnings: list[str] = list(extraction_errors) + model_index_warnings
@@ -1079,6 +1140,7 @@ def main() -> None:
         summary_json_path,
         source_path=analysis_source_path,
         results_root=results_root,
+        additional_results_roots=additional_results_roots,
         rows=all_summary_rows,
         warnings=all_warnings,
     )

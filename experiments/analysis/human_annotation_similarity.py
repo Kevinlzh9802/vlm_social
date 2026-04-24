@@ -49,7 +49,7 @@ PROMPT_FIELD_MAP = {
     "intention": "speaker_intention",
     "affordance": "response",
 }
-CLIP_FILE_RE = re.compile(r"^(?P<prefix>.+)_clip(?P<index>\d+)\.[^.]+$")
+CLIP_FILE_RE = re.compile(r"^(?P<prefix>.+)_clip_?(?P<index>\d+)\.[^.]+$")
 BATCH_FOLDER_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b\d+$")
 
 

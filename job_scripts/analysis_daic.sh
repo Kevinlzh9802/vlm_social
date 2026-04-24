@@ -16,6 +16,7 @@ PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
 SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/results"
+DEFAULT_GEMINI_RESULTS_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini"
 DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_percentiles.csv"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
 DEFAULT_MODEL_PATH=""
@@ -23,8 +24,10 @@ DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--skip-gemini] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
     echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
+    echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
+    echo "  --skip-gemini: do not include Gemini partial-to-full similarity lines" >&2
     echo "  human-annotation-summary-csv: partial_to_full_percentiles.csv from human_annotation_similarity.py (default: ${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV})" >&2
     echo "  --skip-human-overlay: generate model-only aggregate plots without human annotation overlays" >&2
     echo "  model: SentenceTransformer model name, used when --model-path is not set (default: ${DEFAULT_MODEL})" >&2
@@ -38,6 +41,7 @@ usage() {
 }
 
 RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
+GEMINI_RESULTS_ROOT="${DEFAULT_GEMINI_RESULTS_ROOT}"
 HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV}"
 MODEL="${DEFAULT_MODEL}"
 MODEL_PATH="${DEFAULT_MODEL_PATH}"
@@ -45,12 +49,21 @@ THRESHOLDS=("${DEFAULT_THRESHOLDS[@]}")
 PROGRESS_PARTITIONS="20"
 NO_SCATTER=1
 SKIP_HUMAN_OVERLAY=0
+SKIP_GEMINI=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --results-root)
             RESULTS_ROOT="${2:?Missing value for --results-root}"
             shift 2
+            ;;
+        --gemini-results-root)
+            GEMINI_RESULTS_ROOT="${2:?Missing value for --gemini-results-root}"
+            shift 2
+            ;;
+        --skip-gemini)
+            SKIP_GEMINI=1
+            shift
             ;;
         --human-annotation-summary-csv)
             HUMAN_ANNOTATION_SUMMARY_CSV="${2:?Missing value for --human-annotation-summary-csv}"
@@ -123,6 +136,12 @@ if [[ ! -d "${RESULTS_ROOT}" ]]; then
     exit 1
 fi
 
+if [[ "${SKIP_GEMINI}" == "0" && ! -d "${GEMINI_RESULTS_ROOT}" ]]; then
+    echo "Gemini results root does not exist: ${GEMINI_RESULTS_ROOT}" >&2
+    echo "Run gemini_retrieve_daic.sh after Gemini jobs complete, pass --gemini-results-root, or pass --skip-gemini." >&2
+    exit 1
+fi
+
 if [[ "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_ANNOTATION_SUMMARY_CSV}" ]]; then
     echo "Human annotation summary CSV does not exist: ${HUMAN_ANNOTATION_SUMMARY_CSV}" >&2
     echo "Run human_annotation_similarity_daic.sh first or pass --skip-human-overlay." >&2
@@ -139,6 +158,8 @@ mkdir -p /home/nfs/zli33/slurm_outputs/vlm_social
 echo "Project root:                  ${PROJECT_ROOT}"
 echo "Apptainer image:               ${SIF_PATH}"
 echo "Results root:                  ${RESULTS_ROOT}"
+echo "Gemini results root:           ${GEMINI_RESULTS_ROOT}"
+echo "Skip Gemini:                   ${SKIP_GEMINI}"
 echo "Human annotation summary CSV:  ${HUMAN_ANNOTATION_SUMMARY_CSV}"
 echo "Skip human overlay:            ${SKIP_HUMAN_OVERLAY}"
 echo "Model name:                    ${MODEL}"
@@ -154,6 +175,10 @@ PYTHON_ARGS=(
     --turnover-thresholds "${THRESHOLDS[@]}"
     --progress-partitions "${PROGRESS_PARTITIONS}"
 )
+
+if [[ "${SKIP_GEMINI}" == "0" ]]; then
+    PYTHON_ARGS+=(--additional-results-root "${GEMINI_RESULTS_ROOT}")
+fi
 
 if [[ -n "${MODEL_PATH}" ]]; then
     PYTHON_ARGS+=(--model-path "${MODEL_PATH}")

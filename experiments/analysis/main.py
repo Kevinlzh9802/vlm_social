@@ -26,7 +26,7 @@ DATASET_NAMES = ("mintrec2", "meld", "seamless_interaction")
 TASK_NAMES = ("affordance", "intention")
 UTTERANCE_GROUP_SIZES = (1, 2, 3)
 DIALOGUE_KEY_PATTERN = re.compile(r"^d\d+u\d+$")
-FILE_CLIP_PATTERN = re.compile(r"^(?P<prefix>d\d+u\d+)_clip(?P<index>\d+)$")
+FILE_CLIP_PATTERN = re.compile(r"^(?P<prefix>.+)_clip_?(?P<index>\d+)$")
 UTT_GROUP_PATTERN = re.compile(r"^(?P<size>[123])-utt_group$")
 MODEL_SIZE_PATTERN = re.compile(r"(?P<size>\d+[Bb])(?:[_-]|$)")
 DEFAULT_PROGRESS_PARTITIONS = 20
@@ -44,6 +44,16 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Path to results/qwen2.5. Defaults to an auto-discovered repo-relative path.",
+    )
+    parser.add_argument(
+        "--additional-results-root",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Additional result root to include in aggregate plots. May be passed "
+            "multiple times, e.g. a Gemini root stored outside --results-root."
+        ),
     )
     parser.add_argument(
         "--model",
@@ -120,6 +130,16 @@ def resolve_results_root(explicit_root: Path | None) -> Path:
     )
 
 
+def resolve_additional_results_roots(explicit_roots: Sequence[Path]) -> list[Path]:
+    roots: list[Path] = []
+    for explicit_root in explicit_roots:
+        root = explicit_root.expanduser().resolve()
+        if not root.is_dir():
+            raise FileNotFoundError(f"Additional results root does not exist: {root}")
+        roots.append(root)
+    return roots
+
+
 def has_dataset_structure(root: Path) -> bool:
     return any((root / dataset_name).is_dir() for dataset_name in DATASET_NAMES)
 
@@ -159,13 +179,26 @@ def load_json(path: Path) -> Dict:
 def find_dialogue_entries(payload: object) -> List[Tuple[str, object]]:
     found: List[Tuple[str, object]] = []
 
-    def _walk(node: object) -> None:
+    def _walk(node: object, parent_key: str | None = None) -> None:
         if isinstance(node, dict):
             for key, value in node.items():
                 if isinstance(key, str) and DIALOGUE_KEY_PATTERN.fullmatch(key):
                     found.append((key, value))
-                _walk(value)
+                _walk(value, key if isinstance(key, str) else None)
         elif isinstance(node, list):
+            if parent_key is None or DIALOGUE_KEY_PATTERN.fullmatch(parent_key) is None:
+                grouped_by_file_prefix: dict[str, list[object]] = defaultdict(list)
+                for item in node:
+                    if not isinstance(item, dict):
+                        continue
+                    file_name = item.get("file")
+                    if not isinstance(file_name, str):
+                        continue
+                    match = FILE_CLIP_PATTERN.fullmatch(file_name)
+                    if match is not None:
+                        grouped_by_file_prefix[match.group("prefix")].append(item)
+                found.extend(sorted(grouped_by_file_prefix.items()))
+
             for item in node:
                 _walk(item)
 
@@ -258,6 +291,15 @@ def parse_task_name(result_folder: Path) -> str | None:
 
 def build_model_label(model_root: Path, result_folder: Path) -> str:
     model_name = model_root.name
+    if model_name.lower() == "gemini":
+        leaf_name = result_folder.name.lower()
+        for task_name in TASK_NAMES:
+            suffix = f"_{task_name}_single-turn"
+            if leaf_name.endswith(suffix):
+                gemini_mode = result_folder.name[: -len(suffix)]
+                return f"{model_name}-{gemini_mode}"
+        return model_name
+
     if "ming-lite-omni" in model_name.lower():
         return model_name
 
@@ -1062,6 +1104,9 @@ def analyze_dataset(
 def main() -> None:
     args = parse_args()
     results_root = resolve_results_root(args.results_root)
+    additional_results_roots = resolve_additional_results_roots(
+        args.additional_results_root
+    )
     plots_root = resolve_plots_root(results_root)
     plots_root.mkdir(parents=True, exist_ok=True)
 
@@ -1083,10 +1128,21 @@ def main() -> None:
         print(f"[INFO] Loading embedding model by name: {model_loc}")
     model = SentenceTransformer(model_loc)
 
-    model_roots = iter_model_roots(results_root)
+    model_roots: list[Path] = []
+    for current_results_root in [results_root, *additional_results_roots]:
+        current_model_roots = iter_model_roots(current_results_root)
+        if not current_model_roots:
+            print(
+                f"[WARN] No model result folders with dataset structure found under "
+                f"{current_results_root}"
+            )
+            continue
+        model_roots.extend(current_model_roots)
+
     if not model_roots:
         raise FileNotFoundError(
-            f"No model result folders with dataset structure found under {results_root}"
+            "No model result folders with dataset structure found under "
+            f"{[str(root) for root in [results_root, *additional_results_roots]]}"
         )
 
     combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]] = defaultdict(
