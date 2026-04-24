@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name="analysis"
-#SBATCH --time=02:00:00
+#SBATCH --time=08:00:00
 #SBATCH --partition=insy,general
-#SBATCH --qos=short
+#SBATCH --qos=medium
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
