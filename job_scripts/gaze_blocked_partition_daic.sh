@@ -38,7 +38,7 @@ usage() {
     echo "  video-json: fallback ordered video list JSON (default: ${DEFAULT_VIDEO_JSON})" >&2
     echo "  source-videos: local path replacing the media URL prefix (default: ${DEFAULT_SOURCE_VIDEOS})" >&2
     echo "  output-dir: whole-clip gaze-corrupted output parent (default: ${DEFAULT_FULL_CORRUPTION_OUTPUT_DIR})" >&2
-    echo "  media-url-prefix: media URL prefix to replace (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
+    echo "  media-url-prefix: media URL prefix to replace; annotation1 and annotation2 are both accepted (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
     echo "  effect: manipulation effect, default ${DEFAULT_EFFECT}" >&2
     echo "  gaze-mapping: screen-to-video transform, default ${DEFAULT_GAZE_MAPPING}" >&2
     echo "  response-selection: annotation response selector, default ${DEFAULT_RESPONSE_SELECTION}" >&2

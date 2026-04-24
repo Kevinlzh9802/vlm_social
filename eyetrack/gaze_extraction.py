@@ -16,6 +16,10 @@ except ImportError:
 
 
 MEDIA_URL_PREFIX = "http://localhost:5000/api/media/gestalt_bench/annotation1/"
+MEDIA_URL_PREFIXES = (
+    MEDIA_URL_PREFIX,
+    "http://localhost:5000/api/media/gestalt_bench/annotation2/",
+)
 SURFACE_EXPORT_DIR_RE = re.compile(r"^\d{3}$")
 
 
@@ -218,13 +222,26 @@ def annotation_time_to_pupil_time(value: str, system_to_pupil_offset: float) -> 
     return parse_timestamp(value).timestamp() + system_to_pupil_offset
 
 
+def iter_media_url_prefixes(media_url_prefix: str) -> Iterator[str]:
+    seen = set()
+    for prefix in (media_url_prefix, *MEDIA_URL_PREFIXES):
+        if prefix in seen:
+            continue
+        seen.add(prefix)
+        yield prefix
+
+
 def resolve_video_path(video_url: str, local_path_prefix: Path, media_url_prefix: str) -> Path:
-    if video_url.startswith(media_url_prefix):
-        relative_path = video_url[len(media_url_prefix) :]
+    for prefix in iter_media_url_prefixes(media_url_prefix):
+        if video_url.startswith(prefix):
+            relative_path = video_url[len(prefix) :]
+            break
     else:
+        prefixes = ", ".join(iter_media_url_prefixes(media_url_prefix))
         logging.warning(
-            "video URL does not start with %s; treating it as a relative path: %s",
-            media_url_prefix,
+            "video URL does not start with any known media prefix (%s); "
+            "treating it as a relative path: %s",
+            prefixes,
             video_url,
         )
         relative_path = video_url
