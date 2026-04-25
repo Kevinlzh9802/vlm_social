@@ -35,6 +35,12 @@ usage() {
     echo "  Writes only gaze_blocked_partition focus plots plus annotation_sources.csv/provenance.json. No videos are generated." >&2
 }
 
+# Submission examples:
+#   sbatch job_scripts/gaze_blocked_focus_daic.sh
+#   sbatch job_scripts/gaze_blocked_focus_daic.sh --utt 1,2,3
+#   sbatch job_scripts/gaze_blocked_focus_daic.sh --comparison
+#   sbatch job_scripts/gaze_blocked_focus_daic.sh --output-dir /tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench/human_eval/task2/manipulation_full/data --utt 2 --no-overwrite
+
 PUPIL_PARENT="${DEFAULT_PUPIL_PARENT}"
 ANNOTATION_DIR="${DEFAULT_ANNOTATION_DIR}"
 VIDEO_JSON="${DEFAULT_VIDEO_JSON}"
