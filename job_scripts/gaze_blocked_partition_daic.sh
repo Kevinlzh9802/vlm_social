@@ -32,7 +32,7 @@ DEFAULT_FULL_CORRUPTION_LOCALIZATION_SOURCE="annotation-media"
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-region-ratio RATIO] [--focus-region-shape circle|square] [--max-gaze-gap SEC] [--gaze-mapping legacy-extraction|measured-player] [--response-selection latest-submitted|first-response] [--full-corruption-localization-source annotation-media|video-json] [--utt 1,2,3] [--no-overwrite]" >&2
+    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--media-url-prefix URL] [--effect blur|block] [--clip-length SEC] [--focus-region-ratio RATIO] [--focus-region-shape circle|square] [--max-gaze-gap SEC] [--gaze-mapping legacy-extraction|measured-player] [--response-selection latest-submitted|first-response] [--full-corruption-localization-source annotation-media|video-json] [--utt 1,2,3] [--comparison] [--no-overwrite]" >&2
     echo "  pupil-parent: parent folder with T{x}_{y}_annotator{n} Pupil recording folders (default: ${DEFAULT_PUPIL_PARENT})" >&2
     echo "  annotation-dir: folder with T{x}_{y}.json annotation files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  video-json: fallback ordered video list JSON (default: ${DEFAULT_VIDEO_JSON})" >&2
@@ -42,6 +42,7 @@ usage() {
     echo "  effect: manipulation effect, default ${DEFAULT_EFFECT}" >&2
     echo "  gaze-mapping: screen-to-video transform, default ${DEFAULT_GAZE_MAPPING}" >&2
     echo "  response-selection: annotation response selector, default ${DEFAULT_RESPONSE_SELECTION}" >&2
+    echo "  comparison: write under data_comparison and use shifted non-gaze mask centers." >&2
 }
 
 PUPIL_PARENT="${DEFAULT_PUPIL_PARENT}"
@@ -59,6 +60,7 @@ GAZE_MAPPING="${DEFAULT_GAZE_MAPPING}"
 RESPONSE_SELECTION="${DEFAULT_RESPONSE_SELECTION}"
 FULL_CORRUPTION_LOCALIZATION_SOURCE="${DEFAULT_FULL_CORRUPTION_LOCALIZATION_SOURCE}"
 UTT=""
+COMPARISON=0
 OVERWRITE=1
 
 while [[ $# -gt 0 ]]; do
@@ -122,6 +124,10 @@ while [[ $# -gt 0 ]]; do
         --utt)
             UTT="${2:?Missing value for --utt}"
             shift 2
+            ;;
+        --comparison)
+            COMPARISON=1
+            shift
             ;;
         --no-overwrite)
             OVERWRITE=0
@@ -195,6 +201,15 @@ if [[ ! -d "${SOURCE_VIDEOS}" ]]; then
     exit 1
 fi
 
+if [[ "${COMPARISON}" == "1" ]]; then
+    FULL_CORRUPTION_OUTPUT_DIR="${FULL_CORRUPTION_OUTPUT_DIR%/}"
+    if [[ "${FULL_CORRUPTION_OUTPUT_DIR##*/}" == "data" ]]; then
+        FULL_CORRUPTION_OUTPUT_DIR="${FULL_CORRUPTION_OUTPUT_DIR%/*}/data_comparison"
+    else
+        FULL_CORRUPTION_OUTPUT_DIR="${FULL_CORRUPTION_OUTPUT_DIR}_comparison"
+    fi
+fi
+
 mkdir -p "${FULL_CORRUPTION_OUTPUT_DIR}"
 
 echo "Project root:         ${PROJECT_ROOT}"
@@ -215,6 +230,7 @@ echo "Gaze mapping:         ${GAZE_MAPPING}"
 echo "Response selection:   ${RESPONSE_SELECTION}"
 echo "Full corr source:     ${FULL_CORRUPTION_LOCALIZATION_SOURCE}"
 echo "Utterance groups:     ${UTT:-all}"
+echo "Comparison:           ${COMPARISON}"
 echo "Overwrite:            ${OVERWRITE}"
 echo "Final-segment output: disabled"
 echo "Focus plots:          disabled"
@@ -243,6 +259,10 @@ PYTHON_ARGS=(
 
 if [[ -n "${UTT}" ]]; then
     PYTHON_ARGS+=(--utt "${UTT}")
+fi
+
+if [[ "${COMPARISON}" == "1" ]]; then
+    PYTHON_ARGS+=(--comparison)
 fi
 
 if [[ "${OVERWRITE}" == "1" ]]; then

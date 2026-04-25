@@ -319,6 +319,14 @@ def parse_args() -> argparse.Namespace:
         help="Maximum seconds between a frame and nearest gaze sample to apply masking.",
     )
     parser.add_argument(
+        "--comparison",
+        action="store_true",
+        help=(
+            "Mask comparison regions instead of gaze regions by shifting each gaze "
+            "center by half the frame in x and y."
+        ),
+    )
+    parser.add_argument(
         "--confidence",
         type=float,
         default=0.6,
@@ -976,6 +984,7 @@ def output_dir_for_annotation_group(group: AnnotationClipGroup, output_parent: P
     output_dir = (
         output_parent
         / group.dataset
+        / "context"
         / GROUP_FOLDER_NAMES[group.group_size]
     )
     if group.batch_name is not None:
@@ -1024,6 +1033,28 @@ def nearest_gaze_point(
     if abs(nearest.time_seconds - time_seconds) > max_gap:
         return None
     return nearest
+
+
+def comparison_focus_point(point: GazePoint) -> GazePoint:
+    return GazePoint(
+        time_seconds=point.time_seconds,
+        x=(point.x + 0.5) % 1.0,
+        y=(point.y + 0.5) % 1.0,
+    )
+
+
+def comparison_focus_points(points: list[GazePoint]) -> list[GazePoint]:
+    return [comparison_focus_point(point) for point in points]
+
+
+def focus_points_for_mode(points: list[GazePoint], comparison: bool) -> list[GazePoint]:
+    if comparison:
+        return comparison_focus_points(points)
+    return points
+
+
+def mask_point_mode_name(comparison: bool) -> str:
+    return "comparison" if comparison else "gaze"
 
 
 def apply_focus_mask(
@@ -1116,6 +1147,7 @@ def write_masked_target_prefix_video(
     focus_region_shape: str,
     max_gaze_gap: float,
     mask_full_video: bool = False,
+    comparison: bool = False,
 ) -> dict[str, int]:
     source_path = Path(source_path)
     cap = cv2.VideoCapture(str(source_path))
@@ -1157,6 +1189,8 @@ def write_masked_target_prefix_video(
             if frame_time >= mask_start_time:
                 point = nearest_gaze_point(gaze_points, frame_time, max_gaze_gap)
                 if point is not None:
+                    if comparison:
+                        point = comparison_focus_point(point)
                     apply_focus_mask(frame, point, effect, focus_region_ratio, focus_region_shape)
                     masked_frame_count += 1
 
@@ -1307,6 +1341,7 @@ def materialize_gaze_group_context(
     max_gaze_gap: float,
     cut: int | None,
     overwrite: bool,
+    comparison: bool = False,
 ) -> dict[str, object] | None:
     group_root = output_parent / GROUP_FOLDER_NAMES[group.group_size] / group.group_name
     clip_prefix = group.group_name
@@ -1353,6 +1388,7 @@ def materialize_gaze_group_context(
                 focus_region_ratio=focus_region_ratio,
                 focus_region_shape=focus_region_shape,
                 max_gaze_gap=max_gaze_gap,
+                comparison=comparison,
             )
             concatenate_context_with_masked_target(
                 context_paths=context_paths,
@@ -1386,6 +1422,7 @@ def materialize_gaze_group_context(
         "clip_wav_count": clip_wav_count,
         "masked_frame_count": total_masked_frames,
         "gaze_point_count": len(gaze_points),
+        "mask_point_mode": mask_point_mode_name(comparison),
     }
 
 
@@ -1402,6 +1439,7 @@ def materialize_gaze_triplet(
     max_gaze_gap: float,
     cut: int | None,
     overwrite: bool,
+    comparison: bool = False,
 ) -> tuple[list[dict[str, object]], FailedTriplet | None]:
     results: list[dict[str, object]] = []
     touched_groups: list[PartitionGroup] = []
@@ -1427,6 +1465,7 @@ def materialize_gaze_triplet(
                 max_gaze_gap=max_gaze_gap,
                 cut=cut,
                 overwrite=overwrite,
+                comparison=comparison,
             )
             if result is None:
                 result = {
@@ -1473,13 +1512,16 @@ def _write_provenance_metadata(
     output_dir: Path,
     group: AnnotationClipGroup,
     source_clips: list[Path],
+    mask_point_mode: str = "gaze",
+    plot_points: list[GazePoint] | None = None,
 ) -> None:
     """Write ``provenance.json`` and a gaze scatter plot into *output_dir*."""
+    mask_points = group.gaze_points if plot_points is None else plot_points
     avg_x: float | None = None
     avg_y: float | None = None
-    if group.gaze_points:
-        avg_x = sum(p.x for p in group.gaze_points) / len(group.gaze_points)
-        avg_y = sum(p.y for p in group.gaze_points) / len(group.gaze_points)
+    if mask_points:
+        avg_x = sum(p.x for p in mask_points) / len(mask_points)
+        avg_y = sum(p.y for p in mask_points) / len(mask_points)
 
     metadata = {
         "task_number": group.task_number,
@@ -1503,8 +1545,10 @@ def _write_provenance_metadata(
         "annotation_source_count": len(group.annotation_sources or []),
         "annotation_sources": group.annotation_sources or [],
         "gaze_point_count": len(group.gaze_points),
-        "avg_gaze_x": avg_x,
-        "avg_gaze_y": avg_y,
+        "mask_point_mode": mask_point_mode,
+        "mask_point_count": len(mask_points),
+        "avg_mask_point_x": avg_x,
+        "avg_mask_point_y": avg_y,
     }
     (output_dir / "provenance.json").write_text(
         json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
@@ -1512,7 +1556,7 @@ def _write_provenance_metadata(
 
     # Generate aggregated gaze scatter plot on a video frame
     _write_annotation_sources_csv(output_dir, group)
-    _write_gaze_plot(output_dir, group, source_clips)
+    _write_gaze_plot(output_dir, group, source_clips, plot_points=mask_points, point_mode=mask_point_mode)
 
 
 def _write_annotation_sources_csv(output_dir: Path, group: AnnotationClipGroup) -> None:
@@ -1564,8 +1608,11 @@ def _write_gaze_plot(
     output_dir: Path,
     group: AnnotationClipGroup,
     source_clips: list[Path],
+    plot_points: list[GazePoint] | None = None,
+    point_mode: str = "gaze",
 ) -> None:
     """Render a scatter plot of all gaze points over a mid-video frame."""
+    points = group.gaze_points if plot_points is None else plot_points
     try:
         if "MPLCONFIGDIR" not in os.environ:
             mpl_config_dir = Path(tempfile.gettempdir()) / "matplotlib-cache"
@@ -1601,7 +1648,7 @@ def _write_gaze_plot(
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.set_title(
         f"Annotator {group.annotator_number}, video {group.video_number}: "
-        f"{len(group.gaze_points)} gaze points"
+        f"{len(points)} {point_mode} points"
     )
 
     if frame is not None:
@@ -1615,9 +1662,9 @@ def _write_gaze_plot(
         ax.set_aspect("equal", adjustable="box")
         ax.grid(True, alpha=0.25)
 
-    if group.gaze_points:
-        xs = np.array([p.x * width for p in group.gaze_points])
-        ys = np.array([(1.0 - p.y) * height for p in group.gaze_points])
+    if points:
+        xs = np.array([p.x * width for p in points])
+        ys = np.array([(1.0 - p.y) * height for p in points])
         ax.scatter(xs, ys, s=12, c="red", alpha=0.35, edgecolors="none")
         ax.scatter([float(np.mean(xs))], [float(np.mean(ys))], s=90, c="yellow", marker="x")
 
@@ -1667,6 +1714,7 @@ def write_gaze_overlay_video(
     focus_region_ratio: float,
     focus_region_shape: str,
     max_gaze_gap: float,
+    comparison: bool = False,
 ) -> dict[str, int]:
     source_path = Path(source_path)
     cap = cv2.VideoCapture(str(source_path))
@@ -1721,6 +1769,8 @@ def write_gaze_overlay_video(
                 frame_time = frame_index / fps
                 point = nearest_gaze_point(gaze_points, frame_time, max_gaze_gap)
                 if point is not None:
+                    if comparison:
+                        point = comparison_focus_point(point)
                     draw_debug_focus_marker(frame, point, focus_region_ratio, focus_region_shape)
                     overlay_frame_count += 1
                     csv_writer.writerow(
@@ -1761,6 +1811,7 @@ def materialize_annotation_focus_plot_group(
     group: AnnotationClipGroup,
     output_parent: Path,
     overwrite: bool,
+    comparison: bool = False,
 ) -> dict[str, object]:
     source_clips = discover_sibling_clips(group.final_clip_path, group.clip_prefix)
     if not source_clips:
@@ -1785,12 +1836,20 @@ def materialize_annotation_focus_plot_group(
             "clip_wav_count": 0,
             "gaze_point_count": len(group.gaze_points),
             "annotation_source_count": len(group.annotation_sources or []),
+            "mask_point_mode": mask_point_mode_name(comparison),
             "reused": True,
         }
     if overwrite and output_path.exists():
         record_output_overwrite(output_path, "focus plot")
     output_dir.mkdir(parents=True, exist_ok=True)
-    _write_provenance_metadata(output_dir, group, source_clips)
+    plot_points = focus_points_for_mode(group.gaze_points, comparison)
+    _write_provenance_metadata(
+        output_dir,
+        group,
+        source_clips,
+        mask_point_mode=mask_point_mode_name(comparison),
+        plot_points=plot_points,
+    )
     return {
         "task_instance": group.task_instance,
         "annotator_number": group.annotator_number,
@@ -1806,6 +1865,7 @@ def materialize_annotation_focus_plot_group(
         "clip_wav_count": 0,
         "gaze_point_count": len(group.gaze_points),
         "annotation_source_count": len(group.annotation_sources or []),
+        "mask_point_mode": mask_point_mode_name(comparison),
     }
 
 
@@ -1816,6 +1876,7 @@ def materialize_debug_overlay_group(
     focus_region_shape: str,
     max_gaze_gap: float,
     overwrite: bool,
+    comparison: bool = False,
 ) -> dict[str, object]:
     source_clips = discover_sibling_clips(group.final_clip_path, group.clip_prefix)
     if not source_clips:
@@ -1839,6 +1900,7 @@ def materialize_debug_overlay_group(
             "clip_mp4_count": 1,
             "clip_wav_count": 0,
             "gaze_point_count": len(group.gaze_points),
+            "mask_point_mode": mask_point_mode_name(comparison),
             "reused": True,
         }
     if overwrite and output_dir.exists():
@@ -1859,6 +1921,7 @@ def materialize_debug_overlay_group(
             "clip_mp4_count": 0,
             "clip_wav_count": 0,
             "gaze_point_count": 0,
+            "mask_point_mode": mask_point_mode_name(comparison),
             "skipped": True,
             "skip_reason": "no_gaze_points",
         }
@@ -1871,8 +1934,15 @@ def materialize_debug_overlay_group(
         focus_region_ratio=focus_region_ratio,
         focus_region_shape=focus_region_shape,
         max_gaze_gap=max_gaze_gap,
+        comparison=comparison,
     )
-    _write_provenance_metadata(output_dir, group, [source_clip_path])
+    _write_provenance_metadata(
+        output_dir,
+        group,
+        [source_clip_path],
+        mask_point_mode=mask_point_mode_name(comparison),
+        plot_points=focus_points_for_mode(group.gaze_points, comparison),
+    )
     return {
         "annotator_number": group.annotator_number,
         "dataset": group.dataset,
@@ -1887,6 +1957,7 @@ def materialize_debug_overlay_group(
         "clip_wav_count": 0,
         "masked_frame_count": stats["overlay_frames"],
         "gaze_point_count": len(group.gaze_points),
+        "mask_point_mode": mask_point_mode_name(comparison),
     }
 
 
@@ -1901,6 +1972,7 @@ def materialize_annotation_clip_group(
     overwrite: bool,
     mask_full_video: bool = False,
     use_annotation_media_for_full_video: bool = False,
+    comparison: bool = False,
 ) -> dict[str, object]:
     source_clips = discover_sibling_clips(group.final_clip_path, group.clip_prefix)
     if not source_clips:
@@ -1934,6 +2006,7 @@ def materialize_annotation_clip_group(
             "clip_wav_count": 0,
             "masked_frame_count": 0,
             "gaze_point_count": 0,
+            "mask_point_mode": mask_point_mode_name(comparison),
             "skipped": True,
             "skip_reason": "no_gaze_points",
         }
@@ -1957,6 +2030,7 @@ def materialize_annotation_clip_group(
                 "clip_wav_count": wav_count,
                 "masked_frame_count": "",
                 "gaze_point_count": len(group.gaze_points),
+                "mask_point_mode": mask_point_mode_name(comparison),
                 "reused": True,
             }
         remove_output_dir_for_overwrite(output_dir, mask_mode)
@@ -1983,6 +2057,7 @@ def materialize_annotation_clip_group(
                 focus_region_shape=focus_region_shape,
                 max_gaze_gap=max_gaze_gap,
                 mask_full_video=mask_full_video,
+                comparison=comparison,
             )
             masked_frame_count += stats["masked_frames"]
             if stats["masked_frames"] <= 0:
@@ -2016,12 +2091,19 @@ def materialize_annotation_clip_group(
             "clip_wav_count": 0,
             "masked_frame_count": masked_frame_count,
             "gaze_point_count": len(group.gaze_points),
+            "mask_point_mode": mask_point_mode_name(comparison),
             "skipped": True,
             "skip_reason": "no_masked_frames",
         }
 
     # Write provenance metadata files
-    _write_provenance_metadata(output_dir, group, source_clips)
+    _write_provenance_metadata(
+        output_dir,
+        group,
+        source_clips,
+        mask_point_mode=mask_point_mode_name(comparison),
+        plot_points=focus_points_for_mode(group.gaze_points, comparison),
+    )
 
     return {
         "annotator_number": group.annotator_number,
@@ -2038,6 +2120,7 @@ def materialize_annotation_clip_group(
         "clip_wav_count": wav_count,
         "masked_frame_count": masked_frame_count,
         "gaze_point_count": len(group.gaze_points),
+        "mask_point_mode": mask_point_mode_name(comparison),
     }
 
 
@@ -2200,6 +2283,7 @@ def build_gaze_partition_summary(
     focus_region_ratio: float,
     focus_region_shape: str,
     max_gaze_gap: float,
+    comparison: bool = False,
 ) -> dict[str, object]:
     return {
         **base_summary,
@@ -2208,6 +2292,7 @@ def build_gaze_partition_summary(
         "focus_region_ratio": focus_region_ratio,
         "focus_region_shape": focus_region_shape,
         "max_gaze_gap_seconds": max_gaze_gap,
+        "mask_point_mode": mask_point_mode_name(comparison),
     }
 
 
@@ -2248,6 +2333,7 @@ def main() -> None:
                         group=group,
                         output_parent=args.focus_plot_output_parent,
                         overwrite=args.overwrite,
+                        comparison=args.comparison,
                     )
                     result.setdefault("gaze_mapping", group.gaze_mapping)
                     focus_plot_results.append(result)
@@ -2287,6 +2373,7 @@ def main() -> None:
                         focus_region_shape=args.focus_region_shape,
                         max_gaze_gap=args.max_gaze_gap,
                         overwrite=args.overwrite,
+                        comparison=args.comparison,
                     )
                     result.setdefault("gaze_mapping", group.gaze_mapping)
                     overlay_results.append(result)
@@ -2397,6 +2484,7 @@ def main() -> None:
                         max_gaze_gap=args.max_gaze_gap,
                         overwrite=args.overwrite,
                         mask_full_video=True,
+                        comparison=args.comparison,
                     )
                     result.setdefault("gaze_mapping", group.gaze_mapping)
                     full_corruption_results.append(result)
@@ -2446,6 +2534,7 @@ def main() -> None:
                         focus_region_shape=args.focus_region_shape,
                         max_gaze_gap=args.max_gaze_gap,
                         overwrite=args.overwrite,
+                        comparison=args.comparison,
                     )
                     result.setdefault("gaze_mapping", group.gaze_mapping)
                     results.append(result)
@@ -2538,6 +2627,7 @@ def main() -> None:
                 max_gaze_gap=args.max_gaze_gap,
                 cut=args.cut,
                 overwrite=args.overwrite,
+                comparison=args.comparison,
             )
             materialized_groups.extend(results)
             if failure is not None:
@@ -2571,6 +2661,7 @@ def main() -> None:
         focus_region_ratio=args.focus_region_ratio,
         focus_region_shape=args.focus_region_shape,
         max_gaze_gap=args.max_gaze_gap,
+        comparison=args.comparison,
     )
     write_summary_files(output_summary, output_context_parent)
     (args.output_parent / "gaze_blocked_partition_summary.json").write_text(

@@ -25,11 +25,13 @@ DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotati
 DEFAULT_GAZE_MAPPING="legacy-extraction"
 DEFAULT_RESPONSE_SELECTION="latest-submitted"
 DEFAULT_UTT=""
+COMPARISON=0
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--media-url-prefix URL] [--gaze-mapping legacy-extraction|measured-player] [--response-selection latest-submitted|first-response] [--utt 1,2,3] [--no-overwrite]" >&2
+    echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--media-url-prefix URL] [--gaze-mapping legacy-extraction|measured-player] [--response-selection latest-submitted|first-response] [--utt 1,2,3] [--comparison] [--no-overwrite]" >&2
     echo "  media-url-prefix: media URL prefix to replace; annotation1 and annotation2 are both accepted (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
+    echo "  comparison: write under data_comparison and use shifted non-gaze mask centers." >&2
     echo "  Writes only gaze_blocked_partition focus plots plus annotation_sources.csv/provenance.json. No videos are generated." >&2
 }
 
@@ -82,6 +84,10 @@ while [[ $# -gt 0 ]]; do
             UTT="${2:?Missing value for --utt}"
             shift 2
             ;;
+        --comparison)
+            COMPARISON=1
+            shift
+            ;;
         --no-overwrite)
             OVERWRITE=0
             shift
@@ -130,6 +136,15 @@ if [[ ! -f "${VIDEO_JSON}" ]]; then
     exit 1
 fi
 
+if [[ "${COMPARISON}" == "1" ]]; then
+    OUTPUT_DIR="${OUTPUT_DIR%/}"
+    if [[ "${OUTPUT_DIR##*/}" == "data" ]]; then
+        OUTPUT_DIR="${OUTPUT_DIR%/*}/data_comparison"
+    else
+        OUTPUT_DIR="${OUTPUT_DIR}_comparison"
+    fi
+fi
+
 mkdir -p "${OUTPUT_DIR}"
 
 echo "Project root:       ${PROJECT_ROOT}"
@@ -143,6 +158,7 @@ echo "Media URL prefix:   ${MEDIA_URL_PREFIX} (annotation1 and annotation2 accep
 echo "Gaze mapping:       ${GAZE_MAPPING}"
 echo "Response selection: ${RESPONSE_SELECTION}"
 echo "Utterance groups:   ${UTT:-all}"
+echo "Comparison:         ${COMPARISON}"
 echo "Overwrite:          ${OVERWRITE}"
 
 PYTHON_ARGS=(
@@ -161,6 +177,10 @@ PYTHON_ARGS=(
 
 if [[ -n "${UTT}" ]]; then
     PYTHON_ARGS+=(--utt "${UTT}")
+fi
+
+if [[ "${COMPARISON}" == "1" ]]; then
+    PYTHON_ARGS+=(--comparison)
 fi
 
 if [[ "${OVERWRITE}" == "1" ]]; then
