@@ -20,6 +20,7 @@ DEFAULT_ANNOTATION_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/results"
 DEFAULT_VIDEO_JSON="${DEFAULT_DATA_ROOT}/human_eval/task2/task2.json"
 DEFAULT_SOURCE_VIDEOS="${DEFAULT_DATA_ROOT}/human_eval/videos"
 DEFAULT_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/data"
+# This default is kept as the CLI seed; the Python resolver also accepts annotation2.
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 DEFAULT_GAZE_MAPPING="legacy-extraction"
 DEFAULT_RESPONSE_SELECTION="latest-submitted"
@@ -28,6 +29,7 @@ DEFAULT_UTT=""
 usage() {
     echo "Usage:" >&2
     echo "  sbatch $0 [--pupil-parent PATH] [--annotation-dir PATH] [--video-json PATH] [--source-videos PATH] [--output-dir PATH] [--media-url-prefix URL] [--gaze-mapping legacy-extraction|measured-player] [--response-selection latest-submitted|first-response] [--utt 1,2,3] [--no-overwrite]" >&2
+    echo "  media-url-prefix: media URL prefix to replace; annotation1 and annotation2 are both accepted (default: ${DEFAULT_MEDIA_URL_PREFIX})" >&2
     echo "  Writes only gaze_blocked_partition focus plots plus annotation_sources.csv/provenance.json. No videos are generated." >&2
 }
 
@@ -137,6 +139,7 @@ echo "Pupil parent:       ${PUPIL_PARENT}"
 echo "Annotation dir:     ${ANNOTATION_DIR}"
 echo "Video JSON:         ${VIDEO_JSON}"
 echo "Source videos:      ${SOURCE_VIDEOS}"
+echo "Media URL prefix:   ${MEDIA_URL_PREFIX} (annotation1 and annotation2 accepted)"
 echo "Gaze mapping:       ${GAZE_MAPPING}"
 echo "Response selection: ${RESPONSE_SELECTION}"
 echo "Utterance groups:   ${UTT:-all}"
