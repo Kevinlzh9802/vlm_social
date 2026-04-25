@@ -322,25 +322,8 @@ def get_video_entry_for_timing(
     task_instance_id: int | None = None,
     use_annotation_video_path: bool = False,
 ) -> VideoEntry | None:
-    # Default to the shared task JSON by task_instance_id first, then local
-    # video_number.  The frontend may write incorrect annotation video_path
-    # values, so only use those paths when explicitly requested.
-    if video_entries is not None:
-        lookup_keys = []
-        if task_instance_id is not None:
-            lookup_keys.append((task_instance_id, timing.video_number))
-        lookup_keys.append((None, timing.video_number))
-
-        for lookup_key in lookup_keys:
-            video_entry = video_entries.get(lookup_key)
-            if video_entry is not None and video_entry.video_path.exists():
-                return video_entry
-        logging.warning(
-            "Video JSON lookup failed for task instance %s video number %s.",
-            task_instance_id,
-            timing.video_number,
-        )
-
+    # Prefer the media path recorded with the selected annotation response,
+    # then fall back to the shared task JSON by task_instance_id/video_number.
     if use_annotation_video_path and timing.video_path:
         annotation_video_path = resolve_video_path(
             timing.video_path,
@@ -358,6 +341,22 @@ def get_video_entry_for_timing(
             "Annotation video path does not exist for video %s: %s.",
             timing.video_number,
             annotation_video_path,
+        )
+
+    if video_entries is not None:
+        lookup_keys = []
+        if task_instance_id is not None:
+            lookup_keys.append((task_instance_id, timing.video_number))
+        lookup_keys.append((None, timing.video_number))
+
+        for lookup_key in lookup_keys:
+            video_entry = video_entries.get(lookup_key)
+            if video_entry is not None and video_entry.video_path.exists():
+                return video_entry
+        logging.warning(
+            "Video JSON lookup failed for task instance %s video number %s.",
+            task_instance_id,
+            timing.video_number,
         )
 
     logging.error(

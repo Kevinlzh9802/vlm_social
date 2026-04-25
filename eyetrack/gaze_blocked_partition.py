@@ -223,10 +223,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--use-annotation-video-path",
         action="store_true",
+        default=True,
         help=(
-            "Use video_path from each annotation JSON when video-json lookup fails. "
-            "By default, annotation video_path is ignored because frontend exports "
-            "can point to the wrong first video."
+            "Use video_path from each annotation JSON before video-json lookup. "
+            "This is enabled by default."
+        ),
+    )
+    parser.add_argument(
+        "--no-use-annotation-video-path",
+        action="store_false",
+        dest="use_annotation_video_path",
+        help=(
+            "Ignore annotation JSON video_path and use only video-json lookup for "
+            "source video resolution."
         ),
     )
     parser.add_argument(
