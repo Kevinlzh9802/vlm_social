@@ -16,6 +16,8 @@
 # Examples:
 #   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention
 #   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --gemini-mode 2.5-flash
+#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated
+#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --comparison
 
 set -euo pipefail
 
