@@ -181,6 +181,7 @@ if [[ ! -f "${POINTS_CSV}" ]]; then
 fi
 
 IFS= read -r POINTS_HEADER < "${POINTS_CSV}" || true
+POINTS_HEADER="${POINTS_HEADER%$'\r'}"
 if [[ ",${POINTS_HEADER}," != *",neighboring_similarity_to_next,"* ]]; then
     echo "Point CSV is missing neighboring_similarity_to_next: ${POINTS_CSV}" >&2
     echo "Make sure the cluster is running the updated project code mounted at ${PROJECT_ROOT}." >&2

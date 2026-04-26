@@ -183,6 +183,7 @@ fi
 
 if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" ]]; then
     IFS= read -r HUMAN_POINTS_HEADER < "${HUMAN_ANNOTATION_POINTS_CSV}" || true
+    HUMAN_POINTS_HEADER="${HUMAN_POINTS_HEADER%$'\r'}"
     if [[ ",${HUMAN_POINTS_HEADER}," != *",neighboring_similarity_to_next,"* ]]; then
         echo "Human annotation point CSV is missing neighboring_similarity_to_next: ${HUMAN_ANNOTATION_POINTS_CSV}" >&2
         echo "Rerun human_annotation_similarity_daic.sh so analysis can overlay human ST curves, or pass --skip-human-overlay." >&2
