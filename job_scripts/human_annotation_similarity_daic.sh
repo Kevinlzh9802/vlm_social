@@ -173,3 +173,18 @@ srun apptainer exec \
     --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
     "${SIF_PATH}" \
     "${PYTHON_ARGS[@]}"
+
+POINTS_CSV="${PLOT_DATA_DIR}/partial_to_full_points.csv"
+if [[ ! -f "${POINTS_CSV}" ]]; then
+    echo "Expected point CSV was not created: ${POINTS_CSV}" >&2
+    exit 1
+fi
+
+IFS= read -r POINTS_HEADER < "${POINTS_CSV}" || true
+if [[ ",${POINTS_HEADER}," != *",neighboring_similarity_to_next,"* ]]; then
+    echo "Point CSV is missing neighboring_similarity_to_next: ${POINTS_CSV}" >&2
+    echo "Make sure the cluster is running the updated project code mounted at ${PROJECT_ROOT}." >&2
+    exit 1
+fi
+
+echo "Verified point CSV includes neighboring_similarity_to_next: ${POINTS_CSV}"

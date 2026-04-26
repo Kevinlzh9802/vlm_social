@@ -448,16 +448,19 @@ def main() -> None:
     ):
         try:
             payload = get_dict(load_json(path), path.name)
-            annotator_rows: dict[int, list[dict[str, Any]]] = {}
-
             video_paths: list[str] | None = None
             audio_paths: list[str] | None = None
             if task_items is not None:
                 video_paths, audio_paths = flatten_task_media_lists(
                     task_items, task_instance_id
                 )
+        except Exception as exc:
+            errors.append(f"{path.name}: {exc}")
+            continue
 
-            for annotator_number in (1, 2):
+        annotator_rows: dict[int, list[dict[str, Any]]] = {}
+        for annotator_number in (1, 2):
+            try:
                 rows = parse_annotation_file_for_annotator(
                     payload=payload,
                     task_number=task_number,
@@ -467,9 +470,14 @@ def main() -> None:
                 )
                 if task_items is not None:
                     rows = link_rows_to_media(rows, video_paths or [], audio_paths or [])
-                annotator_rows[annotator_number] = rows
-                flat_rows.extend(rows)
+            except Exception as exc:
+                errors.append(f"{path.name} annotator {annotator_number}: {exc}")
+                continue
 
+            annotator_rows[annotator_number] = rows
+            flat_rows.extend(rows)
+
+        if annotator_rows:
             grouped_records.append(
                 {
                     "task_number": task_number,
@@ -478,8 +486,6 @@ def main() -> None:
                     "annotator_rows": annotator_rows,
                 }
             )
-        except Exception as exc:
-            errors.append(f"{path.name}: {exc}")
 
     write_csv(output_csv, flat_rows)
     write_json(output_json, build_grouped_json(grouped_records, task_json_path))
