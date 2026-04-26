@@ -311,6 +311,38 @@ def summarize_by_dataset_utt(
     return rows
 
 
+def summarize_by_utt_weighted(
+    dataset_utt_rows: Sequence[dict[str, object]],
+) -> list[dict[str, object]]:
+    grouped: dict[tuple[str, str, int], list[tuple[int, float]]] = defaultdict(list)
+    for row in dataset_utt_rows:
+        sample_count = int(row["sample_count"])
+        if sample_count <= 0:
+            continue
+        grouped[
+            (
+                str(row["model"]),
+                str(row["prompt"]),
+                int(row["utt_count"]),
+            )
+        ].append((sample_count, float(row["mean_similarity"])))
+
+    rows: list[dict[str, object]] = []
+    for (model_label, prompt_name, utt_count), values in sorted(grouped.items()):
+        sample_count = sum(count for count, _ in values)
+        weighted_sum = sum(count * mean_similarity for count, mean_similarity in values)
+        rows.append(
+            {
+                "model": model_label,
+                "prompt": prompt_name,
+                "utt_count": utt_count,
+                "sample_count": sample_count,
+                "weighted_mean_similarity": float(weighted_sum / sample_count),
+            }
+        )
+    return rows
+
+
 def summarize_by_dataset(
     comparisons: Sequence[ClipComparison],
 ) -> list[dict[str, object]]:
@@ -471,6 +503,7 @@ def main() -> None:
 
     point_rows = build_point_rows(comparisons)
     dataset_utt_rows = summarize_by_dataset_utt(comparisons)
+    utt_rows = summarize_by_utt_weighted(dataset_utt_rows)
     dataset_rows = summarize_by_dataset(comparisons)
     overall_rows = summarize_overall_weighted(comparisons)
     table_rows = build_table_rows(dataset_rows, overall_rows)
@@ -480,6 +513,7 @@ def main() -> None:
     point_csv_path = output_dir / "manipulation_result_similarity_points.csv"
     point_json_path = output_dir / "manipulation_result_similarity_points.json"
     dataset_utt_csv_path = output_dir / "manipulation_result_similarity_by_dataset_utt.csv"
+    utt_csv_path = output_dir / "manipulation_result_similarity_by_utt.csv"
     dataset_csv_path = output_dir / "manipulation_result_similarity_by_dataset.csv"
     overall_csv_path = output_dir / "manipulation_result_similarity_overall_weighted.csv"
     table_csv_path = output_dir / "manipulation_result_similarity_table.csv"
@@ -515,6 +549,11 @@ def main() -> None:
         dataset_utt_rows,
     )
     write_csv(
+        utt_csv_path,
+        ["model", "prompt", "utt_count", "sample_count", "weighted_mean_similarity"],
+        utt_rows,
+    )
+    write_csv(
         dataset_csv_path,
         ["model", "prompt", "dataset", "sample_count", "mean_similarity"],
         dataset_rows,
@@ -545,6 +584,7 @@ def main() -> None:
             "reference_results_root": str(reference_results_root),
             "comparison_count": len(comparisons),
             "dataset_utt_rows": dataset_utt_rows,
+            "utt_rows": utt_rows,
             "dataset_rows": dataset_rows,
             "overall_rows": overall_rows,
             "table_rows": table_rows,
@@ -555,6 +595,7 @@ def main() -> None:
     print(f"[INFO] Saved {point_csv_path}")
     print(f"[INFO] Saved {point_json_path}")
     print(f"[INFO] Saved {dataset_utt_csv_path}")
+    print(f"[INFO] Saved {utt_csv_path}")
     print(f"[INFO] Saved {dataset_csv_path}")
     print(f"[INFO] Saved {overall_csv_path}")
     print(f"[INFO] Saved {table_csv_path}")
