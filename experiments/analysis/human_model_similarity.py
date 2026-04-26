@@ -45,6 +45,7 @@ except ImportError:
 
 
 DEFAULT_PROGRESS_PARTITIONS = 20
+RELATIVE_DENOMINATOR_EPSILON = 1e-12
 DATASET_NAMES = ("mintrec2", "meld", "seamless_interaction")
 TASK_NAMES = ("affordance", "intention")
 PROMPT_FIELD_MAP = {
@@ -678,15 +679,19 @@ def compute_aligned_sequence_similarity(
 def collect_similarity_bins(
     sequences: Sequence[SequenceSimilarity],
     progress_partitions: int,
+    relative_to_final: bool = False,
 ) -> dict[float, list[float]]:
     grouped_values: dict[float, list[float]] = defaultdict(list)
     for sequence in sequences:
+        denominator = sequence.similarities[-1] if relative_to_final else 1.0
+        if abs(denominator) <= RELATIVE_DENOMINATOR_EPSILON:
+            continue
         for position, similarity in enumerate(sequence.similarities, start=1):
             progress_ratio = quantize_progress_ratio(
                 position / sequence.clip_count,
                 progress_partitions,
             )
-            grouped_values[progress_ratio].append(similarity)
+            grouped_values[progress_ratio].append(similarity / denominator)
     return grouped_values
 
 
@@ -717,6 +722,7 @@ def plot_similarity_stat_multi_model(
     output_path: Path,
     progress_partitions: int,
     percentile: int | None = None,
+    relative_to_final: bool = False,
 ) -> bool:
     plt.figure(figsize=(9, 6))
     plotted_any = False
@@ -726,27 +732,47 @@ def plot_similarity_stat_multi_model(
         sequences = case_sequences[model_label]
         if not sequences:
             continue
-        grouped_values = collect_similarity_bins(sequences, progress_partitions)
+        grouped_values = collect_similarity_bins(
+            sequences,
+            progress_partitions,
+            relative_to_final=relative_to_final,
+        )
         if not grouped_values:
             continue
 
         if stat_name == "mean":
             ratios = sorted(grouped_values)
             stat_values = [float(np.mean(grouped_values[ratio])) for ratio in ratios]
-            legend_suffix = "mean"
-            ylabel = "Average cosine similarity"
-            title_suffix = "Mean"
+            legend_suffix = "relative mean" if relative_to_final else "mean"
+            ylabel = (
+                "Average relative similarity"
+                if relative_to_final
+                else "Average cosine similarity"
+            )
+            title_suffix = "Relative Mean" if relative_to_final else "Mean"
         elif stat_name == "median":
             ratios = sorted(grouped_values)
             stat_values = [float(np.median(grouped_values[ratio])) for ratio in ratios]
-            legend_suffix = "median"
-            ylabel = "Median cosine similarity"
-            title_suffix = "Median"
+            legend_suffix = "relative median" if relative_to_final else "median"
+            ylabel = (
+                "Median relative similarity"
+                if relative_to_final
+                else "Median cosine similarity"
+            )
+            title_suffix = "Relative Median" if relative_to_final else "Median"
         elif stat_name == "percentile" and percentile is not None:
             ratios, stat_values = percentile_by_ratio(grouped_values, percentile)
-            legend_suffix = f"p{percentile}"
-            ylabel = f"{percentile}th percentile cosine similarity"
-            title_suffix = f"p{percentile}"
+            legend_suffix = (
+                f"relative p{percentile}" if relative_to_final else f"p{percentile}"
+            )
+            ylabel = (
+                f"{percentile}th percentile relative similarity"
+                if relative_to_final
+                else f"{percentile}th percentile cosine similarity"
+            )
+            title_suffix = (
+                f"Relative p{percentile}" if relative_to_final else f"p{percentile}"
+            )
         else:
             raise ValueError(f"Unsupported stat_name={stat_name} percentile={percentile}")
 
@@ -771,13 +797,74 @@ def plot_similarity_stat_multi_model(
     plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
     plt.ylabel(ylabel)
     plt.xlim(0.0, 1.02)
-    plt.ylim(-0.05, 1.05)
+    if relative_to_final:
+        finite_values = [
+            value
+            for line in plt.gca().lines
+            for value in line.get_ydata()
+            if np.isfinite(value)
+        ]
+        if finite_values:
+            y_min = min(finite_values)
+            y_max = max(finite_values)
+            padding = max(0.05, (y_max - y_min) * 0.08)
+            plt.ylim(y_min - padding, y_max + padding)
+    else:
+        plt.ylim(-0.05, 1.05)
     plt.grid(True, alpha=0.25)
     plt.legend()
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
     plt.close()
     return True
+
+
+def build_similarity_plot_specs(
+    case_plot_dir: Path,
+    dataset_name: str,
+) -> list[tuple[str, int | None, Path, bool]]:
+    prefix = (
+        "all_datasets_human_vs_model"
+        if dataset_name == "all"
+        else f"{dataset_name}_human_vs_model"
+    )
+    return [
+        ("mean", None, case_plot_dir / f"{prefix}_similarity_mean.png", False),
+        ("median", None, case_plot_dir / f"{prefix}_similarity_median.png", False),
+        ("percentile", 25, case_plot_dir / f"{prefix}_similarity_p25.png", False),
+        ("percentile", 50, case_plot_dir / f"{prefix}_similarity_p50.png", False),
+        ("percentile", 75, case_plot_dir / f"{prefix}_similarity_p75.png", False),
+        (
+            "mean",
+            None,
+            case_plot_dir / f"{prefix}_relative_to_final_mean.png",
+            True,
+        ),
+        (
+            "median",
+            None,
+            case_plot_dir / f"{prefix}_relative_to_final_median.png",
+            True,
+        ),
+        (
+            "percentile",
+            25,
+            case_plot_dir / f"{prefix}_relative_to_final_p25.png",
+            True,
+        ),
+        (
+            "percentile",
+            50,
+            case_plot_dir / f"{prefix}_relative_to_final_p50.png",
+            True,
+        ),
+        (
+            "percentile",
+            75,
+            case_plot_dir / f"{prefix}_relative_to_final_p75.png",
+            True,
+        ),
+    ]
 
 
 def summarize_bins(
@@ -789,25 +876,67 @@ def summarize_bins(
     progress_partitions: int,
 ) -> list[dict[str, object]]:
     grouped_values = collect_similarity_bins(sequences, progress_partitions)
+    relative_grouped_values = collect_similarity_bins(
+        sequences,
+        progress_partitions,
+        relative_to_final=True,
+    )
     rows: list[dict[str, object]] = []
-    for ratio in sorted(grouped_values):
-        values = grouped_values[ratio]
-        rows.append(
-            {
-                "model": model_label,
-                "prompt": prompt_name,
-                "dataset": dataset_name,
-                "utt_count": utt_count,
-                "bin_index": int(round(ratio * progress_partitions)),
-                "progress_ratio": ratio,
-                "sample_count": len(values),
-                "mean_similarity": float(np.mean(values)),
-                "median_similarity": float(np.median(values)),
-                "percentile_25": float(np.percentile(values, 25)),
-                "percentile_50": float(np.percentile(values, 50)),
-                "percentile_75": float(np.percentile(values, 75)),
-            }
-        )
+    for ratio in sorted(set(grouped_values) | set(relative_grouped_values)):
+        values = grouped_values.get(ratio, [])
+        relative_values = relative_grouped_values.get(ratio, [])
+        row: dict[str, object] = {
+            "model": model_label,
+            "prompt": prompt_name,
+            "dataset": dataset_name,
+            "utt_count": utt_count,
+            "bin_index": int(round(ratio * progress_partitions)),
+            "progress_ratio": ratio,
+            "sample_count": len(values),
+            "relative_sample_count": len(relative_values),
+        }
+        if values:
+            row.update(
+                {
+                    "mean_similarity": float(np.mean(values)),
+                    "median_similarity": float(np.median(values)),
+                    "percentile_25": float(np.percentile(values, 25)),
+                    "percentile_50": float(np.percentile(values, 50)),
+                    "percentile_75": float(np.percentile(values, 75)),
+                }
+            )
+        else:
+            row.update(
+                {
+                    "mean_similarity": None,
+                    "median_similarity": None,
+                    "percentile_25": None,
+                    "percentile_50": None,
+                    "percentile_75": None,
+                }
+            )
+
+        if relative_values:
+            row.update(
+                {
+                    "mean_relative_similarity": float(np.mean(relative_values)),
+                    "median_relative_similarity": float(np.median(relative_values)),
+                    "relative_percentile_25": float(np.percentile(relative_values, 25)),
+                    "relative_percentile_50": float(np.percentile(relative_values, 50)),
+                    "relative_percentile_75": float(np.percentile(relative_values, 75)),
+                }
+            )
+        else:
+            row.update(
+                {
+                    "mean_relative_similarity": None,
+                    "median_relative_similarity": None,
+                    "relative_percentile_25": None,
+                    "relative_percentile_50": None,
+                    "relative_percentile_75": None,
+                }
+            )
+        rows.append(row)
     return rows
 
 
@@ -817,6 +946,8 @@ def build_point_rows(
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for sequence in sequences:
+        final_similarity = sequence.similarities[-1]
+        can_compute_relative = abs(final_similarity) > RELATIVE_DENOMINATOR_EPSILON
         for clip_position, similarity in enumerate(sequence.similarities, start=1):
             raw_progress_ratio = clip_position / sequence.clip_count
             rows.append(
@@ -837,6 +968,10 @@ def build_point_rows(
                         progress_partitions,
                     ),
                     "similarity": similarity,
+                    "final_similarity": final_similarity,
+                    "relative_similarity": (
+                        similarity / final_similarity if can_compute_relative else None
+                    ),
                 }
             )
     return rows
@@ -851,11 +986,17 @@ def write_summary_csv(path: Path, rows: Sequence[dict[str, object]]) -> None:
         "bin_index",
         "progress_ratio",
         "sample_count",
+        "relative_sample_count",
         "mean_similarity",
         "median_similarity",
         "percentile_25",
         "percentile_50",
         "percentile_75",
+        "mean_relative_similarity",
+        "median_relative_similarity",
+        "relative_percentile_25",
+        "relative_percentile_50",
+        "relative_percentile_75",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -900,6 +1041,8 @@ def write_points_csv(path: Path, rows: Sequence[dict[str, object]]) -> None:
         "progress_ratio_raw",
         "progress_ratio_binned",
         "similarity",
+        "final_similarity",
+        "relative_similarity",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -1070,17 +1213,13 @@ def main() -> None:
         )
         all_point_rows.extend(build_point_rows(sequences, args.progress_partitions))
 
-    for (prompt_name, dataset_name, utt_count), case_sequences in sorted(plot_sequences_by_case.items()):
+    for (prompt_name, dataset_name, utt_count), case_sequences in sorted(
+        plot_sequences_by_case.items()
+    ):
         case_plot_dir = plot_dir / prompt_name / f"{utt_count}utt"
         case_plot_dir.mkdir(parents=True, exist_ok=True)
-        plot_specs = [
-            ("mean", None, case_plot_dir / f"{dataset_name}_human_vs_model_similarity_mean.png"),
-            ("median", None, case_plot_dir / f"{dataset_name}_human_vs_model_similarity_median.png"),
-            ("percentile", 25, case_plot_dir / f"{dataset_name}_human_vs_model_similarity_p25.png"),
-            ("percentile", 50, case_plot_dir / f"{dataset_name}_human_vs_model_similarity_p50.png"),
-            ("percentile", 75, case_plot_dir / f"{dataset_name}_human_vs_model_similarity_p75.png"),
-        ]
-        for stat_name, percentile, plot_path in plot_specs:
+        plot_specs = build_similarity_plot_specs(case_plot_dir, dataset_name)
+        for stat_name, percentile, plot_path, relative_to_final in plot_specs:
             if plot_similarity_stat_multi_model(
                 case_sequences=case_sequences,
                 prompt_name=prompt_name,
@@ -1090,10 +1229,13 @@ def main() -> None:
                 output_path=plot_path,
                 progress_partitions=args.progress_partitions,
                 percentile=percentile,
+                relative_to_final=relative_to_final,
             ):
                 print(f"[INFO] Saved {plot_path}")
 
-    for (prompt_name, utt_count), case_sequences in sorted(overall_plot_sequences_by_case.items()):
+    for (prompt_name, utt_count), case_sequences in sorted(
+        overall_plot_sequences_by_case.items()
+    ):
         for model_label, sequences in sorted(case_sequences.items()):
             if not sequences:
                 continue
@@ -1110,14 +1252,8 @@ def main() -> None:
 
         case_plot_dir = plot_dir / prompt_name / f"{utt_count}utt"
         case_plot_dir.mkdir(parents=True, exist_ok=True)
-        plot_specs = [
-            ("mean", None, case_plot_dir / "all_datasets_human_vs_model_similarity_mean.png"),
-            ("median", None, case_plot_dir / "all_datasets_human_vs_model_similarity_median.png"),
-            ("percentile", 25, case_plot_dir / "all_datasets_human_vs_model_similarity_p25.png"),
-            ("percentile", 50, case_plot_dir / "all_datasets_human_vs_model_similarity_p50.png"),
-            ("percentile", 75, case_plot_dir / "all_datasets_human_vs_model_similarity_p75.png"),
-        ]
-        for stat_name, percentile, plot_path in plot_specs:
+        plot_specs = build_similarity_plot_specs(case_plot_dir, "all")
+        for stat_name, percentile, plot_path, relative_to_final in plot_specs:
             if plot_similarity_stat_multi_model(
                 case_sequences=case_sequences,
                 prompt_name=prompt_name,
@@ -1127,6 +1263,7 @@ def main() -> None:
                 output_path=plot_path,
                 progress_partitions=args.progress_partitions,
                 percentile=percentile,
+                relative_to_final=relative_to_final,
             ):
                 print(f"[INFO] Saved {plot_path}")
 
