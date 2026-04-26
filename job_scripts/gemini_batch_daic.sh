@@ -27,7 +27,8 @@ prompt_choice=""
 utt_count=""
 batch_number=""
 gemini_mode="2.5-flash"
-annotator_number=""
+annotated=0
+comparison=0
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -49,11 +50,13 @@ while [ "$#" -gt 0 ]; do
         --gemini-mode)
             if [ "$#" -lt 2 ]; then echo "[ERROR] Missing value for $1" >&2; exit 1; fi
             gemini_mode="$2"; shift 2 ;;
-        -annotator|--annotator)
-            if [ "$#" -lt 2 ]; then echo "[ERROR] Missing value for $1" >&2; exit 1; fi
-            annotator_number="$2"; shift 2 ;;
+        --annotated)
+            annotated=1; shift ;;
+        --comparison)
+            comparison=1; shift ;;
         -h|--help)
-            echo "Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --utt <1|2|3> --batch <number> --prompt <prompt_choice> [--gemini-mode <mode>] [--annotator <n>] [--poll-interval <seconds>]" >&2
+            echo "Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison]" >&2
+            echo "  --utt is required unless --annotated is set. With --annotated, all 1/2/3-utt groups are submitted." >&2
             exit 0 ;;
         -*)
             echo "[ERROR] Unknown option: $1" >&2; exit 1 ;;
@@ -65,12 +68,26 @@ done
 # ---------------------------------------------------------------------------
 # Required-argument checks
 # ---------------------------------------------------------------------------
-usage_msg="Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --utt <1|2|3> --batch <number> --prompt <prompt_choice> [--gemini-mode <mode>] [--annotator <n>] [--poll-interval <seconds>]"
+usage_msg="Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison]"
 
 if [ -z "$dataset_name" ]; then echo "[ERROR] --dataset is required" >&2; echo "$usage_msg" >&2; exit 1; fi
 if [ -z "$prompt_choice" ]; then echo "[ERROR] --prompt is required" >&2; echo "$usage_msg" >&2; exit 1; fi
-if [ -z "$utt_count" ];     then echo "[ERROR] --utt is required"    >&2; echo "$usage_msg" >&2; exit 1; fi
 if [ -z "$batch_number" ];  then echo "[ERROR] --batch is required"  >&2; echo "$usage_msg" >&2; exit 1; fi
+if [ "$annotated" = "1" ] && [ -n "$utt_count" ]; then
+    echo "[ERROR] --utt is disabled when --annotated is set; annotated mode submits all 1/2/3-utt groups." >&2
+    echo "$usage_msg" >&2
+    exit 1
+fi
+if [ "$annotated" = "0" ] && [ -z "$utt_count" ]; then
+    echo "[ERROR] --utt is required unless --annotated is set" >&2
+    echo "$usage_msg" >&2
+    exit 1
+fi
+if [ "$comparison" = "1" ] && [ "$annotated" = "0" ]; then
+    echo "[ERROR] --comparison is only supported together with --annotated" >&2
+    echo "$usage_msg" >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -81,23 +98,18 @@ case "$prompt_choice" in
         echo "[WARN] Unexpected prompt choice: $prompt_choice (expected 'intention' or 'affordance'). Continuing; prompts.json validation will decide." >&2 ;;
 esac
 
-case "$utt_count" in
-    1|2|3) ;;
-    *)
-        echo "[ERROR] Invalid utt count: $utt_count (expected 1, 2, or 3)" >&2; exit 1 ;;
-esac
+if [ "$annotated" = "0" ]; then
+    case "$utt_count" in
+        1|2|3) ;;
+        *)
+            echo "[ERROR] Invalid utt count: $utt_count (expected 1, 2, or 3)" >&2; exit 1 ;;
+    esac
+fi
 
 case "$batch_number" in
     ''|*[!0-9]*)
         echo "[ERROR] Invalid batch number: $batch_number (expected a positive integer)" >&2; exit 1 ;;
 esac
-
-if [ -n "$annotator_number" ]; then
-    case "$annotator_number" in
-        ''|*[!0-9]*)
-            echo "[ERROR] Invalid annotator number: $annotator_number (expected a positive integer)" >&2; exit 1 ;;
-    esac
-fi
 
 batch_id=$(printf "%02d" "$batch_number")
 
@@ -110,17 +122,24 @@ gestalt_data_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
 default_gestalt_root="${gestalt_data_root}/human_eval/samples"
 default_output_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini
 
-if [ -n "$annotator_number" ]; then
-    gestalt_root="${gestalt_data_root}/human_eval/task2/manipulation_full/annotator${annotator_number}"
-    output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results"
+if [ "$annotated" = "1" ]; then
+    if [ "$comparison" = "1" ]; then
+        gestalt_root="${gestalt_data_root}/human_eval/task2/manipulation_full/data_comparison"
+        output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_comparison/gemini"
+    else
+        gestalt_root="${gestalt_data_root}/human_eval/task2/manipulation_full/data"
+        output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results/gemini"
+    fi
 else
     gestalt_root="${default_gestalt_root}"
     output_root="${default_output_root}"
 fi
 
-data_parent="${gestalt_root}/${dataset_name}/context/${utt_count}-utt_group/batch${batch_id}"
-output_dir="${output_root}/${dataset_name}/context/${utt_count}-utt_group/${gemini_mode}_${prompt_choice}_single-turn"
-output_json="${output_dir}/batch${batch_id}.json"
+if [ "$annotated" = "1" ]; then
+    candidate_utt_counts=(1 2 3)
+else
+    candidate_utt_counts=("$utt_count")
+fi
 
 inference_script="api_models/gemini_batch.py"
 prompt_config="${project_dir}/api_models/configs/prompts.json"
@@ -141,8 +160,23 @@ if [ ! -f "$project_dir/$inference_script" ]; then
     exit 1
 fi
 
-if [ ! -d "$data_parent" ]; then
-    echo "[ERROR] Batch data folder not found: $data_parent" >&2
+utt_counts=()
+for current_utt in "${candidate_utt_counts[@]}"; do
+    data_parent="${gestalt_root}/${dataset_name}/context/${current_utt}-utt_group/batch${batch_id}"
+    if [ ! -d "$data_parent" ]; then
+        if [ "$annotated" = "1" ]; then
+            echo "[WARN] Batch data folder not found, skipping ${current_utt}-utt group: $data_parent" >&2
+            continue
+        else
+            echo "[ERROR] Batch data folder not found: $data_parent" >&2
+            exit 1
+        fi
+    fi
+    utt_counts+=("$current_utt")
+done
+
+if [ "${#utt_counts[@]}" -eq 0 ]; then
+    echo "[ERROR] No batch data folders found for dataset=${dataset_name}, batch=${batch_id}" >&2
     exit 1
 fi
 
@@ -158,7 +192,10 @@ fi
 
 # Ensure output and slurm log directories exist
 mkdir -p /home/nfs/zli33/slurm_outputs/gemini-batch
-mkdir -p "$output_dir"
+for current_utt in "${utt_counts[@]}"; do
+    output_dir="${output_root}/${dataset_name}/context/${current_utt}-utt_group/${gemini_mode}_${prompt_choice}_single-turn"
+    mkdir -p "$output_dir"
+done
 
 # ---------------------------------------------------------------------------
 # Run batch inference
@@ -166,38 +203,50 @@ mkdir -p "$output_dir"
 echo "[INFO] sif_file       = $sif_file"
 echo "[INFO] project_dir    = $project_dir"
 echo "[INFO] dataset        = $dataset_name"
-echo "[INFO] utt            = $utt_count"
+echo "[INFO] utt            = ${utt_count:-all}"
 echo "[INFO] batch          = $batch_id"
-echo "[INFO] annotator      = ${annotator_number:-default}"
+echo "[INFO] annotated      = $annotated"
+echo "[INFO] comparison     = $comparison"
 echo "[INFO] gestalt_root   = $gestalt_root"
-echo "[INFO] data_parent    = $data_parent"
 echo "[INFO] output_root    = $output_root"
 echo "[INFO] gemini_mode    = $gemini_mode"
 echo "[INFO] prompt_config  = $prompt_config"
 echo "[INFO] prompt_choice  = $prompt_choice"
 echo "[INFO] inference_script = $inference_script"
 echo "[INFO] registry       = $registry_file"
-echo "[INFO] output_json    = $output_json"
 echo ""
 
-apptainer exec \
-    --bind "$project_dir":/workspace \
-    --bind "${gestalt_root}":"${gestalt_root}" \
-    --bind "${output_root}":"${output_root}" \
-    --bind "$api_key_file":"$api_key_file":ro \
-    --pwd /workspace \
-    "$sif_file" \
-    python "api_models/gemini_batch.py" \
-        --data-root "$data_parent" \
-        --output "$output_json" \
-        --prompt-choice "$prompt_choice" \
-        --prompts-config "api_models/configs/prompts.json" \
-        --utt-count "$utt_count" \
-        --mode "$gemini_mode" \
-        --api-key-path "$api_key_file" \
-        --dataset "$dataset_name" \
-        --batch-id "batch${batch_id}" \
-        --registry "$registry_file"
+for current_utt in "${utt_counts[@]}"; do
+    data_parent="${gestalt_root}/${dataset_name}/context/${current_utt}-utt_group/batch${batch_id}"
+    output_dir="${output_root}/${dataset_name}/context/${current_utt}-utt_group/${gemini_mode}_${prompt_choice}_single-turn"
+    output_json="${output_dir}/batch${batch_id}.json"
+
+    echo "[INFO] submitting utt       = $current_utt"
+    echo "[INFO] data_parent          = $data_parent"
+    echo "[INFO] output_json          = $output_json"
+    echo ""
+
+    apptainer exec \
+        --bind "$project_dir":/workspace \
+        --bind "${gestalt_root}":"${gestalt_root}" \
+        --bind "${output_root}":"${output_root}" \
+        --bind "$api_key_file":"$api_key_file":ro \
+        --pwd /workspace \
+        "$sif_file" \
+        python "api_models/gemini_batch.py" \
+            --data-root "$data_parent" \
+            --output "$output_json" \
+            --prompt-choice "$prompt_choice" \
+            --prompts-config "api_models/configs/prompts.json" \
+            --utt-count "$current_utt" \
+            --mode "$gemini_mode" \
+            --api-key-path "$api_key_file" \
+            --dataset "$dataset_name" \
+            --batch-id "batch${batch_id}" \
+            --registry "$registry_file"
+
+    echo ""
+done
 
 echo ""
-echo "[INFO] Batch job submitted. Run gemini_retrieve_daic.sh to download results later."
+echo "[INFO] Batch job(s) submitted. Run gemini_retrieve_daic.sh to download results later."
