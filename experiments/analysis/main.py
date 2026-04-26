@@ -102,7 +102,9 @@ def parse_args() -> argparse.Namespace:
             "Optional partial_to_full_percentiles.csv from "
             "human_annotation_similarity.py. When set, additional aggregate "
             "plots overlay human annotation partial-to-full similarity with "
-            "model clip-to-final similarity under each utterance/task condition."
+            "model clip-to-final similarity under each utterance/task condition. "
+            "The sibling partial_to_full_points.csv is used for human ST overlay "
+            "when it includes neighboring_similarity_to_next."
         ),
     )
     parser.add_argument(
@@ -408,6 +410,102 @@ def load_human_annotation_summary_csv(
         }
         for case_key, stat_rows in human_summary.items()
     }
+
+
+def infer_human_annotation_points_csv(summary_csv_path: Path) -> Path:
+    return summary_csv_path.expanduser().resolve().parent / "partial_to_full_points.csv"
+
+
+def load_human_annotation_turnover_points_csv(
+    summary_csv_path: Path,
+) -> dict[tuple[int, str], list[UtteranceMetrics]]:
+    points_path = infer_human_annotation_points_csv(summary_csv_path)
+    if not points_path.is_file():
+        print(
+            "[WARN] Human annotation point CSV does not exist; "
+            f"skipping human ST overlay: {points_path}"
+        )
+        return {}
+
+    grouped_rows: dict[
+        tuple[int, str, int, int],
+        list[tuple[int, float, float | None]],
+    ] = defaultdict(list)
+    with points_path.open("r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        if "neighboring_similarity_to_next" not in (reader.fieldnames or []):
+            print(
+                "[WARN] Human annotation point CSV has no "
+                "neighboring_similarity_to_next column; rerun "
+                "human_annotation_similarity.py to enable human ST overlay."
+            )
+            return {}
+
+        for row in reader:
+            if row.get("dataset") != "all":
+                continue
+            prompt_name = str(row.get("prompt", "")).strip()
+            utt_count_text = str(row.get("utt_count", "")).strip()
+            if prompt_name not in TASK_NAMES or not utt_count_text.isdigit():
+                continue
+
+            try:
+                utt_count = int(utt_count_text)
+                utterance_index = int(row["utterance_index"])
+                clip_count = int(row["clip_count"])
+                clip_position = int(row["clip_position"])
+                similarity_to_full = float(row["similarity_to_full"])
+            except (KeyError, TypeError, ValueError) as exc:
+                print(f"[WARN] Skipping malformed human point row {row}: {exc}")
+                continue
+
+            neighboring_text = str(row.get("neighboring_similarity_to_next", "")).strip()
+            neighboring_similarity = None
+            if neighboring_text:
+                try:
+                    neighboring_similarity = float(neighboring_text)
+                except ValueError as exc:
+                    print(f"[WARN] Skipping malformed human neighbor value {row}: {exc}")
+                    continue
+
+            grouped_rows[(utt_count, prompt_name, utterance_index, clip_count)].append(
+                (clip_position, similarity_to_full, neighboring_similarity)
+            )
+
+    case_metrics: dict[tuple[int, str], list[UtteranceMetrics]] = defaultdict(list)
+    for (utt_count, prompt_name, _utterance_index, clip_count), point_rows in sorted(
+        grouped_rows.items()
+    ):
+        ordered_rows = sorted(point_rows, key=lambda item: item[0])
+        clip_to_final_similarities = [similarity for _, similarity, _ in ordered_rows]
+        neighboring_similarities = [
+            similarity
+            for _, _, similarity in ordered_rows
+            if similarity is not None
+        ]
+        if len(clip_to_final_similarities) != clip_count:
+            print(
+                "[WARN] Skipping incomplete human annotation utterance for ST overlay: "
+                f"utt={utt_count}, task={prompt_name}, expected={clip_count}, "
+                f"actual={len(clip_to_final_similarities)}"
+            )
+            continue
+        if len(neighboring_similarities) != clip_count - 1:
+            print(
+                "[WARN] Skipping human annotation utterance with incomplete neighbor "
+                f"similarities: utt={utt_count}, task={prompt_name}, "
+                f"expected={clip_count - 1}, actual={len(neighboring_similarities)}"
+            )
+            continue
+        case_metrics[(utt_count, prompt_name)].append(
+            UtteranceMetrics(
+                clip_count=clip_count,
+                clip_to_final_similarities=clip_to_final_similarities,
+                neighboring_similarities=neighboring_similarities,
+            )
+        )
+
+    return dict(case_metrics)
 
 
 def plot_clip_to_final_scatter(
@@ -814,9 +912,11 @@ def plot_combined_st_threshold_lines(
     utt_group_size: int,
     task_name: str,
     output_path: Path,
+    human_case_metrics: Sequence[UtteranceMetrics] | None = None,
 ) -> bool:
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(9, 6))
     plotted_any = False
+    includes_human = human_case_metrics is not None
 
     for model_label in sorted(case_metrics):
         model_metrics = case_metrics[model_label]
@@ -848,15 +948,50 @@ def plot_combined_st_threshold_lines(
         )
         plotted_any = True
 
+    if human_case_metrics is not None:
+        if human_case_metrics:
+            human_averages = []
+            for threshold in turnover_thresholds:
+                human_values = [
+                    compute_semantic_turnover_ratio(
+                        clip_count=metrics.clip_count,
+                        neighboring_similarities=metrics.neighboring_similarities,
+                        turnover_threshold=threshold,
+                    )
+                    for metrics in human_case_metrics
+                ]
+                human_averages.append(float(np.mean(human_values)))
+
+            plt.plot(
+                turnover_thresholds,
+                human_averages,
+                color="#111111",
+                linestyle="--",
+                marker="s",
+                linewidth=2.2,
+                label="Human annotations",
+            )
+            plotted_any = True
+        else:
+            print(
+                f"[WARN] No human annotation ST data for aggregate plot: "
+                f"utt={utt_group_size}, task={task_name}"
+            )
+
     if not plotted_any:
         plt.close()
         print(
-            f"[WARN] No usable utterances for combined ST-threshold plot: "
+            f"[WARN] No usable data for combined ST-threshold plot: "
             f"utt={utt_group_size}, task={task_name}"
         )
         return False
 
-    plt.title(f"Average ST/Clip Count vs Threshold | {utt_group_size}-utt | {task_name}")
+    title_prefix = (
+        "Human and Model Average ST/Clip Count vs Threshold"
+        if includes_human
+        else "Average ST/Clip Count vs Threshold"
+    )
+    plt.title(f"{title_prefix} | {utt_group_size}-utt | {task_name}")
     plt.xlabel("Threshold t")
     plt.ylabel("Average(ST / number of clips)")
     plt.ylim(-0.05, 1.05)
@@ -947,6 +1082,29 @@ def serialize_human_annotation_summary(
     return rows
 
 
+def serialize_human_annotation_turnover_metrics(
+    human_annotation_turnover_metrics: dict[tuple[int, str], list[UtteranceMetrics]] | None,
+) -> list[dict[str, object]]:
+    if human_annotation_turnover_metrics is None:
+        return []
+
+    rows: list[dict[str, object]] = []
+    for (utt_group_size, task_name), metrics_list in sorted(
+        human_annotation_turnover_metrics.items()
+    ):
+        for metrics in metrics_list:
+            rows.append(
+                {
+                    "utt_group_size": utt_group_size,
+                    "task": task_name,
+                    "clip_count": metrics.clip_count,
+                    "clip_to_final_similarities": metrics.clip_to_final_similarities,
+                    "neighboring_similarities": metrics.neighboring_similarities,
+                }
+            )
+    return rows
+
+
 def write_plot_data_json(
     output_path: Path,
     results_root: Path,
@@ -958,6 +1116,7 @@ def write_plot_data_json(
     combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
     human_annotation_summary_csv: Path | None,
     human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+    human_annotation_turnover_metrics: dict[tuple[int, str], list[UtteranceMetrics]] | None,
 ) -> None:
     cases: list[dict[str, object]] = []
     for (utt_group_size, task_name), case_metrics in sorted(combined_case_metrics.items()):
@@ -988,9 +1147,10 @@ def write_plot_data_json(
         "schema_version": 1,
         "description": (
             "Aggregate analysis plot data. The model utterance metrics and human "
-            "summary rows are sufficient to regenerate combined clip-to-final, "
-            "human/model partial-to-full, ST-threshold, and WASTP outputs without "
-            "reading result JSON files or embedding text again."
+            "annotation summaries are sufficient to regenerate combined "
+            "clip-to-final, human/model partial-to-full, ST-threshold, and "
+            "WASTP outputs without reading result JSON files or embedding text "
+            "again."
         ),
         "results_root": str(results_root.resolve()),
         "additional_results_roots": [
@@ -1007,6 +1167,9 @@ def write_plot_data_json(
         ),
         "human_annotation_summary": serialize_human_annotation_summary(
             human_annotation_summary
+        ),
+        "human_annotation_turnover_metrics": serialize_human_annotation_turnover_metrics(
+            human_annotation_turnover_metrics
         ),
         "cases": cases,
     }
@@ -1137,6 +1300,7 @@ def write_analysis_plot_data(
     combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
     human_annotation_summary_csv: Path | None,
     human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+    human_annotation_turnover_metrics: dict[tuple[int, str], list[UtteranceMetrics]] | None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "analysis_plot_data.json"
@@ -1155,6 +1319,7 @@ def write_analysis_plot_data(
         combined_case_metrics=combined_case_metrics,
         human_annotation_summary_csv=human_annotation_summary_csv,
         human_annotation_summary=human_annotation_summary,
+        human_annotation_turnover_metrics=human_annotation_turnover_metrics,
     )
     write_plot_data_points_csv(
         output_path=points_csv_path,
@@ -1185,6 +1350,7 @@ def load_analysis_plot_data(
     list[float],
     int,
     dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+    dict[tuple[int, str], list[UtteranceMetrics]] | None,
 ]:
     payload = json.loads(input_path.expanduser().resolve().read_text(encoding="utf-8"))
     if payload.get("schema_version") != 1:
@@ -1237,12 +1403,35 @@ def load_analysis_plot_data(
             for case_key, stat_rows in human_annotation_summary.items()
         }
 
+    human_turnover_rows = payload.get("human_annotation_turnover_metrics", [])
+    human_annotation_turnover_metrics = None
+    if human_turnover_rows:
+        human_annotation_turnover_metrics = defaultdict(list)
+        for row in human_turnover_rows:
+            human_annotation_turnover_metrics[
+                (int(row["utt_group_size"]), str(row["task"]))
+            ].append(
+                UtteranceMetrics(
+                    clip_count=int(row["clip_count"]),
+                    clip_to_final_similarities=[
+                        float(value)
+                        for value in row.get("clip_to_final_similarities", [])
+                    ],
+                    neighboring_similarities=[
+                        float(value)
+                        for value in row["neighboring_similarities"]
+                    ],
+                )
+            )
+        human_annotation_turnover_metrics = dict(human_annotation_turnover_metrics)
+
     return (
         plots_root,
         combined_case_metrics,
         turnover_thresholds,
         progress_partitions,
         human_annotation_summary,
+        human_annotation_turnover_metrics,
     )
 
 
@@ -1252,6 +1441,7 @@ def generate_combined_outputs(
     turnover_thresholds: Sequence[float],
     progress_partitions: int,
     human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None = None,
+    human_annotation_turnover_metrics: dict[tuple[int, str], list[UtteranceMetrics]] | None = None,
 ) -> None:
     for utt_group_size in UTTERANCE_GROUP_SIZES:
         for task_name in TASK_NAMES:
@@ -1261,6 +1451,11 @@ def generate_combined_outputs(
                 human_annotation_summary.get(case_key, {})
                 if human_annotation_summary is not None
                 else {}
+            )
+            human_case_turnover_metrics = (
+                human_annotation_turnover_metrics.get(case_key, [])
+                if human_annotation_turnover_metrics is not None
+                else None
             )
 
             for percentile in (25, 50, 75):
@@ -1332,6 +1527,7 @@ def generate_combined_outputs(
                 utt_group_size=utt_group_size,
                 task_name=task_name,
                 output_path=st_output_path,
+                human_case_metrics=human_case_turnover_metrics,
             )
 
     write_wastp_table(
@@ -1457,6 +1653,7 @@ def main() -> None:
             turnover_thresholds,
             progress_partitions,
             human_annotation_summary,
+            human_annotation_turnover_metrics,
         ) = load_analysis_plot_data(args.from_plot_data)
         plots_root.mkdir(parents=True, exist_ok=True)
         print(f"[INFO] Regenerating combined plots from {args.from_plot_data}")
@@ -1466,6 +1663,7 @@ def main() -> None:
             turnover_thresholds=turnover_thresholds,
             progress_partitions=progress_partitions,
             human_annotation_summary=human_annotation_summary,
+            human_annotation_turnover_metrics=human_annotation_turnover_metrics,
         )
         return
 
@@ -1482,13 +1680,22 @@ def main() -> None:
     )
 
     human_annotation_summary = None
+    human_annotation_turnover_metrics = None
     if args.human_annotation_summary_csv is not None:
         human_annotation_summary = load_human_annotation_summary_csv(
+            args.human_annotation_summary_csv
+        )
+        human_annotation_turnover_metrics = load_human_annotation_turnover_points_csv(
             args.human_annotation_summary_csv
         )
         print(
             "[INFO] Loaded human annotation summary cases: "
             f"{len(human_annotation_summary)} from {args.human_annotation_summary_csv}"
+        )
+        print(
+            "[INFO] Loaded human annotation ST cases: "
+            f"{len(human_annotation_turnover_metrics)} from "
+            f"{infer_human_annotation_points_csv(args.human_annotation_summary_csv)}"
         )
 
     if args.model_path is not None:
@@ -1551,6 +1758,7 @@ def main() -> None:
             combined_case_metrics=combined_case_metrics,
             human_annotation_summary_csv=args.human_annotation_summary_csv,
             human_annotation_summary=human_annotation_summary,
+            human_annotation_turnover_metrics=human_annotation_turnover_metrics,
         )
 
     generate_combined_outputs(
@@ -1559,6 +1767,7 @@ def main() -> None:
         turnover_thresholds=args.turnover_thresholds,
         progress_partitions=args.progress_partitions,
         human_annotation_summary=human_annotation_summary,
+        human_annotation_turnover_metrics=human_annotation_turnover_metrics,
     )
 
 

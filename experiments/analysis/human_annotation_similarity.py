@@ -611,6 +611,11 @@ def build_plot_point_rows(
         for clip_position, similarity in enumerate(
             metrics.clip_to_final_similarities, start=1
         ):
+            neighboring_similarity = (
+                metrics.neighboring_similarities[clip_position - 1]
+                if clip_position <= len(metrics.neighboring_similarities)
+                else ""
+            )
             raw_progress_ratio = clip_position / metrics.clip_count
             rows.append(
                 {
@@ -626,6 +631,7 @@ def build_plot_point_rows(
                         progress_partitions,
                     ),
                     "similarity_to_full": similarity,
+                    "neighboring_similarity_to_next": neighboring_similarity,
                 }
             )
     return rows
@@ -641,6 +647,11 @@ def build_overall_plot_point_rows(
         for clip_position, similarity in enumerate(
             metrics.clip_to_final_similarities, start=1
         ):
+            neighboring_similarity = (
+                metrics.neighboring_similarities[clip_position - 1]
+                if clip_position <= len(metrics.neighboring_similarities)
+                else ""
+            )
             raw_progress_ratio = clip_position / metrics.clip_count
             rows.append(
                 {
@@ -656,6 +667,7 @@ def build_overall_plot_point_rows(
                         progress_partitions,
                     ),
                     "similarity_to_full": similarity,
+                    "neighboring_similarity_to_next": neighboring_similarity,
                 }
             )
     return rows
@@ -672,6 +684,7 @@ def write_plot_points_csv(path: Path, rows: Sequence[dict[str, object]]) -> None
         "progress_ratio_raw",
         "progress_ratio_binned",
         "similarity_to_full",
+        "neighboring_similarity_to_next",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)

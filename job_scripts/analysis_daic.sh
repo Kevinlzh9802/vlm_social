@@ -18,6 +18,7 @@ DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/results"
 DEFAULT_GEMINI_RESULTS_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini"
 DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_percentiles.csv"
+DEFAULT_HUMAN_ANNOTATION_POINTS_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_points.csv"
 DEFAULT_PLOT_DATA_DIR="${DEFAULT_DATA_ROOT}/plots/plot_data"
 DEFAULT_PLOT_DATA_JSON="${DEFAULT_PLOT_DATA_DIR}/analysis_plot_data.json"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
@@ -30,7 +31,7 @@ usage() {
     echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
     echo "  --skip-gemini: do not include Gemini partial-to-full similarity lines" >&2
-    echo "  human-annotation-summary-csv: partial_to_full_percentiles.csv from human_annotation_similarity.py (default: ${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV})" >&2
+    echo "  human-annotation-summary-csv: partial_to_full_percentiles.csv from human_annotation_similarity.py (default: ${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV}); the sibling partial_to_full_points.csv is also required for human ST overlay" >&2
     echo "  --skip-human-overlay: generate model-only aggregate plots without human annotation overlays" >&2
     echo "  --save-plot-data: save numeric plot data after embedding so plots can be regenerated without re-embedding" >&2
     echo "  plot-data-dir: output folder for --save-plot-data (default: ${DEFAULT_PLOT_DATA_DIR})" >&2
@@ -173,6 +174,22 @@ if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_
     exit 1
 fi
 
+HUMAN_ANNOTATION_POINTS_CSV="$(dirname "${HUMAN_ANNOTATION_SUMMARY_CSV}")/partial_to_full_points.csv"
+if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_ANNOTATION_POINTS_CSV}" ]]; then
+    echo "Human annotation point CSV does not exist: ${HUMAN_ANNOTATION_POINTS_CSV}" >&2
+    echo "Run human_annotation_similarity_daic.sh first or pass --skip-human-overlay." >&2
+    exit 1
+fi
+
+if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" ]]; then
+    IFS= read -r HUMAN_POINTS_HEADER < "${HUMAN_ANNOTATION_POINTS_CSV}" || true
+    if [[ ",${HUMAN_POINTS_HEADER}," != *",neighboring_similarity_to_next,"* ]]; then
+        echo "Human annotation point CSV is missing neighboring_similarity_to_next: ${HUMAN_ANNOTATION_POINTS_CSV}" >&2
+        echo "Rerun human_annotation_similarity_daic.sh so analysis can overlay human ST curves, or pass --skip-human-overlay." >&2
+        exit 1
+    fi
+fi
+
 if [[ -z "${FROM_PLOT_DATA}" && -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; then
     echo "Model path does not exist: ${MODEL_PATH}" >&2
     exit 1
@@ -189,6 +206,7 @@ echo "Results root:                  ${RESULTS_ROOT}"
 echo "Gemini results root:           ${GEMINI_RESULTS_ROOT}"
 echo "Skip Gemini:                   ${SKIP_GEMINI}"
 echo "Human annotation summary CSV:  ${HUMAN_ANNOTATION_SUMMARY_CSV}"
+echo "Human annotation points CSV:   ${HUMAN_ANNOTATION_POINTS_CSV:-${DEFAULT_HUMAN_ANNOTATION_POINTS_CSV}}"
 echo "Skip human overlay:            ${SKIP_HUMAN_OVERLAY}"
 echo "Save plot data:                ${SAVE_PLOT_DATA}"
 echo "Plot data dir:                 ${PLOT_DATA_DIR}"
