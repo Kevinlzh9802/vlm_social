@@ -28,6 +28,8 @@ From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
     export TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-$HF_HOME}
     export XDG_CACHE_HOME=${XDG_CACHE_HOME:-/tmp}
     export TOKENIZERS_PARALLELISM=false
+    export PATH=/opt/conda/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/conda/lib:${LD_LIBRARY_PATH:-}
 
 %post
     export DEBIAN_FRONTEND=noninteractive
@@ -35,7 +37,6 @@ From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
     apt-get update
     apt-get install -y --no-install-recommends \
         ca-certificates \
-        ffmpeg \
         git \
         libgl1 \
         libglib2.0-0 \
@@ -47,6 +48,11 @@ From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
         python3-pip \
         python3-venv
     rm -rf /var/lib/apt/lists/*
+
+    # Ubuntu 22.04 apt ships FFmpeg 4.x, which can fail for valid audio files
+    # through TorchCodec. Use conda-forge FFmpeg so TorchCodec loads FFmpeg 6+.
+    conda install -y -c conda-forge "ffmpeg>=6,<8"
+    conda clean -afy
 
     python -m pip install --upgrade pip setuptools wheel
 
@@ -75,4 +81,4 @@ From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
     exec "$@"
 
 %test
-    python -c "import torch; from transformers import AutoModelForMultimodalLM, AutoProcessor; import av, librosa, soundfile; print('Gemma inference imports OK:', torch.__version__)"
+    python -c "import subprocess, torch; from transformers import AutoModelForMultimodalLM, AutoProcessor; import av, librosa, soundfile; print(subprocess.check_output(['ffmpeg', '-version'], text=True).splitlines()[0]); print('Gemma inference imports OK:', torch.__version__)"
