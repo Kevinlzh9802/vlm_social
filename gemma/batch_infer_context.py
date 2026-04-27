@@ -151,6 +151,50 @@ def select_video_num_frames(video_path: str | Path, max_video_frames: int) -> in
     return max(1, min(max_video_frames, frame_count))
 
 
+def load_video_frames(video_path: str | Path, num_frames: int) -> list[Any]:
+    """Decode and evenly sample video frames as PIL images."""
+    try:
+        import av
+    except ImportError as exc:
+        raise RuntimeError("PyAV is required to pre-decode Gemma video inputs") from exc
+
+    decoded_frames: list[Any] = []
+    with av.open(str(video_path)) as container:
+        for frame in container.decode(video=0):
+            decoded_frames.append(frame.to_image().convert("RGB"))
+
+    if not decoded_frames:
+        raise ValueError(f"No decodable video frames found: {video_path}")
+    if len(decoded_frames) <= num_frames:
+        return decoded_frames
+    if num_frames == 1:
+        return [decoded_frames[len(decoded_frames) // 2]]
+
+    last_index = len(decoded_frames) - 1
+    sample_indices = [
+        round(index * last_index / (num_frames - 1))
+        for index in range(num_frames)
+    ]
+    return [decoded_frames[index] for index in sample_indices]
+
+
+def get_audio_sampling_rate(processor: Any) -> int:
+    feature_extractor = getattr(processor, "feature_extractor", None)
+    sampling_rate = getattr(feature_extractor, "sampling_rate", None)
+    return int(sampling_rate) if sampling_rate is not None else 16000
+
+
+def load_audio_array(audio_path: str | Path, sampling_rate: int) -> Any:
+    """Decode audio as a mono float array at the processor sampling rate."""
+    try:
+        import librosa
+    except ImportError as exc:
+        raise RuntimeError("librosa is required to pre-decode Gemma audio inputs") from exc
+
+    audio, _ = librosa.load(str(audio_path), sr=sampling_rate, mono=True)
+    return audio
+
+
 def build_prompt_variant_key(prompt_choice: str, utt_count: int) -> str:
     utt_suffix = "single_utt" if utt_count == 1 else "multi_utt"
     return f"{prompt_choice}_{utt_suffix}"
@@ -240,6 +284,34 @@ def min_message_video_num_frames(messages: list[dict]) -> int | None:
     return min(video_num_frames) if video_num_frames else None
 
 
+def collect_media_inputs(
+    messages: list[dict],
+    audio_sampling_rate: int,
+) -> tuple[list[Any], list[Any]]:
+    audios: list[Any] = []
+    videos: list[Any] = []
+    for message in messages:
+        content = message.get("content", [])
+        if not isinstance(content, Sequence) or isinstance(content, (str, bytes, bytearray)):
+            continue
+        for item in content:
+            if not isinstance(item, Mapping):
+                continue
+            item_type = item.get("type")
+            if item_type == "audio":
+                audio_path = item.get("audio")
+                if audio_path is None:
+                    continue
+                audios.append(load_audio_array(audio_path, sampling_rate=audio_sampling_rate))
+            elif item_type == "video":
+                video_path = item.get("video")
+                if video_path is None:
+                    continue
+                num_frames = int(item.get("num_frames") or 32)
+                videos.append(load_video_frames(video_path, num_frames=num_frames))
+    return audios, videos
+
+
 def combine_system_and_user_prompt(system_prompt: str, user_prompt: str) -> str:
     system_prompt = system_prompt.strip()
     user_prompt = user_prompt.strip()
@@ -248,18 +320,13 @@ def combine_system_and_user_prompt(system_prompt: str, user_prompt: str) -> str:
     return f"{system_prompt}\n\n{user_prompt}"
 
 
-def apply_gemma_chat_template(processor: Any, messages: list[dict], enable_thinking: bool) -> Any:
-    """Apply the Gemma chat template, tolerating older processor signatures."""
+def render_gemma_chat_text(processor: Any, messages: list[dict], enable_thinking: bool) -> str:
+    """Render the Gemma chat template without processing media paths."""
     messages = normalize_message_content(messages)
-    video_num_frames = min_message_video_num_frames(messages)
     kwargs = {
-        "tokenize": True,
-        "return_dict": True,
-        "return_tensors": "pt",
+        "tokenize": False,
         "add_generation_prompt": True,
     }
-    if video_num_frames is not None:
-        kwargs["num_frames"] = video_num_frames
     try:
         return processor.apply_chat_template(
             messages,
@@ -295,6 +362,39 @@ def apply_gemma_chat_template(processor: Any, messages: list[dict], enable_think
             chat_template=DEFAULT_GEMMA4_CHAT_TEMPLATE,
             **kwargs,
         )
+
+
+def build_gemma_inputs(
+    processor: Any,
+    messages: list[dict],
+    enable_thinking: bool,
+) -> Any:
+    messages = normalize_message_content(messages)
+    text = render_gemma_chat_text(
+        processor=processor,
+        messages=messages,
+        enable_thinking=enable_thinking,
+    )
+    audios, videos = collect_media_inputs(
+        messages=messages,
+        audio_sampling_rate=get_audio_sampling_rate(processor),
+    )
+    processor_kwargs: dict[str, Any] = {
+        "text": text,
+        "return_tensors": "pt",
+        "padding": True,
+    }
+    if audios:
+        processor_kwargs["audio"] = audios
+    if videos:
+        processor_kwargs["videos"] = videos
+        processor_kwargs["do_sample_frames"] = False
+
+    try:
+        return processor(**processor_kwargs)
+    except TypeError:
+        processor_kwargs.pop("do_sample_frames", None)
+        return processor(**processor_kwargs)
 
 
 def get_model_input_device(model: Any) -> torch.device | str:
@@ -360,7 +460,7 @@ def infer_turn(
     top_p: float,
     top_k: int,
 ) -> str:
-    inputs = apply_gemma_chat_template(
+    inputs = build_gemma_inputs(
         processor=processor,
         messages=messages,
         enable_thinking=enable_thinking,
