@@ -65,7 +65,7 @@ From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
         "safetensors>=0.4.5" \
         "sentencepiece>=0.2.0" \
         "soundfile>=0.12.1" \
-        "torchcodec==0.3.0" \
+        "torchcodec==0.5.0" \
         "torchvision==0.22.1" \
         "transformers>=4.53.0"
 
