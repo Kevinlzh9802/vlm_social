@@ -24,6 +24,7 @@ utt_count=""
 batch_number=""
 conversation_mode="single-turn"
 max_new_tokens="512"
+max_video_frames="32"
 enable_thinking=0
 do_sample=0
 no_audio=0
@@ -40,6 +41,7 @@ usage() {
     echo "  --sif-path PATH                           Default: ${SIF_PATH}" >&2
     echo "  --data-root PATH                          Default: ${DATA_ROOT}" >&2
     echo "  --max-new-tokens N                        Default: ${max_new_tokens}" >&2
+    echo "  --max-video-frames N                      Default: ${max_video_frames}" >&2
     echo "  --enable-thinking                         Enable Gemma thinking mode" >&2
     echo "  --do-sample                               Use Gemma sampling parameters" >&2
     echo "  --annotated                               Run manipulation_full annotated data for utt 1, 2, and 3" >&2
@@ -92,6 +94,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --max-new-tokens)
             max_new_tokens="${2:?Missing value for --max-new-tokens}"
+            shift 2
+            ;;
+        --max-video-frames)
+            max_video_frames="${2:?Missing value for --max-video-frames}"
             shift 2
             ;;
         --enable-thinking)
@@ -159,6 +165,13 @@ fi
 case "${batch_number}" in
     ''|*[!0-9]*)
         echo "[ERROR] Invalid batch number: ${batch_number}" >&2
+        exit 1
+        ;;
+esac
+
+case "${max_video_frames}" in
+    ''|*[!0-9]*)
+        echo "[ERROR] Invalid max video frames: ${max_video_frames}" >&2
         exit 1
         ;;
 esac
@@ -252,6 +265,7 @@ for current_utt_count in "${utt_counts[@]}"; do
     echo "[INFO] utt_count         = ${current_utt_count}"
     echo "[INFO] batch_id          = ${batch_id}"
     echo "[INFO] conversation_mode = ${conversation_mode}"
+    echo "[INFO] max_video_frames  = ${max_video_frames}"
     echo "[INFO] annotated         = ${annotated}"
     echo "[INFO] comparison        = ${comparison}"
     echo "[INFO] no_audio          = ${no_audio}"
@@ -268,6 +282,7 @@ for current_utt_count in "${utt_counts[@]}"; do
         --utt-count "${current_utt_count}"
         --conversation-mode "${conversation_mode}"
         --max-new-tokens "${max_new_tokens}"
+        --max-video-frames "${max_video_frames}"
     )
 
     if [[ "${enable_thinking}" == "1" ]]; then

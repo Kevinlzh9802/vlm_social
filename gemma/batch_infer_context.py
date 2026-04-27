@@ -107,6 +107,50 @@ def collect_av_pairs(data_root: str | Path, require_audio: bool = True) -> dict[
     return result
 
 
+def get_video_frame_count(video_path: str | Path) -> int | None:
+    """Return the video frame count when it can be inferred cheaply."""
+    try:
+        import av
+    except ImportError:
+        return None
+
+    try:
+        with av.open(str(video_path)) as container:
+            video_stream = next(
+                (stream for stream in container.streams if stream.type == "video"),
+                None,
+            )
+            if video_stream is None:
+                return None
+            if video_stream.frames and video_stream.frames > 0:
+                return int(video_stream.frames)
+            if (
+                video_stream.duration is not None
+                and video_stream.time_base is not None
+                and video_stream.average_rate is not None
+            ):
+                duration_seconds = float(video_stream.duration * video_stream.time_base)
+                estimated_frames = int(duration_seconds * float(video_stream.average_rate))
+                if estimated_frames > 0:
+                    return estimated_frames
+
+            decoded_frames = 0
+            for _ in container.decode(video=0):
+                decoded_frames += 1
+            return decoded_frames if decoded_frames > 0 else None
+    except Exception:
+        return None
+
+
+def select_video_num_frames(video_path: str | Path, max_video_frames: int) -> int:
+    if max_video_frames <= 0:
+        raise ValueError(f"max_video_frames must be positive, got {max_video_frames}")
+    frame_count = get_video_frame_count(video_path)
+    if frame_count is None:
+        return max_video_frames
+    return max(1, min(max_video_frames, frame_count))
+
+
 def build_prompt_variant_key(prompt_choice: str, utt_count: int) -> str:
     utt_suffix = "single_utt" if utt_count == 1 else "multi_utt"
     return f"{prompt_choice}_{utt_suffix}"
@@ -180,6 +224,22 @@ def normalize_message_content(messages: list[dict]) -> list[dict]:
     return normalized_messages
 
 
+def min_message_video_num_frames(messages: list[dict]) -> int | None:
+    video_num_frames: list[int] = []
+    for message in messages:
+        content = message.get("content", [])
+        if not isinstance(content, Sequence) or isinstance(content, (str, bytes, bytearray)):
+            continue
+        for item in content:
+            if (
+                isinstance(item, Mapping)
+                and item.get("type") == "video"
+                and isinstance(item.get("num_frames"), int)
+            ):
+                video_num_frames.append(int(item["num_frames"]))
+    return min(video_num_frames) if video_num_frames else None
+
+
 def combine_system_and_user_prompt(system_prompt: str, user_prompt: str) -> str:
     system_prompt = system_prompt.strip()
     user_prompt = user_prompt.strip()
@@ -191,12 +251,15 @@ def combine_system_and_user_prompt(system_prompt: str, user_prompt: str) -> str:
 def apply_gemma_chat_template(processor: Any, messages: list[dict], enable_thinking: bool) -> Any:
     """Apply the Gemma chat template, tolerating older processor signatures."""
     messages = normalize_message_content(messages)
+    video_num_frames = min_message_video_num_frames(messages)
     kwargs = {
         "tokenize": True,
         "return_dict": True,
         "return_tensors": "pt",
         "add_generation_prompt": True,
     }
+    if video_num_frames is not None:
+        kwargs["num_frames"] = video_num_frames
     try:
         return processor.apply_chat_template(
             messages,
@@ -445,6 +508,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--top-k", type=int, default=64)
     parser.add_argument(
+        "--max-video-frames",
+        type=int,
+        default=32,
+        help=(
+            "Maximum frames to sample per video. Shorter clips use their available "
+            "frame count to avoid sampling more frames than exist."
+        ),
+    )
+    parser.add_argument(
         "--no-audio",
         action="store_true",
         help="Run video-only inference by omitting separate .wav inputs.",
@@ -480,6 +552,7 @@ def main() -> None:
     print(f"[INFO] Conversation mode: {args.conversation_mode}")
     print(f"[INFO] No audio: {args.no_audio}")
     print(f"[INFO] Thinking enabled: {args.enable_thinking}\n")
+    print(f"[INFO] Max video frames: {args.max_video_frames}\n")
 
     av_pairs = collect_av_pairs(args.data_root, require_audio=not args.no_audio)
     total_pairs = sum(len(pairs) for pairs in av_pairs.values())
@@ -522,6 +595,17 @@ def main() -> None:
 
             print(f"[{processed}/{total_pairs}] {subfolder_name}/{pair['stem']} ...", flush=True)
 
+            video_num_frames = select_video_num_frames(
+                video_path=pair["video"],
+                max_video_frames=args.max_video_frames,
+            )
+            if video_num_frames < args.max_video_frames:
+                print(
+                    f"  [INFO] Short video: sampling {video_num_frames} frame(s) "
+                    f"instead of {args.max_video_frames}.",
+                    flush=True,
+                )
+
             text_prompt = prompt_template
             if args.conversation_mode == "single-turn" or pair_index == 0:
                 text_prompt = combine_system_and_user_prompt(
@@ -534,7 +618,11 @@ def main() -> None:
                 user_content.append({"type": "audio", "audio": pair["audio"]})
             user_content.extend(
                 [
-                    {"type": "video", "video": pair["video"]},
+                    {
+                        "type": "video",
+                        "video": pair["video"],
+                        "num_frames": video_num_frames,
+                    },
                     {"type": "text", "text": text_prompt},
                 ]
             )
