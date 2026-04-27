@@ -33,6 +33,41 @@ DEFAULT_PROMPT_CONFIG_PATH = (
     Path(__file__).resolve().parents[1] / "api_models" / "configs" / "prompts.json"
 )
 DEFAULT_SYSTEM_PROMPT = "You are a helpful multimodal assistant."
+DEFAULT_GEMMA4_CHAT_TEMPLATE = """{{ bos_token }}
+{%- set loop_messages = messages -%}
+{%- if messages and messages[0]['role'] in ['system', 'developer'] -%}
+{{ '<|turn>system\n' }}
+{%- if enable_thinking is defined and enable_thinking -%}
+{{ '<|think|>\n' }}
+{%- endif -%}
+{{ messages[0]['content'] | trim }}{{ '<turn|>\n' }}
+{%- set loop_messages = messages[1:] -%}
+{%- elif enable_thinking is defined and enable_thinking -%}
+{{ '<|turn>system\n<|think|>\n<turn|>\n' }}
+{%- endif -%}
+{%- for message in loop_messages -%}
+{%- set role = 'model' if message['role'] == 'assistant' else message['role'] -%}
+{{ '<|turn>' + role + '\n' }}
+{%- if message['content'] is string -%}
+{{ message['content'] | trim }}
+{%- elif message['content'] is sequence -%}
+{%- for item in message['content'] -%}
+{%- if item['type'] == 'text' -%}
+{{ item['text'] | trim }}
+{%- elif item['type'] == 'image' -%}
+{{ '<|image|>' }}
+{%- elif item['type'] == 'audio' -%}
+{{ '<|audio|>' }}
+{%- elif item['type'] == 'video' -%}
+{{ '<|video|>' }}
+{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
+{{ '<turn|>\n' }}
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+{{ '<|turn>model\n' }}
+{%- endif -%}"""
 
 
 def collect_av_pairs(data_root: str | Path, require_audio: bool = True) -> dict[str, list[dict]]:
@@ -131,7 +166,34 @@ def apply_gemma_chat_template(processor: Any, messages: list[dict], enable_think
             **kwargs,
         )
     except TypeError:
-        return processor.apply_chat_template(messages, **kwargs)
+        try:
+            return processor.apply_chat_template(messages, **kwargs)
+        except ValueError as exc:
+            if "chat template" not in str(exc).lower():
+                raise
+    except ValueError as exc:
+        if "chat template" not in str(exc).lower():
+            raise
+
+    if not getattr(processor, "_vlm_social_warned_missing_chat_template", False):
+        print(
+            "[WARN] Processor has no chat template; using built-in Gemma 4 fallback template.",
+            flush=True,
+        )
+        setattr(processor, "_vlm_social_warned_missing_chat_template", True)
+    try:
+        return processor.apply_chat_template(
+            messages,
+            chat_template=DEFAULT_GEMMA4_CHAT_TEMPLATE,
+            enable_thinking=enable_thinking,
+            **kwargs,
+        )
+    except TypeError:
+        return processor.apply_chat_template(
+            messages,
+            chat_template=DEFAULT_GEMMA4_CHAT_TEMPLATE,
+            **kwargs,
+        )
 
 
 def get_model_input_device(model: Any) -> torch.device | str:
