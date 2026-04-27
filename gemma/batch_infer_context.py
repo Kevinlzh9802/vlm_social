@@ -40,7 +40,12 @@ DEFAULT_GEMMA4_CHAT_TEMPLATE = """{{ bos_token }}
 {%- if enable_thinking is defined and enable_thinking -%}
 {{ '<|think|>\n' }}
 {%- endif -%}
-{{ messages[0]['content'] | trim }}{{ '<turn|>\n' }}
+{%- for item in messages[0]['content'] -%}
+{%- if item['type'] == 'text' -%}
+{{ item['text'] | trim }}
+{%- endif -%}
+{%- endfor -%}
+{{ '<turn|>\n' }}
 {%- set loop_messages = messages[1:] -%}
 {%- elif enable_thinking is defined and enable_thinking -%}
 {{ '<|turn>system\n<|think|>\n<turn|>\n' }}
@@ -48,9 +53,6 @@ DEFAULT_GEMMA4_CHAT_TEMPLATE = """{{ bos_token }}
 {%- for message in loop_messages -%}
 {%- set role = 'model' if message['role'] == 'assistant' else message['role'] -%}
 {{ '<|turn>' + role + '\n' }}
-{%- if message['content'] is string -%}
-{{ message['content'] | trim }}
-{%- elif message['content'] is sequence -%}
 {%- for item in message['content'] -%}
 {%- if item['type'] == 'text' -%}
 {{ item['text'] | trim }}
@@ -62,7 +64,6 @@ DEFAULT_GEMMA4_CHAT_TEMPLATE = """{{ bos_token }}
 {{ '<|video|>' }}
 {%- endif -%}
 {%- endfor -%}
-{%- endif -%}
 {{ '<turn|>\n' }}
 {%- endfor -%}
 {%- if add_generation_prompt -%}
@@ -151,8 +152,45 @@ def load_prompt_templates(
     return {field: str(templates[field]).strip() for field in required_fields}
 
 
+def normalize_message_content(messages: list[dict]) -> list[dict]:
+    """Represent every message content as a list of typed content parts.
+
+    Some Gemma processor versions assume content parts are dicts and will fail
+    with "string indices must be integers" when system or assistant turns are
+    plain strings.
+    """
+    normalized_messages: list[dict] = []
+    for message in messages:
+        content = message.get("content", "")
+        if isinstance(content, str):
+            normalized_content = [{"type": "text", "text": content}]
+        elif isinstance(content, Sequence) and not isinstance(content, (bytes, bytearray)):
+            normalized_content = []
+            for item in content:
+                if isinstance(item, str):
+                    normalized_content.append({"type": "text", "text": item})
+                else:
+                    normalized_content.append(item)
+        else:
+            normalized_content = [{"type": "text", "text": str(content)}]
+
+        normalized_message = dict(message)
+        normalized_message["content"] = normalized_content
+        normalized_messages.append(normalized_message)
+    return normalized_messages
+
+
+def combine_system_and_user_prompt(system_prompt: str, user_prompt: str) -> str:
+    system_prompt = system_prompt.strip()
+    user_prompt = user_prompt.strip()
+    if not system_prompt:
+        return user_prompt
+    return f"{system_prompt}\n\n{user_prompt}"
+
+
 def apply_gemma_chat_template(processor: Any, messages: list[dict], enable_thinking: bool) -> Any:
     """Apply the Gemma chat template, tolerating older processor signatures."""
+    messages = normalize_message_content(messages)
     kwargs = {
         "tokenize": True,
         "return_dict": True,
@@ -471,9 +509,7 @@ def main() -> None:
             ),
         )
         subfolder_results: list = []
-        conversation_messages: list[dict] = [
-            {"role": "system", "content": args.system_prompt}
-        ]
+        conversation_messages: list[dict] = []
 
         for pair_index, pair in enumerate(sorted_pairs):
             processed += 1
@@ -486,13 +522,20 @@ def main() -> None:
 
             print(f"[{processed}/{total_pairs}] {subfolder_name}/{pair['stem']} ...", flush=True)
 
+            text_prompt = prompt_template
+            if args.conversation_mode == "single-turn" or pair_index == 0:
+                text_prompt = combine_system_and_user_prompt(
+                    system_prompt=args.system_prompt,
+                    user_prompt=prompt_template,
+                )
+
             user_content: list[dict] = []
             if not args.no_audio:
                 user_content.append({"type": "audio", "audio": pair["audio"]})
             user_content.extend(
                 [
                     {"type": "video", "video": pair["video"]},
-                    {"type": "text", "text": prompt_template},
+                    {"type": "text", "text": text_prompt},
                 ]
             )
             user_message = {"role": "user", "content": user_content}
@@ -501,10 +544,7 @@ def main() -> None:
                 messages = conversation_messages
                 messages.append(user_message)
             else:
-                messages = [
-                    {"role": "system", "content": args.system_prompt},
-                    user_message,
-                ]
+                messages = [user_message]
 
             try:
                 response = infer_turn(
@@ -520,7 +560,10 @@ def main() -> None:
                 )
                 if args.conversation_mode == "multi-turn":
                     conversation_messages.append(
-                        {"role": "assistant", "content": response}
+                        {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": response}],
+                        }
                     )
             except Exception as exc:
                 if args.conversation_mode == "multi-turn":
