@@ -46,6 +46,7 @@ from typing import Dict, List
 import torch
 from prompt_utils import PROMPT_CONFIG_PATH, build_prompt_variant_key, load_prompt_templates
 from qwen_omni_utils import process_mm_info
+from torch_compat import ensure_cuda_runtime_compatibility
 from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
 
 
@@ -59,20 +60,21 @@ DEFAULT_SYSTEM_PROMPT = (
 # Folder traversal
 # ---------------------------------------------------------------------------
 
-def collect_av_pairs(data_root: str) -> Dict[str, List[dict]]:
-    """Scan *data_root* for video/audio pairs.
+def collect_av_pairs(data_root: str, require_audio: bool = True) -> Dict[str, List[dict]]:
+    """Scan *data_root* for video/audio pairs or video-only inputs.
 
     For every immediate subfolder in *data_root*, find all `.mp4` files and
-    check whether a matching `.wav` file with the same stem exists.  Only
-    complete pairs are returned.  The stem is kept verbatim, so filenames
-    such as ``d1u1-u2_clip_01.mp4`` and ``d1u1-u2_clip_01.wav`` remain
-    identified as ``d1u1-u2_clip_01``.
+    check whether a matching `.wav` file with the same stem exists. When
+    *require_audio* is true, only complete pairs are returned. The stem is
+    kept verbatim, so filenames such as ``d1u1-u2_clip_01.mp4`` and
+    ``d1u1-u2_clip_01.wav`` remain identified as ``d1u1-u2_clip_01``.
 
     Returns
     -------
     dict
         Mapping from subfolder name to a sorted list of dicts, each with
-        keys ``"stem"``, ``"video"``, ``"audio"`` (absolute paths).
+        keys ``"stem"``, ``"video"``, ``"audio"`` (absolute paths, with
+        ``"audio"`` set to ``None`` for video-only inputs).
     """
     root = Path(data_root)
     if not root.is_dir():
@@ -91,15 +93,20 @@ def collect_av_pairs(data_root: str) -> Dict[str, List[dict]]:
         for stem, video_path in sorted(video_files.items()):
             audio_path = subfolder / f"{stem}.wav"
             if audio_path.exists():
-                pairs.append(
-                    {
-                        "stem": stem,
-                        "video": str(video_path),
-                        "audio": str(audio_path),
-                    }
-                )
-            else:
+                audio_value = str(audio_path)
+            elif require_audio:
                 print(f"[WARN] No matching .wav for {video_path}, skipping.")
+                continue
+            else:
+                audio_value = None
+
+            pairs.append(
+                {
+                    "stem": stem,
+                    "video": str(video_path),
+                    "audio": audio_value,
+                }
+            )
 
         if pairs:
             result[subfolder.name] = pairs
@@ -270,6 +277,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also use the audio track embedded in video input.",
     )
+    parser.add_argument(
+        "--no-audio",
+        action="store_true",
+        help="Run video-only inference by omitting separate audio inputs.",
+    )
     return parser.parse_args()
 
 
@@ -279,6 +291,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    ensure_cuda_runtime_compatibility()
+    if args.no_audio and args.use_audio_in_video:
+        raise ValueError("--no-audio cannot be combined with --use-audio-in-video.")
 
     # --- Load prompt templates ---
     prompt_variant_key = build_prompt_variant_key(args.prompt_choice, args.utt_count)
@@ -299,11 +314,13 @@ def main() -> None:
         print(f"[INFO] Follow-up prompt:\n{prompt_templates['after']}\n")
     print(f"[INFO] Utterance count: {args.utt_count}")
     print(f"[INFO] Conversation mode: {args.conversation_mode}\n")
+    print(f"[INFO] No audio: {args.no_audio}\n")
 
     # --- Collect all video/audio pairs ---
-    av_pairs = collect_av_pairs(args.data_root)
+    av_pairs = collect_av_pairs(args.data_root, require_audio=not args.no_audio)
     total_pairs = sum(len(v) for v in av_pairs.values())
-    print(f"[INFO] Found {total_pairs} video/audio pair(s) across {len(av_pairs)} subfolder(s).")
+    input_label = "video item(s)" if args.no_audio else "video/audio pair(s)"
+    print(f"[INFO] Found {total_pairs} {input_label} across {len(av_pairs)} subfolder(s).")
     if total_pairs == 0:
         print("[WARN] Nothing to process. Exiting.")
         return
@@ -325,7 +342,10 @@ def main() -> None:
     for subfolder_name, pairs in av_pairs.items():
         sorted_pairs = sorted(
             pairs,
-            key=lambda pair: (Path(pair["video"]).name, Path(pair["audio"]).name),
+            key=lambda pair: (
+                Path(pair["video"]).name,
+                Path(pair["audio"]).name if pair["audio"] is not None else "",
+            ),
         )
         subfolder_results: list = []
         conversation_messages = [
@@ -343,14 +363,13 @@ def main() -> None:
                 f"[{processed}/{total_pairs}] {subfolder_name}/{pair['stem']}  ...",
                 flush=True,
             )
-            user_message = {
-                "role": "user",
-                "content": [
-                    {"type": "audio", "audio": pair["audio"]},
-                    {"type": "video", "video": pair["video"]},
-                    {"type": "text", "text": prompt_template},
-                ],
-            }
+            user_content = [
+                {"type": "video", "video": pair["video"]},
+                {"type": "text", "text": prompt_template},
+            ]
+            if not args.no_audio:
+                user_content.insert(0, {"type": "audio", "audio": pair["audio"]})
+            user_message = {"role": "user", "content": user_content}
 
             if args.conversation_mode == "multi-turn":
                 messages = conversation_messages
