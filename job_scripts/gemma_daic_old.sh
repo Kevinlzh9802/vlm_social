@@ -284,7 +284,7 @@ for current_utt_count in "${utt_counts[@]}"; do
     srun apptainer exec --nv \
         --bind "${PROJECT_ROOT}:/workspace" \
         --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
-        --bind /home/nfs/zli33/linuxhome:/home/nfs/zli33/linuxhome \
+        --bind /home/nfs/zli33:/home/nfs/zli33 \
         --env HF_HOME="${HF_CACHE}" \
         --env TRANSFORMERS_CACHE="${HF_CACHE}" \
         "${SIF_PATH}" \

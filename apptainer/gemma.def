@@ -1,0 +1,78 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+
+%labels
+    Author zonghuan
+    Description GPU environment for Gemma 4 E4B multimodal video/audio inference
+
+%help
+    Build from the apptainer directory:
+        cd apptainer
+        apptainer build gemma.sif gemma.def
+
+    Example usage on a GPU node:
+        apptainer exec --nv --bind ..:/workspace gemma.sif \
+            python /workspace/gemma/batch_infer_context.py --help
+
+    The job scripts expect this image at:
+        DAIC:      /tudelft.net/staff-umbrella/neon/apptainer/gemma.sif
+        DelftBlue: /scratch/zli33/apptainers/gemma.sif
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    export PYTHONUNBUFFERED=1
+    export PYTHONDONTWRITEBYTECODE=1
+    export PIP_NO_CACHE_DIR=1
+    export HF_HOME=${HF_HOME:-/tmp/huggingface}
+    export TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-$HF_HOME}
+    export XDG_CACHE_HOME=${XDG_CACHE_HOME:-/tmp}
+    export TOKENIZERS_PARALLELISM=false
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        ffmpeg \
+        git \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        libsndfile1 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        python3-pip \
+        python3-venv
+    rm -rf /var/lib/apt/lists/*
+
+    python -m pip install --upgrade pip setuptools wheel
+
+    # Keep PyTorch from the CUDA base image. Install the current multimodal
+    # Transformers stack plus media readers used by HF processors for audio/video.
+    python -m pip install \
+        "accelerate>=1.0.0" \
+        "av>=12.0.0" \
+        "decord>=0.6.0" \
+        "einops>=0.8.0" \
+        "huggingface-hub>=0.30.0" \
+        "librosa>=0.10.0" \
+        "numpy>=1.26.0" \
+        "pillow>=10.0.0" \
+        "protobuf>=4.25.0" \
+        "safetensors>=0.4.5" \
+        "sentencepiece>=0.2.0" \
+        "soundfile>=0.12.1" \
+        "torchcodec==0.3.0" \
+        "torchvision==0.22.1" \
+        "transformers>=4.53.0"
+
+    mkdir -p /workspace /tmp/huggingface
+
+%runscript
+    exec "$@"
+
+%test
+    python -c "import torch; from transformers import AutoModelForMultimodalLM, AutoProcessor; import av, librosa, soundfile; print('Gemma inference imports OK:', torch.__version__)"
