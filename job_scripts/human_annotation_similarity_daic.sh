@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="human_sim"
-#SBATCH --time=00:05:00
+#SBATCH --time=00:10:00
 #SBATCH --partition=insy,general
 #SBATCH --qos=medium
 #SBATCH --ntasks=1
