@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name="gemma_e4b_infer"
 #SBATCH --partition=insy,general
-#SBATCH --qos=short 
-#SBATCH --time=3:59:00
+#SBATCH --qos=medium 
+#SBATCH --time=10:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=64G
