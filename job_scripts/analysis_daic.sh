@@ -17,6 +17,7 @@ SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/results"
 DEFAULT_GEMINI_RESULTS_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini"
+DEFAULT_GEMMA_RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}/gemma-4-e4b"
 DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_percentiles.csv"
 DEFAULT_HUMAN_ANNOTATION_POINTS_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_points.csv"
 DEFAULT_PLOT_DATA_DIR="${DEFAULT_DATA_ROOT}/plots/plot_data"
@@ -27,10 +28,12 @@ DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--skip-gemini] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--save-plot-data] [--plot-data-dir PATH] [--from-plot-data PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--gemma-results-root PATH] [--skip-gemini] [--skip-gemma] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--save-plot-data] [--plot-data-dir PATH] [--from-plot-data PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
     echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
+    echo "  gemma-results-root: Gemma 4 result tree from gemma_daic.sh (default: ${DEFAULT_GEMMA_RESULTS_ROOT})" >&2
     echo "  --skip-gemini: do not include Gemini partial-to-full similarity lines" >&2
+    echo "  --skip-gemma: do not include Gemma 4 results when --results-root does not already include them" >&2
     echo "  human-annotation-summary-csv: partial_to_full_percentiles.csv from human_annotation_similarity.py (default: ${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV}); the sibling partial_to_full_points.csv is also required for human ST overlay" >&2
     echo "  --skip-human-overlay: generate model-only aggregate plots without human annotation overlays" >&2
     echo "  --save-plot-data: save numeric plot data after embedding so plots can be regenerated without re-embedding" >&2
@@ -48,6 +51,7 @@ usage() {
 
 RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
 GEMINI_RESULTS_ROOT="${DEFAULT_GEMINI_RESULTS_ROOT}"
+GEMMA_RESULTS_ROOT="${DEFAULT_GEMMA_RESULTS_ROOT}"
 HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV}"
 PLOT_DATA_DIR="${DEFAULT_PLOT_DATA_DIR}"
 FROM_PLOT_DATA=""
@@ -58,6 +62,7 @@ PROGRESS_PARTITIONS="20"
 NO_SCATTER=1
 SKIP_HUMAN_OVERLAY=0
 SKIP_GEMINI=0
+SKIP_GEMMA=0
 SAVE_PLOT_DATA=0
 
 while [[ $# -gt 0 ]]; do
@@ -70,8 +75,16 @@ while [[ $# -gt 0 ]]; do
             GEMINI_RESULTS_ROOT="${2:?Missing value for --gemini-results-root}"
             shift 2
             ;;
+        --gemma-results-root)
+            GEMMA_RESULTS_ROOT="${2:?Missing value for --gemma-results-root}"
+            shift 2
+            ;;
         --skip-gemini)
             SKIP_GEMINI=1
+            shift
+            ;;
+        --skip-gemma)
+            SKIP_GEMMA=1
             shift
             ;;
         --human-annotation-summary-csv)
@@ -174,6 +187,12 @@ if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_
     exit 1
 fi
 
+if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_GEMMA}" == "0" && ! -d "${GEMMA_RESULTS_ROOT}" ]]; then
+    echo "Gemma results root does not exist: ${GEMMA_RESULTS_ROOT}" >&2
+    echo "Run gemma_daic.sh first, pass --gemma-results-root, or pass --skip-gemma." >&2
+    exit 1
+fi
+
 HUMAN_ANNOTATION_POINTS_CSV="$(dirname "${HUMAN_ANNOTATION_SUMMARY_CSV}")/partial_to_full_points.csv"
 if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_ANNOTATION_POINTS_CSV}" ]]; then
     echo "Human annotation point CSV does not exist: ${HUMAN_ANNOTATION_POINTS_CSV}" >&2
@@ -205,7 +224,9 @@ echo "Project root:                  ${PROJECT_ROOT}"
 echo "Apptainer image:               ${SIF_PATH}"
 echo "Results root:                  ${RESULTS_ROOT}"
 echo "Gemini results root:           ${GEMINI_RESULTS_ROOT}"
+echo "Gemma results root:            ${GEMMA_RESULTS_ROOT}"
 echo "Skip Gemini:                   ${SKIP_GEMINI}"
+echo "Skip Gemma:                    ${SKIP_GEMMA}"
 echo "Human annotation summary CSV:  ${HUMAN_ANNOTATION_SUMMARY_CSV}"
 echo "Human annotation points CSV:   ${HUMAN_ANNOTATION_POINTS_CSV:-${DEFAULT_HUMAN_ANNOTATION_POINTS_CSV}}"
 echo "Skip human overlay:            ${SKIP_HUMAN_OVERLAY}"
@@ -234,6 +255,15 @@ else
 
     if [[ "${SKIP_GEMINI}" == "0" ]]; then
         PYTHON_ARGS+=(--additional-results-root "${GEMINI_RESULTS_ROOT}")
+    fi
+
+    if [[ "${SKIP_GEMMA}" == "0" ]]; then
+        RESULTS_ROOT_REAL="$(readlink -f "${RESULTS_ROOT}")"
+        GEMMA_RESULTS_ROOT_REAL="$(readlink -f "${GEMMA_RESULTS_ROOT}")"
+        RESULTS_ROOT_GEMMA_CHILD_REAL="$(readlink -f "${RESULTS_ROOT}/gemma-4-e4b" 2>/dev/null || true)"
+        if [[ "${RESULTS_ROOT_REAL}" != "${GEMMA_RESULTS_ROOT_REAL}" && "${RESULTS_ROOT_GEMMA_CHILD_REAL}" != "${GEMMA_RESULTS_ROOT_REAL}" ]]; then
+            PYTHON_ARGS+=(--additional-results-root "${GEMMA_RESULTS_ROOT}")
+        fi
     fi
 
     if [[ -n "${MODEL_PATH}" ]]; then

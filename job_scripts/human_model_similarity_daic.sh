@@ -17,6 +17,7 @@ SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/results"
 DEFAULT_GEMINI_RESULTS_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini"
+DEFAULT_GEMMA_RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}/gemma-4-e4b"
 DEFAULT_TASK_JSON="${DEFAULT_DATA_ROOT}/human_eval/task1/task1.json"
 DEFAULT_ANNOTATION_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/annotations"
 DEFAULT_EXTRACTION_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/annotation_extracted"
@@ -28,10 +29,12 @@ DEFAULT_MODEL_PATH=""
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--skip-gemini] [--task-json PATH] [--annotation-dir PATH] [--extraction-output-dir PATH] [--plot-dir PATH] [--plot-data-dir PATH] [--task-number N] [--model MODEL] [--model-path PATH] [--progress-partitions N]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--gemma-results-root PATH] [--skip-gemini] [--skip-gemma] [--task-json PATH] [--annotation-dir PATH] [--extraction-output-dir PATH] [--plot-dir PATH] [--plot-data-dir PATH] [--task-number N] [--model MODEL] [--model-path PATH] [--progress-partitions N]" >&2
     echo "  results-root: model results root (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
+    echo "  gemma-results-root: Gemma 4 result tree from gemma_daic.sh (default: ${DEFAULT_GEMMA_RESULTS_ROOT})" >&2
     echo "  --skip-gemini: do not include Gemini in human-model similarity analysis" >&2
+    echo "  --skip-gemma: do not include Gemma 4 results when --results-root does not already include them" >&2
     echo "  task-json: task media JSON used for linking (default: ${DEFAULT_TASK_JSON})" >&2
     echo "  annotation-dir: folder containing T1_y.json files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  extraction-output-dir: extracted CSV/JSON path (default: ${DEFAULT_EXTRACTION_OUTPUT_DIR})" >&2
@@ -44,6 +47,7 @@ usage() {
 
 RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
 GEMINI_RESULTS_ROOT="${DEFAULT_GEMINI_RESULTS_ROOT}"
+GEMMA_RESULTS_ROOT="${DEFAULT_GEMMA_RESULTS_ROOT}"
 TASK_JSON="${DEFAULT_TASK_JSON}"
 ANNOTATION_DIR="${DEFAULT_ANNOTATION_DIR}"
 EXTRACTION_OUTPUT_DIR="${DEFAULT_EXTRACTION_OUTPUT_DIR}"
@@ -54,6 +58,7 @@ MODEL="${DEFAULT_MODEL}"
 MODEL_PATH="${DEFAULT_MODEL_PATH}"
 PROGRESS_PARTITIONS="20"
 SKIP_GEMINI=0
+SKIP_GEMMA=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -65,8 +70,16 @@ while [[ $# -gt 0 ]]; do
             GEMINI_RESULTS_ROOT="${2:?Missing value for --gemini-results-root}"
             shift 2
             ;;
+        --gemma-results-root)
+            GEMMA_RESULTS_ROOT="${2:?Missing value for --gemma-results-root}"
+            shift 2
+            ;;
         --skip-gemini)
             SKIP_GEMINI=1
+            shift
+            ;;
+        --skip-gemma)
+            SKIP_GEMMA=1
             shift
             ;;
         --task-json)
@@ -153,6 +166,12 @@ if [[ "${SKIP_GEMINI}" == "0" && ! -d "${GEMINI_RESULTS_ROOT}" ]]; then
     exit 1
 fi
 
+if [[ "${SKIP_GEMMA}" == "0" && ! -d "${GEMMA_RESULTS_ROOT}" ]]; then
+    echo "Gemma results root does not exist: ${GEMMA_RESULTS_ROOT}" >&2
+    echo "Run gemma_daic.sh first, pass --gemma-results-root, or pass --skip-gemma." >&2
+    exit 1
+fi
+
 if [[ ! -f "${TASK_JSON}" ]]; then
     echo "Task JSON does not exist: ${TASK_JSON}" >&2
     exit 1
@@ -175,7 +194,9 @@ echo "Project root:           ${PROJECT_ROOT}"
 echo "Apptainer image:        ${SIF_PATH}"
 echo "Results root:           ${RESULTS_ROOT}"
 echo "Gemini results root:    ${GEMINI_RESULTS_ROOT}"
+echo "Gemma results root:     ${GEMMA_RESULTS_ROOT}"
 echo "Skip Gemini:            ${SKIP_GEMINI}"
+echo "Skip Gemma:             ${SKIP_GEMMA}"
 echo "Task JSON:              ${TASK_JSON}"
 echo "Annotation dir:         ${ANNOTATION_DIR}"
 echo "Extraction output dir:  ${EXTRACTION_OUTPUT_DIR}"
@@ -201,6 +222,15 @@ PYTHON_ARGS=(
 
 if [[ "${SKIP_GEMINI}" == "0" ]]; then
     PYTHON_ARGS+=(--additional-results-root "${GEMINI_RESULTS_ROOT}")
+fi
+
+if [[ "${SKIP_GEMMA}" == "0" ]]; then
+    RESULTS_ROOT_REAL="$(readlink -f "${RESULTS_ROOT}")"
+    GEMMA_RESULTS_ROOT_REAL="$(readlink -f "${GEMMA_RESULTS_ROOT}")"
+    RESULTS_ROOT_GEMMA_CHILD_REAL="$(readlink -f "${RESULTS_ROOT}/gemma-4-e4b" 2>/dev/null || true)"
+    if [[ "${RESULTS_ROOT_REAL}" != "${GEMMA_RESULTS_ROOT_REAL}" && "${RESULTS_ROOT_GEMMA_CHILD_REAL}" != "${GEMMA_RESULTS_ROOT_REAL}" ]]; then
+        PYTHON_ARGS+=(--additional-results-root "${GEMMA_RESULTS_ROOT}")
+    fi
 fi
 
 if [[ -n "${MODEL_PATH}" ]]; then
