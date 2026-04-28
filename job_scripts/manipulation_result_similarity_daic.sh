@@ -17,19 +17,25 @@ SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_SOURCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/results"
 DEFAULT_COMPARISON_SOURCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/results_comparison"
+DEFAULT_NO_AUDIO_SOURCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/results_noaudio"
+DEFAULT_NO_AUDIO_COMPARISON_SOURCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/results_noaudio_comparison"
 DEFAULT_REFERENCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/results"
 DEFAULT_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/result_similarity"
 DEFAULT_COMPARISON_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/results_similarity_comparison"
+DEFAULT_NO_AUDIO_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/result_similarity_noaudio"
+DEFAULT_NO_AUDIO_COMPARISON_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/result_similarity_noaudio_comparison"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
 DEFAULT_MODEL_PATH=""
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--comparison] [--source-results-root PATH] [--reference-results-root PATH] [--output-dir PATH] [--model MODEL] [--model-path PATH]" >&2
+    echo "  sbatch $0 [--comparison] [--no-audio] [--source-results-root PATH] [--reference-results-root PATH] [--output-dir PATH] [--model MODEL] [--model-path PATH]" >&2
     echo "  source-results-root: manipulated task-2 result tree (default: ${DEFAULT_SOURCE_RESULTS_ROOT})" >&2
     echo "  --comparison: use comparison source/output defaults (${DEFAULT_COMPARISON_SOURCE_RESULTS_ROOT}, ${DEFAULT_COMPARISON_OUTPUT_DIR})" >&2
+    echo "  --no-audio: use no-audio source/output defaults (${DEFAULT_NO_AUDIO_SOURCE_RESULTS_ROOT}, ${DEFAULT_NO_AUDIO_OUTPUT_DIR}) or comparison no-audio defaults with --comparison" >&2
     echo "  reference-results-root: full benchmark result tree (default: ${DEFAULT_REFERENCE_RESULTS_ROOT})" >&2
     echo "  output-dir: table and point-data output directory (default: ${DEFAULT_OUTPUT_DIR})" >&2
+    echo "  expected model folders under source/reference roots include qwen2.5 and gemma-4-e4b when available." >&2
     echo "  model: SentenceTransformer model name (default: ${DEFAULT_MODEL})" >&2
     echo "  model-path: optional local SentenceTransformer directory. Recommended on compute nodes." >&2
 }
@@ -40,6 +46,7 @@ OUTPUT_DIR="${DEFAULT_OUTPUT_DIR}"
 MODEL="${DEFAULT_MODEL}"
 MODEL_PATH="${DEFAULT_MODEL_PATH}"
 COMPARISON=0
+NO_AUDIO=0
 SOURCE_RESULTS_ROOT_EXPLICIT=0
 OUTPUT_DIR_EXPLICIT=0
 
@@ -47,6 +54,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --comparison)
             COMPARISON=1
+            shift
+            ;;
+        --no-audio)
+            NO_AUDIO=1
             shift
             ;;
         --source-results-root)
@@ -90,10 +101,25 @@ done
 
 if [[ "${COMPARISON}" == "1" ]]; then
     if [[ "${SOURCE_RESULTS_ROOT_EXPLICIT}" == "0" ]]; then
-        SOURCE_RESULTS_ROOT="${DEFAULT_COMPARISON_SOURCE_RESULTS_ROOT}"
+        if [[ "${NO_AUDIO}" == "1" ]]; then
+            SOURCE_RESULTS_ROOT="${DEFAULT_NO_AUDIO_COMPARISON_SOURCE_RESULTS_ROOT}"
+        else
+            SOURCE_RESULTS_ROOT="${DEFAULT_COMPARISON_SOURCE_RESULTS_ROOT}"
+        fi
     fi
     if [[ "${OUTPUT_DIR_EXPLICIT}" == "0" ]]; then
-        OUTPUT_DIR="${DEFAULT_COMPARISON_OUTPUT_DIR}"
+        if [[ "${NO_AUDIO}" == "1" ]]; then
+            OUTPUT_DIR="${DEFAULT_NO_AUDIO_COMPARISON_OUTPUT_DIR}"
+        else
+            OUTPUT_DIR="${DEFAULT_COMPARISON_OUTPUT_DIR}"
+        fi
+    fi
+elif [[ "${NO_AUDIO}" == "1" ]]; then
+    if [[ "${SOURCE_RESULTS_ROOT_EXPLICIT}" == "0" ]]; then
+        SOURCE_RESULTS_ROOT="${DEFAULT_NO_AUDIO_SOURCE_RESULTS_ROOT}"
+    fi
+    if [[ "${OUTPUT_DIR_EXPLICIT}" == "0" ]]; then
+        OUTPUT_DIR="${DEFAULT_NO_AUDIO_OUTPUT_DIR}"
     fi
 fi
 
@@ -113,6 +139,15 @@ if [[ ! -d "${REFERENCE_RESULTS_ROOT}" ]]; then
     exit 1
 fi
 
+for REQUIRED_MODEL_ROOT in qwen2.5 gemma-4-e4b; do
+    if [[ ! -d "${SOURCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" ]]; then
+        echo "[WARN] Source root is missing ${REQUIRED_MODEL_ROOT}: ${SOURCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" >&2
+    fi
+    if [[ ! -d "${REFERENCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" ]]; then
+        echo "[WARN] Reference root is missing ${REQUIRED_MODEL_ROOT}: ${REFERENCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" >&2
+    fi
+done
+
 if [[ -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; then
     echo "Model path does not exist: ${MODEL_PATH}" >&2
     exit 1
@@ -124,6 +159,7 @@ mkdir -p "${OUTPUT_DIR}"
 echo "Project root:            ${PROJECT_ROOT}"
 echo "Apptainer image:         ${SIF_PATH}"
 echo "Comparison mode:         ${COMPARISON}"
+echo "No-audio mode:           ${NO_AUDIO}"
 echo "Source results root:     ${SOURCE_RESULTS_ROOT}"
 echo "Reference results root:  ${REFERENCE_RESULTS_ROOT}"
 echo "Output dir:              ${OUTPUT_DIR}"
