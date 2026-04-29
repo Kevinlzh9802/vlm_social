@@ -8,8 +8,12 @@
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/ming-lite-omni/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/ming-lite-omni/slurm_%j.err
+#SBATCH --output=logs/ming-lite-omni/inference_batch_%j.out
+#SBATCH --error=logs/ming-lite-omni/inference_batch_%j.err
+# Submit from the model project root; ensure logs/ming-lite-omni exists before sbatch.
+# User paths to set: export MING_PROJECT_ROOT=/path/to/Ming-lite-omni DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
+# Optional log path: export LOG_DIR=logs/ming-lite-omni
+
 
 # Batch Ming-Lite-Omni inference via Apptainer.
 #
@@ -21,6 +25,12 @@
 #   sbatch job_scripts/inference_batch.sh --dataset mintrec2 --utt 3 --batch 9 --prompt affordance
 
 set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+MING_PROJECT_ROOT="${MING_PROJECT_ROOT:-${PROJECT_ROOT}}"
+DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
+APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
+LOG_DIR="${LOG_DIR:-logs/ming-lite-omni}"
 
 usage_message="Usage: sbatch job_scripts/inference_batch.sh --dataset <dataset> [--mode <context|nested>] [--utt <1|2|3>] --batch <number> [--conversation-mode <single-turn|multi-turn>] [--attn-implementation <auto|eager|sdpa|flash_attention_2>] [--annotator <n>] --prompt <prompt_choice>"
 
@@ -212,10 +222,10 @@ batch_id=$(printf "%02d" "$batch_number")
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-project_dir="/scratch/zli33/models/Ming-lite-omni"
-sif_file="/scratch/zli33/apptainers/ming-lite-omni.sif"
-gestalt_root="/scratch/zli33/data/gestalt_bench"
-data_root_host="/scratch/zli33/data"
+project_dir="${MING_PROJECT_ROOT}"
+sif_file="${APPTAINER_ROOT}/ming-lite-omni.sif"
+gestalt_root="${DATA_ROOT}"
+data_root_host="${DATA_ROOT}"
 prompt_config="$project_dir/prompts/prompts.json"
 
 if [ -n "$annotator_number" ]; then
@@ -256,7 +266,7 @@ run_single_inference() {
     local output_dir="$3"
     local output_json="$4"
 
-    mkdir -p /scratch/zli33/slurm_outputs/ming-lite-omni
+    mkdir -p "$LOG_DIR"
     mkdir -p "$output_dir"
 
     echo "[INFO] sif_file          = $sif_file"

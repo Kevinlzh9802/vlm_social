@@ -8,8 +8,12 @@
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/ming-lite-omni/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/ming-lite-omni/slurm_%j.err
+#SBATCH --output=logs/ming-lite-omni/inference_test_%j.out
+#SBATCH --error=logs/ming-lite-omni/inference_test_%j.err
+# Submit from the model project root; ensure logs/ming-lite-omni exists before sbatch.
+# User paths to set: export MING_PROJECT_ROOT=/path/to/Ming-lite-omni DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
+# Optional log path: export LOG_DIR=logs/ming-lite-omni
+
 
 # Simple Ming-Lite-Omni inference test via Apptainer.
 #
@@ -20,11 +24,17 @@
 
 set -euo pipefail
 
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+MING_PROJECT_ROOT="${MING_PROJECT_ROOT:-${PROJECT_ROOT}}"
+DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
+APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
+LOG_DIR="${LOG_DIR:-logs/ming-lite-omni}"
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-project_dir="/scratch/zli33/models/Ming-lite-omni"
-sif_file=/scratch/zli33/apptainers/ming-lite-omni.sif
+project_dir="${MING_PROJECT_ROOT}"
+sif_file=${APPTAINER_ROOT}/ming-lite-omni.sif
 
 # Default test script; override via first positional argument
 test_script="${1:-test_infer.py}"
@@ -44,7 +54,7 @@ if [ ! -f "$project_dir/$test_script" ]; then
 fi
 
 # Ensure slurm output directory exists
-mkdir -p /scratch/zli33/slurm_outputs/ming-lite-omni
+mkdir -p "$LOG_DIR"
 
 # ---------------------------------------------------------------------------
 # Run inference
@@ -67,7 +77,7 @@ nvidia-smi || true
 # instead we create the symlink inside the container via the bash wrapper.
 apptainer exec --nv --writable-tmpfs \
   --bind "$project_dir":/workspace \
-  --bind /scratch/zli33:/scratch/zli33 \
+  --bind "$DATA_ROOT":"$DATA_ROOT" \
   --pwd /workspace \
   "$sif_file" \
   bash -lc '

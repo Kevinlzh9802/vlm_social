@@ -8,27 +8,39 @@
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/qwen2.5-omni/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/qwen2.5-omni/slurm_%j.err
+#SBATCH --output=logs/qwen2.5-omni/inference_test_%j.out
+#SBATCH --error=logs/qwen2.5-omni/inference_test_%j.err
+# Submit from the model project root; ensure logs/qwen2.5-omni exists before sbatch.
+# User paths to set: export QWEN_PROJECT_ROOT=/path/to/Qwen2.5-Omni DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers
+# Optional cache/log paths: export HF_CACHE=/path/to/huggingface-cache LOG_DIR=logs/qwen2.5-omni
+
 
 # Simple Qwen2.5-Omni inference test via Apptainer.
 #
 # Submit from the project folder:
 #   sbatch job_scripts/inference_test.sh
-#   sbatch job_scripts/inference_test.sh --model /scratch/zli33/models/Qwen2.5-Omni-7B
+#   sbatch job_scripts/inference_test.sh --model ${MODEL_ROOT:-/path/to/models}/Qwen2.5-Omni-7B
 
 set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+QWEN_PROJECT_ROOT="${QWEN_PROJECT_ROOT:-${PROJECT_ROOT}}"
+DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
+MODEL_ROOT="${MODEL_ROOT:-/path/to/models}"
+APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
+HF_CACHE="${HF_CACHE:-${MODEL_ROOT}/.cache/huggingface}"
+LOG_DIR="${LOG_DIR:-logs/qwen2.5-omni}"
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Under Slurm, BASH_SOURCE may point to a spool location; prefer submission dir.
-project_dir=/home/zli33/projects/Qwen2.5-Omni
-sif_file=/scratch/zli33/apptainers/qwen2.5-omni-inference.sif
-hf_cache_host=/scratch/zli33/.cache/huggingface
-data_root_host=/scratch/zli33/data
-model_root_host=/scratch/zli33/models
+project_dir=${QWEN_PROJECT_ROOT}
+sif_file=${APPTAINER_ROOT}/qwen2.5-omni-inference.sif
+hf_cache_host=${HF_CACHE}
+data_root_host=${DATA_ROOT}
+model_root_host=${MODEL_ROOT}
 
 # Always run workspace infer_test.py; CLI args are forwarded to the script.
 test_script="infer_test.py"
@@ -49,7 +61,7 @@ if [ ! -f "$project_dir/$test_script" ]; then
 fi
 
 # Ensure slurm output directory exists
-mkdir -p /scratch/zli33/slurm_outputs/qwen2.5-omni
+mkdir -p "$LOG_DIR"
 mkdir -p "$hf_cache_host"
 
 # ---------------------------------------------------------------------------

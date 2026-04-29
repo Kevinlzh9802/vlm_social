@@ -9,10 +9,19 @@
 #SBATCH --account ewi-insy-prb
 #SBATCH --partition insy,general
 #SBATCH --mail-type=END,FAIL
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/Ming-Lite-Omni/build_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/Ming-Lite-Omni/build_%j.err
+#SBATCH --output=logs/ming-lite-omni/build_apptainer_daic_%j.out
+#SBATCH --error=logs/ming-lite-omni/build_apptainer_daic_%j.err
+# Submit from the model project root; ensure logs/ming-lite-omni exists before sbatch.
+# User paths to set: export MING_PROJECT_ROOT=/path/to/Ming-lite-omni APPTAINER_ROOT=/path/to/apptainers LOG_DIR=logs/ming-lite-omni
+# Optional build paths: export SIF_PATH=/path/to/ming-lite-omni.sif APPTAINER_TMPDIR=/path/to/tmp
+
 
 set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+MING_PROJECT_ROOT="${MING_PROJECT_ROOT:-${PROJECT_DIR:-${PROJECT_ROOT}}}"
+APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
+LOG_DIR="${LOG_DIR:-logs/ming-lite-omni}"
 
 # Build the Apptainer image on DAIC.
 #
@@ -20,11 +29,10 @@ set -euo pipefail
 #   sbatch job_scripts/build_apptainer_daic.sh
 #
 # Optional overrides:
-#   sbatch --export=ALL,PROJECT_DIR=/path/to/Ming-lite-omni,SIF_PATH=/path/to/ming-lite-omni.sif job_scripts/build_apptainer_daic.sh
+#   sbatch --export=ALL,MING_PROJECT_ROOT=/path/to/Ming-lite-omni,SIF_PATH=/path/to/ming-lite-omni.sif job_scripts/build_apptainer_daic.sh
 
-project_dir_default="/tudelft.net/staff-umbrella/neon/zonghuan/models/Ming-lite-omni"
-project_dir="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$project_dir_default}}"
-log_dir="${LOG_DIR:-/home/nfs/zli33/slurm_outputs/Ming-Lite-Omni}"
+project_dir="${MING_PROJECT_ROOT}"
+log_dir="${LOG_DIR}"
 
 mkdir -p "$log_dir"
 
@@ -37,7 +45,7 @@ cd "$project_dir"
 
 build_script="$project_dir/apptainer/build.sh"
 def_file="$project_dir/apptainer/Ming-lite-omni.def"
-sif_file="${SIF_PATH:-$project_dir/apptainer/ming-lite-omni.sif}"
+sif_file="${SIF_PATH:-${APPTAINER_ROOT}/ming-lite-omni.sif}"
 
 if [ ! -f "$build_script" ]; then
     echo "[ERROR] Build script not found: $build_script" >&2
@@ -70,6 +78,8 @@ mkdir -p "$APPTAINER_TMPDIR"
 
 echo "[INFO] APPTAINER_TMPDIR = $APPTAINER_TMPDIR"
 echo
+
+mkdir -p "$(dirname "$sif_file")"
 
 if [ "$sif_file" = "$project_dir/apptainer/ming-lite-omni.sif" ]; then
     bash "$build_script"

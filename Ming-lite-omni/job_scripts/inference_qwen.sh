@@ -8,8 +8,12 @@
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/qwen2.5-omni/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/qwen2.5-omni/slurm_%j.err
+#SBATCH --output=logs/qwen2.5-omni/inference_qwen_%j.out
+#SBATCH --error=logs/qwen2.5-omni/inference_qwen_%j.err
+# Submit from the model project root; ensure logs/qwen2.5-omni exists before sbatch.
+# User paths to set: export QWEN_PROJECT_ROOT=/path/to/Qwen2.5-Omni DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers
+# Optional cache/log paths: export HF_CACHE=/path/to/huggingface-cache LOG_DIR=logs/qwen2.5-omni
+
 
 # Batch Qwen2.5-Omni inference via Apptainer.
 #
@@ -22,6 +26,14 @@
 #   sbatch job_scripts/inference_batch.sh -set mintrec6 --mode nested --utt 1 --batch 10 -model 3B -prompt intention
 
 set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+QWEN_PROJECT_ROOT="${QWEN_PROJECT_ROOT:-${PROJECT_ROOT}}"
+DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
+MODEL_ROOT="${MODEL_ROOT:-/path/to/models}"
+APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
+HF_CACHE="${HF_CACHE:-${MODEL_ROOT}/.cache/huggingface}"
+LOG_DIR="${LOG_DIR:-logs/qwen2.5-omni}"
 
 model_size=7B
 dataset_name=""
@@ -192,12 +204,12 @@ batch_id=$(printf "%02d" "$batch_number")
 # Paths
 # ---------------------------------------------------------------------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-project_dir=/home/zli33/projects/Qwen2.5-Omni
-sif_file=/scratch/zli33/apptainers/qwen2.5-omni-inference.sif
-hf_cache_host=/scratch/zli33/.cache/huggingface
-data_root_host=/scratch/zli33/data
-model_root_host=/scratch/zli33/models
-gestalt_root=/scratch/zli33/data/gestalt_bench
+project_dir=${QWEN_PROJECT_ROOT}
+sif_file=${APPTAINER_ROOT}/qwen2.5-omni-inference.sif
+hf_cache_host=${HF_CACHE}
+data_root_host=${DATA_ROOT}
+model_root_host=${MODEL_ROOT}
+gestalt_root=${DATA_ROOT}
 
 # Batch-specific paths
 if [ "$mode_name" = "nested" ]; then
@@ -209,7 +221,7 @@ else
 fi
 output_dir="${gestalt_root}/results/qwen2.5/${dataset_name}/${mode_name}/${utt_count}-utt_group/${model_size}_${prompt_choice}_${conversation_mode}"
 output_json="$output_dir/batch${batch_id}.json"
-model_path="/scratch/zli33/models/Qwen2.5-Omni-${model_size}"
+model_path="${MODEL_ROOT}/Qwen2.5-Omni-${model_size}"
 prompt_config="$project_dir/prompts/prompts.json"
 
 # ---------------------------------------------------------------------------
@@ -247,7 +259,7 @@ if ! python3 -c 'import json, sys; data = json.load(open(sys.argv[1], encoding="
 fi
 
 # Ensure output and cache directories exist
-mkdir -p /scratch/zli33/slurm_outputs/qwen2.5-omni
+mkdir -p "$LOG_DIR"
 mkdir -p "$hf_cache_host"
 mkdir -p "$output_dir"
 

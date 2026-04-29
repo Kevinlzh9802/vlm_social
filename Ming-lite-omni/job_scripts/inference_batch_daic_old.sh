@@ -8,8 +8,12 @@
 #SBATCH --time=0:30:00
 #SBATCH --gres=gpu:a40:1
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/Ming-Lite-Omni/slurm_%j.err
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/Ming-Lite-Omni/slurm_%j.out
+#SBATCH --output=logs/ming-lite-omni/inference_batch_daic_old_%j.out
+#SBATCH --error=logs/ming-lite-omni/inference_batch_daic_old_%j.err
+# Submit from the model project root; ensure logs/ming-lite-omni exists before sbatch.
+# User paths to set: export MING_PROJECT_ROOT=/path/to/Ming-lite-omni DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
+# Optional log path: export LOG_DIR=logs/ming-lite-omni
+
 
 
 # Batch Ming-Lite-Omni inference via Apptainer using the legacy DAIC config.
@@ -22,6 +26,12 @@
 #   sbatch job_scripts/inference_batch_daic_old.sh --dataset mintrec2 --utt 3 --batch 9 --prompt affordance
 
 set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+MING_PROJECT_ROOT="${MING_PROJECT_ROOT:-${PROJECT_ROOT}}"
+DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
+APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
+LOG_DIR="${LOG_DIR:-logs/ming-lite-omni}"
 
 usage_message="Usage: sbatch job_scripts/inference_batch_daic_old.sh --dataset <dataset> [--mode <context|nested>] [--utt <1|2|3>] --batch <number> [--conversation-mode <single-turn|multi-turn>] [--attn-implementation <auto|eager|sdpa|flash_attention_2>] [--max-frames <number>] [--annotator <n>] --prompt <prompt_choice>"
 
@@ -229,10 +239,10 @@ batch_id=$(printf "%02d" "$batch_number")
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-project_dir="/tudelft.net/staff-umbrella/neon/zonghuan/models/Ming-lite-omni"
-sif_file="/tudelft.net/staff-umbrella/neon/apptainer/ming-lite-omni.sif"
-gestalt_root="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
-data_root_host="/tudelft.net/staff-umbrella/neon/zonghuan/data"
+project_dir="${MING_PROJECT_ROOT}"
+sif_file="${APPTAINER_ROOT}/ming-lite-omni.sif"
+gestalt_root="${DATA_ROOT}"
+data_root_host="${DATA_ROOT}"
 prompt_config="$project_dir/prompts/prompts.json"
 
 if [ -n "$annotator_number" ]; then
@@ -273,7 +283,7 @@ run_single_inference() {
     local output_dir="$3"
     local output_json="$4"
 
-    mkdir -p /home/nfs/zli33/slurm_outputs/ming-lite-omni
+    mkdir -p "$LOG_DIR"
     mkdir -p "$output_dir"
 
     echo "[INFO] sif_file          = $sif_file"
@@ -296,6 +306,7 @@ run_single_inference() {
     nvidia-smi || true
 
     set -euo pipefail
+
     set -x
 
     echo "[DEBUG] checking apptainer"

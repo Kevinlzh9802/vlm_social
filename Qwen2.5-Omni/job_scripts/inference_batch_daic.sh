@@ -7,8 +7,12 @@
 #SBATCH --mem-per-cpu=8GB 
 #SBATCH --gres=gpu:nvidia_rtx_pro_6000:1            # Request 1 GPU of any type
 #SBATCH --mail-type=END
-#SBATCH --output=/home/zli33/linuxhome/slurm_outputs/Qwen2.5-omni/slurm_%j.out
-#SBATCH --error=/home/zli33/linuxhome/slurm_outputs/Qwen2.5-omni/slurm_%j.err
+#SBATCH --output=logs/qwen2.5-omni/inference_batch_daic_%j.out
+#SBATCH --error=logs/qwen2.5-omni/inference_batch_daic_%j.err
+# Submit from the model project root; ensure logs/qwen2.5-omni exists before sbatch.
+# User paths to set: export QWEN_PROJECT_ROOT=/path/to/Qwen2.5-Omni DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers
+# Optional cache/log paths: export HF_CACHE=/path/to/huggingface-cache LOG_DIR=logs/qwen2.5-omni
+
 
 # Batch Qwen2.5-Omni inference via Apptainer.
 #
@@ -24,6 +28,14 @@
 #   sbatch job_scripts/inference_batch.sh --dataset mintrec2 --mode context --batch 2 -model 7B -prompt intention --annotated --no-audio
 
 set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+QWEN_PROJECT_ROOT="${QWEN_PROJECT_ROOT:-${PROJECT_ROOT}}"
+DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
+MODEL_ROOT="${MODEL_ROOT:-/path/to/models}"
+APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
+HF_CACHE="${HF_CACHE:-${MODEL_ROOT}/.cache/huggingface}"
+LOG_DIR="${LOG_DIR:-logs/qwen2.5-omni}"
 
 model_size=7B
 dataset_name=""
@@ -225,12 +237,12 @@ batch_id=$(printf "%02d" "$batch_number")
 # Paths
 # ---------------------------------------------------------------------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-project_dir=/home/zli33/linuxhome/projects/Qwen2.5-Omni
-sif_file=/tudelft.net/staff-umbrella/neon/apptainer/qwen2.5-omni-inference.sif
-hf_cache_host=/tudelft.net/staff-umbrella/neon/zonghuan/.cache/huggingface
-data_root_host=/tudelft.net/staff-umbrella/neon/zonghuan/data
-model_root_host=/tudelft.net/staff-umbrella/neon/zonghuan/models
-gestalt_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
+project_dir=${QWEN_PROJECT_ROOT}
+sif_file=${APPTAINER_ROOT}/qwen2.5-omni-inference.sif
+hf_cache_host=${HF_CACHE}
+data_root_host=${DATA_ROOT}
+model_root_host=${MODEL_ROOT}
+gestalt_root=${DATA_ROOT}
 
 data_base_root="$gestalt_root"
 output_base_root="${gestalt_root}/results/qwen2.5"
@@ -251,7 +263,7 @@ if [ "$annotated" = true ]; then
         fi
     fi
 fi
-model_path="/tudelft.net/staff-umbrella/neon/zonghuan/models/Qwen2.5-Omni-${model_size}"
+model_path="${MODEL_ROOT}/Qwen2.5-Omni-${model_size}"
 prompt_config="$project_dir/prompts/prompts.json"
 
 # ---------------------------------------------------------------------------
@@ -274,7 +286,7 @@ if [ ! -f "$prompt_config" ]; then
 fi
 
 # Ensure output and cache directories exist
-mkdir -p /home/zli33/linuxhome/slurm_outputs/Qwen2.5-omni
+mkdir -p "$LOG_DIR"
 mkdir -p "$hf_cache_host"
 
 # ---------------------------------------------------------------------------
