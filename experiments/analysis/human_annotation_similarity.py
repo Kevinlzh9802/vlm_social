@@ -53,6 +53,7 @@ PROMPT_FIELD_MAP = {
 }
 CLIP_FILE_RE = re.compile(r"^(?P<prefix>.+)_clip_?(?P<index>\d+)\.[^.]+$")
 BATCH_FOLDER_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b\d+$")
+DEFAULT_MIN_BIN_SAMPLES = 5
 
 
 @dataclass(frozen=True)
@@ -349,6 +350,17 @@ def collect_clip_to_final_bins(
     return grouped_values
 
 
+def filter_grouped_values_for_plot(
+    grouped_values: dict[float, list[float]],
+    min_bin_samples: int = DEFAULT_MIN_BIN_SAMPLES,
+) -> dict[float, list[float]]:
+    return {
+        ratio: values
+        for ratio, values in grouped_values.items()
+        if len(values) >= min_bin_samples
+    }
+
+
 def mean_similarity_by_ratio(grouped_values: dict[float, list[float]]) -> tuple[list[float], list[float]]:
     ratios = sorted(grouped_values)
     means = [float(np.mean(grouped_values[ratio])) for ratio in ratios]
@@ -363,6 +375,10 @@ def plot_case_percentiles(
     output_path: Path,
     progress_partitions: int,
 ) -> None:
+    grouped_values = filter_grouped_values_for_plot(grouped_values)
+    if not grouped_values:
+        return
+
     ratios = sorted(grouped_values)
     percentile_25 = [float(np.percentile(grouped_values[ratio], 25)) for ratio in ratios]
     percentile_50 = [float(np.percentile(grouped_values[ratio], 50)) for ratio in ratios]
@@ -396,6 +412,10 @@ def plot_case_average(
     output_path: Path,
     progress_partitions: int,
 ) -> None:
+    grouped_values = filter_grouped_values_for_plot(grouped_values)
+    if not grouped_values:
+        return
+
     ratios, mean_values = mean_similarity_by_ratio(grouped_values)
 
     plt.figure(figsize=(8, 6))
@@ -422,6 +442,10 @@ def plot_overall_percentiles(
     output_path: Path,
     progress_partitions: int,
 ) -> None:
+    grouped_values = filter_grouped_values_for_plot(grouped_values)
+    if not grouped_values:
+        return
+
     ratios = sorted(grouped_values)
     percentile_25 = [float(np.percentile(grouped_values[ratio], 25)) for ratio in ratios]
     percentile_50 = [float(np.percentile(grouped_values[ratio], 50)) for ratio in ratios]
@@ -451,6 +475,10 @@ def plot_overall_average(
     output_path: Path,
     progress_partitions: int,
 ) -> None:
+    grouped_values = filter_grouped_values_for_plot(grouped_values)
+    if not grouped_values:
+        return
+
     ratios, mean_values = mean_similarity_by_ratio(grouped_values)
 
     plt.figure(figsize=(8, 6))

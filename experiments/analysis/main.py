@@ -30,6 +30,7 @@ FILE_CLIP_PATTERN = re.compile(r"^(?P<prefix>.+)_clip_?(?P<index>\d+)$")
 UTT_GROUP_PATTERN = re.compile(r"^(?P<size>[123])-utt_group$")
 MODEL_SIZE_PATTERN = re.compile(r"(?P<size>\d+[Bb])(?:[_-]|$)")
 DEFAULT_PROGRESS_PARTITIONS = 20
+DEFAULT_MIN_BIN_SAMPLES = 5
 
 
 def parse_args() -> argparse.Namespace:
@@ -360,10 +361,66 @@ def collect_clip_to_final_bins(
     return grouped_values
 
 
+def filter_grouped_values_for_plot(
+    grouped_values: dict[float, list[float]],
+    min_bin_samples: int = DEFAULT_MIN_BIN_SAMPLES,
+) -> dict[float, list[float]]:
+    return {
+        ratio: values
+        for ratio, values in grouped_values.items()
+        if len(values) >= min_bin_samples
+    }
+
+
 def mean_similarity_by_ratio(grouped_values: dict[float, list[float]]) -> tuple[list[float], list[float]]:
     ratios = sorted(grouped_values)
     means = [float(np.mean(grouped_values[ratio])) for ratio in ratios]
     return ratios, means
+
+
+def mean_and_std_by_ratio(
+    grouped_values: dict[float, list[float]],
+) -> tuple[list[float], list[float], list[float]]:
+    ratios = sorted(grouped_values)
+    means = [float(np.mean(grouped_values[ratio])) for ratio in ratios]
+    stds = [float(np.std(grouped_values[ratio])) for ratio in ratios]
+    return ratios, means, stds
+
+
+def resolve_mean_variant(
+    sigma_multiplier: float | None,
+) -> tuple[str, str]:
+    if sigma_multiplier is None:
+        return "", "Mean"
+    if sigma_multiplier == 1:
+        return "_1sigma", "Mean +/- 1 sigma"
+    if sigma_multiplier == 2:
+        return "_2sigma", "Mean +/- 2 sigma"
+    raise ValueError(f"Unsupported sigma multiplier: {sigma_multiplier}")
+
+
+def plot_line_with_optional_error_bars(
+    x_values: Sequence[float],
+    y_values: Sequence[float],
+    std_values: Sequence[float] | None,
+    sigma_multiplier: float | None,
+    **plot_kwargs: object,
+) -> None:
+    plt.plot(x_values, y_values, **plot_kwargs)
+    if sigma_multiplier is None or std_values is None:
+        return
+
+    color = plot_kwargs.get("color")
+    yerr = np.asarray(std_values, dtype=float) * float(sigma_multiplier)
+    plt.errorbar(
+        x_values,
+        y_values,
+        yerr=yerr,
+        fmt="none",
+        ecolor=color,
+        capsize=3,
+        elinewidth=1.1,
+    )
 
 
 def load_human_annotation_summary_csv(
@@ -517,9 +574,11 @@ def plot_clip_to_final_scatter(
 ) -> None:
     x_values: list[float] = []
     y_values: list[float] = []
-    grouped_values = collect_clip_to_final_bins(
-        utterance_metrics=utterance_metrics,
-        progress_partitions=progress_partitions,
+    grouped_values = filter_grouped_values_for_plot(
+        collect_clip_to_final_bins(
+            utterance_metrics=utterance_metrics,
+            progress_partitions=progress_partitions,
+        )
     )
 
     for metrics in utterance_metrics:
@@ -539,6 +598,18 @@ def plot_clip_to_final_scatter(
     plt.figure(figsize=(8, 6))
     if include_scatter:
         plt.scatter(x_values, y_values, s=18, alpha=0.65, edgecolors="none")
+
+    if not grouped_values:
+        plt.title(title)
+        plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
+        plt.ylabel("Cosine similarity to final clip")
+        plt.xlim(0.0, 1.02)
+        plt.ylim(-0.05, 1.05)
+        plt.grid(True, alpha=0.25)
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=200)
+        plt.close()
+        return
 
     sorted_ratios = sorted(grouped_values)
     percentile_25 = [
@@ -590,20 +661,25 @@ def plot_clip_to_final_mean(
     title: str,
     progress_partitions: int,
     output_path: Path,
+    sigma_multiplier: float | None = None,
 ) -> None:
-    grouped_values = collect_clip_to_final_bins(
-        utterance_metrics=utterance_metrics,
-        progress_partitions=progress_partitions,
+    grouped_values = filter_grouped_values_for_plot(
+        collect_clip_to_final_bins(
+            utterance_metrics=utterance_metrics,
+            progress_partitions=progress_partitions,
+        )
     )
     if not grouped_values:
         return
 
-    ratios, mean_values = mean_similarity_by_ratio(grouped_values)
+    ratios, mean_values, std_values = mean_and_std_by_ratio(grouped_values)
 
     plt.figure(figsize=(8, 6))
-    plt.plot(
+    plot_line_with_optional_error_bars(
         ratios,
         mean_values,
+        std_values,
+        sigma_multiplier,
         color="#4C78A8",
         marker="o",
         linewidth=1.8,
@@ -633,9 +709,11 @@ def plot_combined_clip_to_final_percentile_lines(
     plotted_any = False
 
     for model_label in sorted(case_metrics):
-        grouped_values = collect_clip_to_final_bins(
-            utterance_metrics=case_metrics[model_label],
-            progress_partitions=progress_partitions,
+        grouped_values = filter_grouped_values_for_plot(
+            collect_clip_to_final_bins(
+                utterance_metrics=case_metrics[model_label],
+                progress_partitions=progress_partitions,
+            )
         )
         if not grouped_values:
             print(
@@ -681,14 +759,17 @@ def plot_combined_clip_to_final_mean_lines(
     task_name: str,
     progress_partitions: int,
     output_path: Path,
+    sigma_multiplier: float | None = None,
 ) -> bool:
     plt.figure(figsize=(8, 6))
     plotted_any = False
 
     for model_label in sorted(case_metrics):
-        grouped_values = collect_clip_to_final_bins(
-            utterance_metrics=case_metrics[model_label],
-            progress_partitions=progress_partitions,
+        grouped_values = filter_grouped_values_for_plot(
+            collect_clip_to_final_bins(
+                utterance_metrics=case_metrics[model_label],
+                progress_partitions=progress_partitions,
+            )
         )
         if not grouped_values:
             print(
@@ -697,8 +778,16 @@ def plot_combined_clip_to_final_mean_lines(
             )
             continue
 
-        ratios, mean_values = mean_similarity_by_ratio(grouped_values)
-        plt.plot(ratios, mean_values, marker="o", linewidth=1.8, label=model_label)
+        ratios, mean_values, std_values = mean_and_std_by_ratio(grouped_values)
+        plot_line_with_optional_error_bars(
+            ratios,
+            mean_values,
+            std_values,
+            sigma_multiplier,
+            marker="o",
+            linewidth=1.8,
+            label=model_label,
+        )
         plotted_any = True
 
     if not plotted_any:
@@ -709,8 +798,9 @@ def plot_combined_clip_to_final_mean_lines(
         )
         return False
 
+    _, mean_title = resolve_mean_variant(sigma_multiplier)
     plt.title(
-        f"Combined Clip-to-Final Similarity | {utt_group_size}-utt | {task_name} | Mean"
+        f"Combined Clip-to-Final Similarity | {utt_group_size}-utt | {task_name} | {mean_title}"
     )
     plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
     plt.ylabel("Average cosine similarity to final clip")
@@ -727,18 +817,20 @@ def plot_combined_clip_to_final_mean_lines(
 def plot_combined_human_model_partial_to_full_lines(
     case_metrics: dict[str, list[UtteranceMetrics]],
     human_case_summary: dict[str, list[tuple[float, float]]],
+    human_case_turnover_metrics: Sequence[UtteranceMetrics] | None,
     stat_name: str,
     utt_group_size: int,
     task_name: str,
     progress_partitions: int,
     output_path: Path,
     percentile: int | None = None,
+    sigma_multiplier: float | None = None,
 ) -> bool:
     plt.figure(figsize=(9, 6))
     plotted_any = False
     color_map = plt.cm.get_cmap("tab10")
     if stat_name == "mean":
-        title_suffix = "Mean"
+        _, title_suffix = resolve_mean_variant(sigma_multiplier)
         ylabel = "Average cosine similarity to full clip"
         legend_suffix = "mean"
     elif stat_name == "percentile" and percentile is not None:
@@ -749,9 +841,11 @@ def plot_combined_human_model_partial_to_full_lines(
         raise ValueError(f"Unsupported stat_name={stat_name} percentile={percentile}")
 
     for model_index, model_label in enumerate(sorted(case_metrics)):
-        grouped_values = collect_clip_to_final_bins(
-            utterance_metrics=case_metrics[model_label],
-            progress_partitions=progress_partitions,
+        grouped_values = filter_grouped_values_for_plot(
+            collect_clip_to_final_bins(
+                utterance_metrics=case_metrics[model_label],
+                progress_partitions=progress_partitions,
+            )
         )
         if not grouped_values:
             print(
@@ -761,17 +855,20 @@ def plot_combined_human_model_partial_to_full_lines(
             continue
 
         if stat_name == "mean":
-            ratios, stat_values = mean_similarity_by_ratio(grouped_values)
+            ratios, stat_values, std_values = mean_and_std_by_ratio(grouped_values)
         else:
             ratios = sorted(grouped_values)
             stat_values = [
                 float(np.percentile(grouped_values[ratio], percentile))
                 for ratio in ratios
             ]
+            std_values = None
 
-        plt.plot(
+        plot_line_with_optional_error_bars(
             ratios,
             stat_values,
+            std_values,
+            sigma_multiplier if stat_name == "mean" else None,
             color=color_map(model_index % 10),
             marker="o",
             linewidth=1.8,
@@ -780,25 +877,62 @@ def plot_combined_human_model_partial_to_full_lines(
         plotted_any = True
 
     human_stat_key = "mean" if stat_name == "mean" else f"p{percentile}"
-    human_points = human_case_summary.get(human_stat_key, [])
-    if human_points:
-        ratios = [ratio for ratio, _ in human_points]
-        values = [value for _, value in human_points]
-        plt.plot(
-            ratios,
-            values,
-            color="#111111",
-            linestyle="--",
-            marker="s",
-            linewidth=2.2,
-            label=f"Human annotations {human_stat_key}",
+    if human_case_turnover_metrics:
+        human_grouped_values = filter_grouped_values_for_plot(
+            collect_clip_to_final_bins(
+                utterance_metrics=human_case_turnover_metrics,
+                progress_partitions=progress_partitions,
+            )
         )
-        plotted_any = True
+        if human_grouped_values:
+            if stat_name == "mean":
+                ratios, values, std_values = mean_and_std_by_ratio(human_grouped_values)
+            else:
+                ratios = sorted(human_grouped_values)
+                values = [
+                    float(np.percentile(human_grouped_values[ratio], percentile))
+                    for ratio in ratios
+                ]
+                std_values = None
+            plot_line_with_optional_error_bars(
+                ratios,
+                values,
+                std_values,
+                sigma_multiplier if stat_name == "mean" else None,
+                color="#111111",
+                linestyle="--",
+                marker="s",
+                linewidth=2.2,
+                label=f"Human annotations {human_stat_key}",
+            )
+            plotted_any = True
+        else:
+            print(
+                f"[WARN] No human annotation bins met min sample count for aggregate plot: "
+                f"utt={utt_group_size}, task={task_name}, stat={human_stat_key}"
+            )
     else:
-        print(
-            f"[WARN] No human annotation summary for aggregate plot: "
-            f"utt={utt_group_size}, task={task_name}, stat={human_stat_key}"
-        )
+        human_points = human_case_summary.get(human_stat_key, [])
+        if human_points:
+            ratios = [ratio for ratio, _ in human_points]
+            values = [value for _, value in human_points]
+            plot_line_with_optional_error_bars(
+                ratios,
+                values,
+                None,
+                None,
+                color="#111111",
+                linestyle="--",
+                marker="s",
+                linewidth=2.2,
+                label=f"Human annotations {human_stat_key}",
+            )
+            plotted_any = True
+        else:
+            print(
+                f"[WARN] No human annotation summary for aggregate plot: "
+                f"utt={utt_group_size}, task={task_name}, stat={human_stat_key}"
+            )
 
     if not plotted_any:
         plt.close()
@@ -913,6 +1047,7 @@ def plot_combined_st_threshold_lines(
     task_name: str,
     output_path: Path,
     human_case_metrics: Sequence[UtteranceMetrics] | None = None,
+    sigma_multiplier: float | None = None,
 ) -> bool:
     plt.figure(figsize=(9, 6))
     plotted_any = False
@@ -928,6 +1063,7 @@ def plot_combined_st_threshold_lines(
             continue
 
         averages = []
+        std_values = []
         for threshold in turnover_thresholds:
             values = [
                 compute_semantic_turnover_ratio(
@@ -938,10 +1074,13 @@ def plot_combined_st_threshold_lines(
                 for metrics in model_metrics
             ]
             averages.append(float(np.mean(values)))
+            std_values.append(float(np.std(values)))
 
-        plt.plot(
+        plot_line_with_optional_error_bars(
             turnover_thresholds,
             averages,
+            std_values,
+            sigma_multiplier,
             marker="o",
             linewidth=1.8,
             label=model_label,
@@ -951,6 +1090,7 @@ def plot_combined_st_threshold_lines(
     if human_case_metrics is not None:
         if human_case_metrics:
             human_averages = []
+            human_std_values = []
             for threshold in turnover_thresholds:
                 human_values = [
                     compute_semantic_turnover_ratio(
@@ -961,10 +1101,13 @@ def plot_combined_st_threshold_lines(
                     for metrics in human_case_metrics
                 ]
                 human_averages.append(float(np.mean(human_values)))
+                human_std_values.append(float(np.std(human_values)))
 
-            plt.plot(
+            plot_line_with_optional_error_bars(
                 turnover_thresholds,
                 human_averages,
+                human_std_values,
+                sigma_multiplier,
                 color="#111111",
                 linestyle="--",
                 marker="s",
@@ -991,7 +1134,8 @@ def plot_combined_st_threshold_lines(
         if includes_human
         else "Average ST/Clip Count vs Threshold"
     )
-    plt.title(f"{title_prefix} | {utt_group_size}-utt | {task_name}")
+    _, mean_title = resolve_mean_variant(sigma_multiplier)
+    plt.title(f"{title_prefix} | {utt_group_size}-utt | {task_name} | {mean_title}")
     plt.xlabel("Threshold t")
     plt.ylabel("Average(ST / number of clips)")
     plt.ylim(-0.05, 1.05)
@@ -1480,6 +1624,7 @@ def generate_combined_outputs(
                     if plot_combined_human_model_partial_to_full_lines(
                         case_metrics=case_metrics,
                         human_case_summary=human_case_summary,
+                        human_case_turnover_metrics=human_case_turnover_metrics,
                         stat_name="percentile",
                         percentile=percentile,
                         utt_group_size=utt_group_size,
@@ -1499,7 +1644,23 @@ def generate_combined_outputs(
                 task_name=task_name,
                 progress_partitions=progress_partitions,
                 output_path=mean_output_path,
+                sigma_multiplier=None,
             )
+
+            for sigma_multiplier in (1, 2):
+                sigma_suffix, _ = resolve_mean_variant(sigma_multiplier)
+                sigma_output_path = (
+                    plots_root
+                    / f"combined_clip_to_final_mean{sigma_suffix}_{utt_group_size}utt_{task_name}.png"
+                )
+                plot_combined_clip_to_final_mean_lines(
+                    case_metrics=case_metrics,
+                    utt_group_size=utt_group_size,
+                    task_name=task_name,
+                    progress_partitions=progress_partitions,
+                    output_path=sigma_output_path,
+                    sigma_multiplier=sigma_multiplier,
+                )
 
             if human_annotation_summary is not None:
                 human_model_mean_output_path = (
@@ -1509,13 +1670,34 @@ def generate_combined_outputs(
                 if plot_combined_human_model_partial_to_full_lines(
                     case_metrics=case_metrics,
                     human_case_summary=human_case_summary,
+                    human_case_turnover_metrics=human_case_turnover_metrics,
                     stat_name="mean",
                     utt_group_size=utt_group_size,
                     task_name=task_name,
                     progress_partitions=progress_partitions,
                     output_path=human_model_mean_output_path,
+                    sigma_multiplier=None,
                 ):
                     print(f"[INFO] Saved {human_model_mean_output_path}")
+
+                for sigma_multiplier in (1, 2):
+                    sigma_suffix, _ = resolve_mean_variant(sigma_multiplier)
+                    human_model_sigma_output_path = (
+                        plots_root
+                        / f"combined_human_model_partial_to_full_mean{sigma_suffix}_{utt_group_size}utt_{task_name}.png"
+                    )
+                    if plot_combined_human_model_partial_to_full_lines(
+                        case_metrics=case_metrics,
+                        human_case_summary=human_case_summary,
+                        human_case_turnover_metrics=human_case_turnover_metrics,
+                        stat_name="mean",
+                        utt_group_size=utt_group_size,
+                        task_name=task_name,
+                        progress_partitions=progress_partitions,
+                        output_path=human_model_sigma_output_path,
+                        sigma_multiplier=sigma_multiplier,
+                    ):
+                        print(f"[INFO] Saved {human_model_sigma_output_path}")
 
             st_output_path = (
                 plots_root
@@ -1528,7 +1710,24 @@ def generate_combined_outputs(
                 task_name=task_name,
                 output_path=st_output_path,
                 human_case_metrics=human_case_turnover_metrics,
+                sigma_multiplier=None,
             )
+
+            for sigma_multiplier in (1, 2):
+                sigma_suffix, _ = resolve_mean_variant(sigma_multiplier)
+                st_sigma_output_path = (
+                    plots_root
+                    / f"combined_st_vs_threshold{sigma_suffix}_{utt_group_size}utt_{task_name}.png"
+                )
+                plot_combined_st_threshold_lines(
+                    case_metrics=case_metrics,
+                    turnover_thresholds=turnover_thresholds,
+                    utt_group_size=utt_group_size,
+                    task_name=task_name,
+                    output_path=st_sigma_output_path,
+                    human_case_metrics=human_case_turnover_metrics,
+                    sigma_multiplier=sigma_multiplier,
+                )
 
     write_wastp_table(
         combined_case_metrics=combined_case_metrics,
@@ -1615,14 +1814,19 @@ def analyze_dataset(
         )
         print(f"[INFO] Saved {clip_to_final_percentile_path}")
 
-        clip_to_final_mean_path = output_dir / "clip_to_final_similarity_mean_only.png"
-        plot_clip_to_final_mean(
-            utterance_metrics=utterance_metrics,
-            title=f"{title} | Mean Only",
-            progress_partitions=progress_partitions,
-            output_path=clip_to_final_mean_path,
-        )
-        print(f"[INFO] Saved {clip_to_final_mean_path}")
+        for sigma_multiplier in (None, 1, 2):
+            sigma_suffix, mean_title = resolve_mean_variant(sigma_multiplier)
+            clip_to_final_mean_path = (
+                output_dir / f"clip_to_final_similarity_mean_only{sigma_suffix}.png"
+            )
+            plot_clip_to_final_mean(
+                utterance_metrics=utterance_metrics,
+                title=f"{title} | {mean_title}",
+                progress_partitions=progress_partitions,
+                output_path=clip_to_final_mean_path,
+                sigma_multiplier=sigma_multiplier,
+            )
+            print(f"[INFO] Saved {clip_to_final_mean_path}")
 
         neighbor_path = output_dir / "neighbor_similarity_by_clip_count.png"
         plot_neighbor_similarity_by_clip_count(
