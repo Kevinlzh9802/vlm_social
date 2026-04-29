@@ -15,7 +15,7 @@ set -euo pipefail
 PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
 SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
-DEFAULT_TASK_JSON="${DEFAULT_DATA_ROOT}/human_eval/task1/task1.json"
+DEFAULT_TASK_JSON="${DEFAULT_DATA_ROOT}/human_eval/task1"
 DEFAULT_ANNOTATION_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/annotations"
 DEFAULT_EXTRACTION_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/annotation_extracted"
 DEFAULT_PLOT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/plots"
@@ -27,8 +27,8 @@ DEFAULT_MODEL_PATH=""
 usage() {
     echo "Usage:" >&2
     echo "  sbatch $0 [--task-json PATH] [--annotation-dir PATH] [--extraction-output-dir PATH] [--plot-dir PATH] [--plot-data-dir PATH] [--task-number N] [--model MODEL] [--model-path PATH] [--progress-partitions N]" >&2
-    echo "  task-json: task media JSON used for linking (default: ${DEFAULT_TASK_JSON})" >&2
-    echo "  annotation-dir: folder containing T1_y.json files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
+    echo "  task-json: task media JSON file or directory used for linking (default: ${DEFAULT_TASK_JSON})" >&2
+    echo "  annotation-dir: folder containing T1_y.json or T1_bx_y.json files (default: ${DEFAULT_ANNOTATION_DIR})" >&2
     echo "  extraction-output-dir: extracted CSV/JSON path (default: ${DEFAULT_EXTRACTION_OUTPUT_DIR})" >&2
     echo "  plot-dir: output folder for plot images (default: ${DEFAULT_PLOT_DIR})" >&2
     echo "  plot-data-dir: reusable plot-data folder (default: ${DEFAULT_PLOT_DATA_DIR})" >&2
@@ -122,8 +122,8 @@ if [[ ! -f "${SIF_PATH}" ]]; then
     exit 1
 fi
 
-if [[ ! -f "${TASK_JSON}" ]]; then
-    echo "Task JSON does not exist: ${TASK_JSON}" >&2
+if [[ ! -e "${TASK_JSON}" ]]; then
+    echo "Task JSON path does not exist: ${TASK_JSON}" >&2
     exit 1
 fi
 
@@ -142,7 +142,7 @@ mkdir -p "${EXTRACTION_OUTPUT_DIR}" "${PLOT_DIR}" "${PLOT_DATA_DIR}"
 
 echo "Project root:           ${PROJECT_ROOT}"
 echo "Apptainer image:        ${SIF_PATH}"
-echo "Task JSON:              ${TASK_JSON}"
+echo "Task JSON path:         ${TASK_JSON}"
 echo "Annotation dir:         ${ANNOTATION_DIR}"
 echo "Extraction output dir:  ${EXTRACTION_OUTPUT_DIR}"
 echo "Plot dir:               ${PLOT_DIR}"

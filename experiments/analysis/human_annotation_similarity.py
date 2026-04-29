@@ -26,6 +26,7 @@ try:
         load_json,
         normalize_task_payload,
         parse_annotation_file_for_annotator,
+        resolve_task_json_path,
         write_csv as write_extracted_csv,
         write_json as write_extracted_json,
     )
@@ -39,6 +40,7 @@ except ImportError:
         load_json,
         normalize_task_payload,
         parse_annotation_file_for_annotator,
+        resolve_task_json_path,
         write_csv as write_extracted_csv,
         write_json as write_extracted_json,
     )
@@ -80,15 +82,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "input_path",
         type=Path,
-        help="Path to human_annotations.csv or a directory containing T{x}_{y}.json files.",
+        help=(
+            "Path to human_annotations.csv or a directory containing "
+            "T{x}_{y}.json or T{x}_b{batch}_{y}.json files."
+        ),
     )
     parser.add_argument(
         "--task-json",
         type=Path,
         default=None,
         help=(
-            "Required when input_path is an annotation directory. Used to link "
-            "task-instance media lists, e.g. task1.json."
+            "Required when input_path is an annotation directory. Pass a task JSON "
+            "file or a directory of task JSONs. Batched annotations like "
+            "T1_b2_7.json resolve to task1_b2.json."
         ),
     )
     parser.add_argument(
@@ -206,23 +212,33 @@ def load_annotation_rows(csv_path: Path) -> list[dict[str, str]]:
 
 def extract_rows_from_annotation_dir(
     annotation_dir: Path,
-    task_json_path: Path,
+    task_json_source: Path,
     task_number: int | None,
     output_dir: Path,
 ) -> tuple[Path, list[dict[str, Any]], list[str]]:
-    task_items = normalize_task_payload(load_json(task_json_path))
     flat_rows: list[dict[str, Any]] = []
     grouped_records: list[dict[str, Any]] = []
     errors: list[str] = []
+    task_items_by_path: dict[Path, list[Any]] = {}
 
-    for parsed_task_number, task_instance_id, path in find_annotation_jsons(
-        annotation_dir, task_number
-    ):
+    for annotation_file in find_annotation_jsons(annotation_dir, task_number):
         try:
-            payload = get_dict(load_json(path), path.name)
-            video_paths, audio_paths = flatten_task_media_lists(task_items, task_instance_id)
+            payload = get_dict(load_json(annotation_file.path), annotation_file.path.name)
+            resolved_task_json_path = resolve_task_json_path(
+                task_json_source,
+                task_number=annotation_file.task_number,
+                batch_number=annotation_file.batch_number,
+            )
+            task_items = task_items_by_path.get(resolved_task_json_path)
+            if task_items is None:
+                task_items = normalize_task_payload(load_json(resolved_task_json_path))
+                task_items_by_path[resolved_task_json_path] = task_items
+            video_paths, audio_paths = flatten_task_media_lists(
+                task_items,
+                annotation_file.task_instance_id,
+            )
         except Exception as exc:
-            errors.append(f"{path.name}: {exc}")
+            errors.append(f"{annotation_file.path.name}: {exc}")
             continue
 
         annotator_rows: dict[int, list[dict[str, Any]]] = {}
@@ -230,14 +246,16 @@ def extract_rows_from_annotation_dir(
             try:
                 rows = parse_annotation_file_for_annotator(
                     payload=payload,
-                    task_number=parsed_task_number,
-                    task_instance_id=task_instance_id,
+                    task_number=annotation_file.task_number,
+                    task_instance_id=annotation_file.task_instance_id,
                     annotator_number=annotator_number,
-                    path=path,
+                    path=annotation_file.path,
                 )
                 rows = link_rows_to_media(rows, video_paths, audio_paths)
             except Exception as exc:
-                errors.append(f"{path.name} annotator {annotator_number}: {exc}")
+                errors.append(
+                    f"{annotation_file.path.name} annotator {annotator_number}: {exc}"
+                )
                 continue
 
             annotator_rows[annotator_number] = rows
@@ -246,9 +264,9 @@ def extract_rows_from_annotation_dir(
         if annotator_rows:
             grouped_records.append(
                 {
-                    "task_number": parsed_task_number,
-                    "task_instance_id": task_instance_id,
-                    "source_file": str(path.resolve()),
+                    "task_number": annotation_file.task_number,
+                    "task_instance_id": annotation_file.task_instance_id,
+                    "source_file": str(annotation_file.path.resolve()),
                     "annotator_rows": annotator_rows,
                 }
             )
@@ -258,7 +276,7 @@ def extract_rows_from_annotation_dir(
     write_extracted_csv(extracted_csv_path, flat_rows)
     write_extracted_json(
         extracted_json_path,
-        build_grouped_json(grouped_records, task_json_path),
+        build_grouped_json(grouped_records, task_json_source),
     )
     return extracted_csv_path, flat_rows, errors
 
@@ -748,11 +766,11 @@ def main() -> None:
         if args.task_json is None:
             raise ValueError("--task-json is required when input_path is an annotation directory")
         task_json_path = args.task_json.expanduser().resolve()
-        if not task_json_path.is_file():
-            raise FileNotFoundError(f"Task JSON does not exist: {task_json_path}")
+        if not task_json_path.exists():
+            raise FileNotFoundError(f"Task JSON path does not exist: {task_json_path}")
         csv_path, rows, extraction_errors = extract_rows_from_annotation_dir(
             annotation_dir=input_path,
-            task_json_path=task_json_path,
+            task_json_source=task_json_path,
             task_number=args.task_number,
             output_dir=extraction_output_dir,
         )

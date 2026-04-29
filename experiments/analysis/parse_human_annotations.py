@@ -4,14 +4,24 @@ import argparse
 import csv
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 
 ANNOTATION_FILE_RE = re.compile(
-    r"^T(?P<task_number>\d+)_(?P<task_instance_id>\d+)\.json$"
+    r"^T(?P<task_number>\d+)(?:_b(?P<batch_number>\d+))?_(?P<task_instance_id>\d+)\.json$"
 )
+TASK_JSON_STEM_RE = re.compile(r"^(?P<prefix>.+?)(?:_b(?P<batch_number>\d+))?$")
+
+
+@dataclass(frozen=True)
+class AnnotationFile:
+    task_number: int
+    task_instance_id: int
+    path: Path
+    batch_number: int | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,15 +34,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "annotation_dir",
         type=Path,
-        help="Directory containing annotation JSON files named like T{x}_{y}.json.",
+        help=(
+            "Directory containing annotation JSON files named like T{x}_{y}.json "
+            "or T{x}_b{batch}_{y}.json."
+        ),
     )
     parser.add_argument(
         "--task-json",
         type=Path,
         default=None,
         help=(
-            "Optional task JSON used to link media by task-instance index y. "
-            "For task1, pass task1.json here."
+            "Optional task JSON file or directory used to link media by task-instance "
+            "index y. Batched annotations like T1_b2_7.json resolve to task1_b2.json."
         ),
     )
     parser.add_argument(
@@ -78,8 +91,8 @@ def coerce_bool(value: Any) -> bool:
 def find_annotation_jsons(
     annotation_dir: Path,
     task_number: int | None,
-) -> list[tuple[int, int, Path]]:
-    annotation_files: list[tuple[int, int, Path]] = []
+) -> list[AnnotationFile]:
+    annotation_files: list[AnnotationFile] = []
     for path in sorted(annotation_dir.iterdir()):
         if not path.is_file():
             continue
@@ -87,11 +100,57 @@ def find_annotation_jsons(
         if match is None:
             continue
         parsed_task_number = int(match.group("task_number"))
+        batch_number = match.group("batch_number")
         parsed_task_instance_id = int(match.group("task_instance_id"))
         if task_number is not None and parsed_task_number != task_number:
             continue
-        annotation_files.append((parsed_task_number, parsed_task_instance_id, path))
+        annotation_files.append(
+            AnnotationFile(
+                task_number=parsed_task_number,
+                task_instance_id=parsed_task_instance_id,
+                path=path,
+                batch_number=None if batch_number is None else int(batch_number),
+            )
+        )
     return annotation_files
+
+
+def resolve_task_json_path(
+    task_json_source: Path,
+    task_number: int,
+    batch_number: int | None,
+) -> Path:
+    source = task_json_source.expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(f"Task JSON path does not exist: {source}")
+
+    if source.is_dir():
+        candidate_names = []
+        if batch_number is not None:
+            candidate_names.append(f"task{task_number}_b{batch_number}.json")
+        candidate_names.append(f"task{task_number}.json")
+        for candidate_name in candidate_names:
+            candidate = source / candidate_name
+            if candidate.is_file():
+                return candidate.resolve()
+        requested = f"task{task_number}_b{batch_number}.json" if batch_number is not None else f"task{task_number}.json"
+        raise FileNotFoundError(
+            f"Could not find {requested} under task JSON directory: {source}"
+        )
+
+    if not source.is_file():
+        raise FileNotFoundError(f"Task JSON is not a file: {source}")
+    if batch_number is None:
+        return source
+
+    stem_match = TASK_JSON_STEM_RE.fullmatch(source.stem)
+    prefix = stem_match.group("prefix") if stem_match is not None else source.stem
+    candidate = source.with_name(f"{prefix}_b{batch_number}{source.suffix}")
+    if candidate.is_file():
+        return candidate.resolve()
+    raise FileNotFoundError(
+        f"Could not find batch-aligned task JSON for batch b{batch_number}: {candidate}"
+    )
 
 
 def load_json(path: Path) -> Any:
@@ -422,13 +481,11 @@ def main() -> None:
     if not annotation_dir.is_dir():
         raise FileNotFoundError(f"Annotation directory does not exist: {annotation_dir}")
 
-    task_items: list[Any] | None = None
     task_json_path: Path | None = None
     if args.task_json is not None:
         task_json_path = args.task_json.expanduser().resolve()
-        if not task_json_path.is_file():
-            raise FileNotFoundError(f"Task JSON does not exist: {task_json_path}")
-        task_items = normalize_task_payload(load_json(task_json_path))
+        if not task_json_path.exists():
+            raise FileNotFoundError(f"Task JSON path does not exist: {task_json_path}")
 
     output_csv = args.output_csv or (annotation_dir / "human_annotations.csv")
     output_json = args.output_json or (
@@ -443,19 +500,30 @@ def main() -> None:
     grouped_records: list[dict[str, Any]] = []
     errors: list[str] = []
 
-    for task_number, task_instance_id, path in find_annotation_jsons(
-        annotation_dir, args.task_number
-    ):
+    task_items_by_path: dict[Path, list[Any]] = {}
+    for annotation_file in find_annotation_jsons(annotation_dir, args.task_number):
         try:
-            payload = get_dict(load_json(path), path.name)
+            payload = get_dict(load_json(annotation_file.path), annotation_file.path.name)
             video_paths: list[str] | None = None
             audio_paths: list[str] | None = None
-            if task_items is not None:
+            if task_json_path is not None:
+                resolved_task_json_path = resolve_task_json_path(
+                    task_json_path,
+                    task_number=annotation_file.task_number,
+                    batch_number=annotation_file.batch_number,
+                )
+                current_task_items = task_items_by_path.get(resolved_task_json_path)
+                if current_task_items is None:
+                    current_task_items = normalize_task_payload(
+                        load_json(resolved_task_json_path)
+                    )
+                    task_items_by_path[resolved_task_json_path] = current_task_items
                 video_paths, audio_paths = flatten_task_media_lists(
-                    task_items, task_instance_id
+                    current_task_items,
+                    annotation_file.task_instance_id,
                 )
         except Exception as exc:
-            errors.append(f"{path.name}: {exc}")
+            errors.append(f"{annotation_file.path.name}: {exc}")
             continue
 
         annotator_rows: dict[int, list[dict[str, Any]]] = {}
@@ -463,15 +531,17 @@ def main() -> None:
             try:
                 rows = parse_annotation_file_for_annotator(
                     payload=payload,
-                    task_number=task_number,
-                    task_instance_id=task_instance_id,
+                    task_number=annotation_file.task_number,
+                    task_instance_id=annotation_file.task_instance_id,
                     annotator_number=annotator_number,
-                    path=path,
+                    path=annotation_file.path,
                 )
-                if task_items is not None:
+                if task_json_path is not None:
                     rows = link_rows_to_media(rows, video_paths or [], audio_paths or [])
             except Exception as exc:
-                errors.append(f"{path.name} annotator {annotator_number}: {exc}")
+                errors.append(
+                    f"{annotation_file.path.name} annotator {annotator_number}: {exc}"
+                )
                 continue
 
             annotator_rows[annotator_number] = rows
@@ -480,9 +550,9 @@ def main() -> None:
         if annotator_rows:
             grouped_records.append(
                 {
-                    "task_number": task_number,
-                    "task_instance_id": task_instance_id,
-                    "source_file": str(path.resolve()),
+                    "task_number": annotation_file.task_number,
+                    "task_instance_id": annotation_file.task_instance_id,
+                    "source_file": str(annotation_file.path.resolve()),
                     "annotator_rows": annotator_rows,
                 }
             )
