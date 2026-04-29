@@ -1,0 +1,31 @@
+# Core runtime
+numpy==1.26.4
+packaging==24.2
+requests==2.32.3
+Pillow==10.4.0
+scipy==1.13.1
+PyYAML==6.0.2
+hyperpyyaml==1.2.2
+omegaconf==2.3.0
+einops==0.8.1
+
+# Model stack
+torch==2.7.0
+torchvision==0.22.0
+torchaudio==2.7.0
+transformers==4.45.0
+tokenizers==0.20.3
+peft==0.13.2
+
+# Audio / multimodal
+funasr==1.1.14
+decord==0.6.0
+onnxruntime==1.20.1
+conformer==0.3.2
+inflect==7.4.0
+modelscope==1.20.1
+
+# Generation
+diffusers==0.33.0
+lightning==2.4.0
+gdown==5.2.0

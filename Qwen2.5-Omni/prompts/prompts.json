@@ -1,0 +1,39 @@
+{
+  "single_turn_prompts": {
+    "intention_single_utt": {
+      "text": "In the following video, you will see an utterance. Think of the following question, even if the utterance is incomplete, and then provide the answer:\nWhat is the intended social action of the speaker? Make your best guess if you're uncertain."
+    },
+    "affordance_single_utt": {
+      "text": "In the following video, you will see an utterance. Think of the following question, even if the utterance is incomplete, and then provide the answer:\nWhat actions could the other side act on as a response? Make your best guess if you're uncertain."
+    },
+    "intention_multi_utt": {
+      "text": "In the following video, you will see an interaction. Think of the following question with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat is the intended social action of the speaker? Make your best guess if you're uncertain."
+    },
+    "affordance_multi_utt": {
+      "text": "In the following video, you will see an interaction. Think of the following question with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat actions could the other side act on as a response? Make your best guess if you're uncertain."
+    }
+  },
+  "multi_turn_prompts":{
+    "intention_single_utt": {
+      "first": "In the following videos, you will see an interaction. Think of the following questions with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat is the intended social action of the speaker? Make your best guess if you're uncertain.",
+      "after": "In the following videos, you will see an interaction. Think of the following question with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat is the intended social action of the speaker? Make your best guess if you're uncertain. Also, specify updates, if any, compared to your previous answer(s)."
+    },
+    "affordance_single_utt": {
+      "first": "In the following videos, you will see an interaction. Think of the following questions with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat actions could the other side act on as a response? Make your best guess if you're uncertain.",
+      "after": "In the following videos, you will see an interaction. Think of the following questions with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat actions could the other side act on as a response? Make your best guess if you're uncertain. Also, specify updates, if any, compared to your previous answer(s)."
+    },
+    "intention_multi_utt": {
+      "first": "In the following videos, you will see an interaction. Think of the following questions with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat is the intended social action of the speaker? Make your best guess if you're uncertain.",
+      "after": "In the following videos, you will see an interaction. Think of the following question with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat is the intended social action of the speaker? Make your best guess if you're uncertain. Also, specify updates, if any, compared to your previous answer(s)."
+    },
+    "affordance_multi_utt": {
+      "first": "In the following videos, you will see an interaction. Think of the following questions with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat actions could the other side act on as a response? Make your best guess if you're uncertain.",
+      "after": "In the following videos, you will see an interaction. Think of the following questions with regard to the last utterance you see (and its speaker), even if it's incomplete, and then provide the answer:\nWhat actions could the other side act on as a response? Make your best guess if you're uncertain. Also, specify updates, if any, compared to your previous answer(s)."
+    }
+  },
+  "misc_prompts": {
+    "prompt": {
+      "text": "Identify the intention you perceive of the speaker in this video. Select from 20 categories: [complain, praise, apologize, thank, criticize, care, agree, taunt, flaunt, oppose, joke, inform, advise, arrange, introduce, comfort, leave, prevent, greet, ask for help].\n\nGive the first 3 intentions that you perceive are the most probable, and assign each of them a confidence score from 1-10. 1 means you're very uncertain about itand 10 means you are absolutely certain about it. Respond only with the word of intention and the score. For example:\n\napologize, 7\nleave, 5\nadvise, 3"
+    }
+  }
+}

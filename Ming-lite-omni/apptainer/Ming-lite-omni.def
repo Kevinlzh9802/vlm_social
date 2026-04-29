@@ -1,0 +1,104 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.7.0-cuda12.8-cudnn9-devel
+
+%labels
+    Author zonghuan
+    Description "Apptainer image for Ming-Lite-Omni inference"
+
+%environment
+    export LC_ALL=C
+    export LANG=C
+    export PYTHONUNBUFFERED=1
+    export PIP_NO_CACHE_DIR=1
+    export PYTHONDONTWRITEBYTECODE=1
+    export OMP_NUM_THREADS=8
+
+%post
+    set -eux
+
+    export TMPDIR=/tmp
+    export PIP_CACHE_DIR=/tmp/pip-cache
+    mkdir -p "$PIP_CACHE_DIR"
+
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        git \
+        ffmpeg \
+        libsndfile1 \
+        libgl1 \
+        libglib2.0-0 \
+        build-essential \
+        ca-certificates
+    rm -rf /var/lib/apt/lists/*
+
+    # Pin setuptools<81 to keep pkg_resources available for openai-whisper build
+    python -m pip install --upgrade pip "setuptools<81" wheel
+    pip install --no-build-isolation openai-whisper==20240930
+
+    # Embed requirements inline so the .def is self-contained and buildable
+    # from any directory without relying on %files path resolution.
+    cat > /tmp/requirements.txt << 'REQS'
+# Core runtime
+numpy==1.26.4
+packaging==24.2
+requests==2.32.3
+Pillow==10.4.0
+scipy==1.13.1
+PyYAML==6.0.2
+hyperpyyaml==1.2.2
+omegaconf==2.3.0
+einops==0.8.1
+
+# Model stack
+torch==2.7.0
+torchvision==0.22.0
+torchaudio==2.7.0
+transformers==4.45.0
+tokenizers==0.20.3
+peft==0.13.2
+
+# Audio / multimodal
+funasr==1.1.14
+decord==0.6.0
+onnxruntime==1.20.1
+conformer==0.3.2
+inflect==7.4.0
+modelscope==1.20.1
+
+# Generation
+diffusers==0.33.0
+lightning==2.4.0
+gdown==5.2.0
+REQS
+
+    # Install Python dependencies for inference.
+    pip install -r /tmp/requirements.txt
+
+    # Optional acceleration packages.
+    # flash-attn requires CUDA toolkit (nvcc) at build time.
+    if command -v nvcc >/dev/null 2>&1; then
+        export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+        if pip install flash-attn==2.3.6 --no-build-isolation; then
+            python -c "import flash_attn; print('flash-attn installed:', flash_attn.__version__)"
+        else
+            echo "WARNING: flash-attn installation failed; continuing without it."
+        fi
+    else
+        echo "Skipping flash-attn install: nvcc not found in base image."
+    fi
+    pip install grouped_gemm==0.1.4 --no-build-isolation || true
+
+    # Match README recommendation for H20/H800 environments.
+    pip install nvidia-cublas-cu12==12.4.5.8 || true
+
+%runscript
+    cd /workspace
+    exec "$@"
+
+%test
+    python - << 'PY'
+import torch
+import transformers
+print('torch:', torch.__version__)
+print('transformers:', transformers.__version__)
+PY

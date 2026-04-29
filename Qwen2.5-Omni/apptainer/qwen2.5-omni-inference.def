@@ -1,0 +1,78 @@
+Bootstrap: docker
+From: nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
+
+%labels
+    Author zonghuan
+    Description "Apptainer image for Qwen2.5-Omni inference (Transformers)"
+
+%help
+    Qwen2.5-Omni Apptainer image for local inference with Hugging Face Transformers.
+
+    Build:
+      apptainer build qwen2.5-omni-inference.sif qwen2.5-omni-inference.def
+
+    Run Python inside container:
+      apptainer exec --nv qwen2.5-omni-inference.sif python -V
+
+    Example inference script execution:
+      apptainer exec --nv \
+        --env HF_HOME=/workspace/.cache/huggingface \
+        qwen2.5-omni-inference.sif \
+        python /workspace/infer.py
+
+    Notes:
+    - Use --nv to expose NVIDIA GPUs.
+    - Mount model and data paths, for example:
+      -B /path/to/models:/models -B /path/to/data:/data
+
+%environment
+    export LC_ALL=C
+    export LANG=C
+    export PYTHONUNBUFFERED=1
+    export HF_HOME=${HF_HOME:-/opt/huggingface}
+    export TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-$HF_HOME}
+    export HF_HUB_ENABLE_HF_TRANSFER=1
+
+%post
+    set -eux
+    export DEBIAN_FRONTEND=noninteractive
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        git \
+        git-lfs \
+        python3 \
+        python3-pip \
+        python3-dev \
+        python-is-python3 \
+        libsndfile1 \
+        ffmpeg \
+        ca-certificates
+    rm -rf /var/lib/apt/lists/*
+
+    git lfs install
+
+    python -m pip install --upgrade pip setuptools wheel
+
+    # CUDA 12.8 / PyTorch 2.7 adds Blackwell (sm_120) support.
+    pip install networkx==3.1
+    pip install --index-url https://download.pytorch.org/whl/cu128 \
+        torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1
+    pip install transformers==4.52.3 accelerate
+    pip install "qwen-omni-utils[decord]" soundfile av
+
+    mkdir -p /opt/huggingface
+
+%runscript
+    exec python "$@"
+
+%test
+    python - <<'PY'
+import torch
+import transformers
+import qwen_omni_utils
+
+print("torch:", torch.__version__)
+print("transformers:", transformers.__version__)
+print("qwen_omni_utils imported")
+PY
