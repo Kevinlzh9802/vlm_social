@@ -18,11 +18,13 @@
 #   sbatch job_scripts/gemini_retrieve_daic.sh
 #   sbatch job_scripts/gemini_retrieve_daic.sh --annotated
 #   sbatch job_scripts/gemini_retrieve_daic.sh --annotated --comparison
+#   sbatch job_scripts/gemini_retrieve_daic.sh --annotated --no-audio
 
 set -euo pipefail
 
 annotated=0
 comparison=0
+no_audio=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -34,9 +36,14 @@ while [ "$#" -gt 0 ]; do
             comparison=1
             shift
             ;;
+        --no-audio)
+            no_audio=1
+            shift
+            ;;
         -h|--help)
-            echo "Usage: sbatch job_scripts/gemini_retrieve_daic.sh [--annotated] [--comparison]" >&2
+            echo "Usage: sbatch job_scripts/gemini_retrieve_daic.sh [--annotated] [--comparison] [--no-audio]" >&2
             echo "  --comparison is only valid together with --annotated." >&2
+            echo "  --no-audio is only valid together with --annotated and selects no-audio result roots." >&2
             exit 0
             ;;
         -*)
@@ -54,6 +61,10 @@ if [ "$comparison" = "1" ] && [ "$annotated" = "0" ]; then
     echo "[ERROR] --comparison is only supported together with --annotated" >&2
     exit 1
 fi
+if [ "$no_audio" = "1" ] && [ "$annotated" = "0" ]; then
+    echo "[ERROR] --no-audio is only supported together with --annotated" >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -67,10 +78,18 @@ default_results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_b
 if [ "$annotated" = "1" ]; then
     if [ "$comparison" = "1" ]; then
         gestalt_root="${gestalt_data_root}/human_eval/task2/manipulation_full/data_comparison"
-        output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_comparison/gemini"
+        if [ "$no_audio" = "1" ]; then
+            output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_noaudio_comparison/gemini"
+        else
+            output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_comparison/gemini"
+        fi
     else
         gestalt_root="${gestalt_data_root}/human_eval/task2/manipulation_full/data"
-        output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results/gemini"
+        if [ "$no_audio" = "1" ]; then
+            output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_noaudio/gemini"
+        else
+            output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results/gemini"
+        fi
     fi
 else
     gestalt_root="${gestalt_data_root}/human_eval/samples"
@@ -104,6 +123,7 @@ mkdir -p /home/nfs/zli33/slurm_outputs/gemini-batch
 echo "[INFO] project_dir  = $project_dir"
 echo "[INFO] annotated    = $annotated"
 echo "[INFO] comparison   = $comparison"
+echo "[INFO] no_audio     = $no_audio"
 echo "[INFO] registry     = $registry_file"
 echo ""
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Submit a Gemini Batch API job for a folder of videos.
+"""Submit a Gemini Batch API job for a folder of video/audio inputs.
 
-This script is **submit-only**: it uploads videos, creates the batch job,
+This script is **submit-only**: it uploads media files, creates the batch job,
 and registers the job in a shared registry JSON file — then exits.
 Use ``gemini_retrieve.py`` to scan the registry and download results for
 all completed jobs.
@@ -11,7 +11,9 @@ Expected data layout
 <data_root>/
     subfolder_A/
         d1u1-u2_clip_01.mp4
+        d1u1-u2_clip_01.wav
         d3u2-u3_clip_02.mp4
+        d3u2-u3_clip_02.wav
     subfolder_B/
         ...
 
@@ -70,14 +72,11 @@ from google.genai import types as genai_types
 
 from gemini import (
     DEFAULT_API_KEY_PATH,
-    DEFAULT_MODEL,
     DEFAULT_SYSTEM_PROMPT,
     MODE_TO_MODEL,
     DEFAULT_MODE,
     PROMPT_CONFIG_PATH,
-    build_prompt_variant_key,
     get_client,
-    load_prompt_templates,
     resolve_prompt,
 )
 
@@ -89,11 +88,13 @@ DEFAULT_REGISTRY_PATH = Path(__file__).resolve().parent / "gemini_registry.json"
 # Folder traversal
 # ---------------------------------------------------------------------------
 
-def collect_videos(data_root: str) -> Dict[str, List[dict]]:
-    """Scan *data_root* for .mp4 files in each immediate subfolder.
+def collect_media_inputs(data_root: str, require_audio: bool = True) -> Dict[str, List[dict]]:
+    """Scan *data_root* for .mp4 files and optional same-stem .wav files.
 
     Returns a mapping from subfolder name to a sorted list of dicts
-    with keys ``"stem"`` and ``"video"`` (absolute path string).
+    with keys ``"stem"``, ``"video"``, and ``"audio"``. When
+    ``require_audio`` is true, videos without matching ``.wav`` files are
+    skipped.
     """
     root = Path(data_root)
     if not root.is_dir():
@@ -103,11 +104,26 @@ def collect_videos(data_root: str) -> Dict[str, List[dict]]:
     for subfolder in sorted(root.iterdir()):
         if not subfolder.is_dir():
             continue
-        videos = sorted(subfolder.glob("*.mp4"))
-        if videos:
-            result[subfolder.name] = [
-                {"stem": v.stem, "video": str(v)} for v in videos
-            ]
+
+        entries: List[dict] = []
+        for video_path in sorted(subfolder.glob("*.mp4")):
+            audio_path = subfolder / f"{video_path.stem}.wav"
+            if audio_path.exists():
+                audio_value: Optional[str] = str(audio_path)
+            elif require_audio:
+                print(f"[WARN] No matching .wav for {video_path}, skipping.")
+                continue
+            else:
+                audio_value = None
+
+            entries.append({
+                "stem": video_path.stem,
+                "video": str(video_path),
+                "audio": audio_value,
+            })
+
+        if entries:
+            result[subfolder.name] = entries
     return result
 
 
@@ -115,17 +131,21 @@ def collect_videos(data_root: str) -> Dict[str, List[dict]]:
 # Upload helpers
 # ---------------------------------------------------------------------------
 
-def upload_videos(
+def upload_media(
     client: Any,
     video_map: Dict[str, List[dict]],
-) -> Dict[str, str]:
-    """Upload all videos via the File API.
+) -> Dict[str, dict]:
+    """Upload all referenced media via the File API.
 
-    Returns a mapping from local video path to the uploaded file name
-    (e.g. ``"files/abc123"``).
+    Returns a mapping from local media path to file metadata needed for
+    ``file_data`` request parts.
     """
-    path_to_file_name: Dict[str, str] = {}
-    total = sum(len(v) for v in video_map.values())
+    path_to_file: Dict[str, dict] = {}
+    total = sum(
+        1 + int(bool(entry.get("audio")))
+        for entries in video_map.values()
+        for entry in entries
+    )
     idx = 0
 
     for subfolder, entries in video_map.items():
@@ -134,10 +154,28 @@ def upload_videos(
             video_path = entry["video"]
             print(f"[{idx}/{total}] Uploading {subfolder}/{entry['stem']}.mp4 ...")
             uploaded = client.files.upload(file=video_path)
-            path_to_file_name[video_path] = uploaded.name
+            path_to_file[video_path] = {
+                "file_uri": getattr(uploaded, "uri", None)
+                or f"https://generativelanguage.googleapis.com/v1beta/{uploaded.name}",
+                "mime_type": getattr(uploaded, "mime_type", "video/mp4") or "video/mp4",
+            }
             print(f"  -> {uploaded.name}")
 
-    return path_to_file_name
+            audio_path = entry.get("audio")
+            if audio_path:
+                idx += 1
+                print(f"[{idx}/{total}] Uploading {subfolder}/{entry['stem']}.wav ...")
+                uploaded_audio = client.files.upload(file=audio_path)
+                path_to_file[audio_path] = {
+                    "file_uri": getattr(uploaded_audio, "uri", None)
+                    or f"https://generativelanguage.googleapis.com/v1beta/{uploaded_audio.name}",
+                    "mime_type": (
+                        getattr(uploaded_audio, "mime_type", "audio/wav") or "audio/wav"
+                    ),
+                }
+                print(f"  -> {uploaded_audio.name}")
+
+    return path_to_file
 
 
 # ---------------------------------------------------------------------------
@@ -146,31 +184,34 @@ def upload_videos(
 
 def build_jsonl_requests(
     video_map: Dict[str, List[dict]],
-    path_to_file_name: Dict[str, str],
+    path_to_file: Dict[str, dict],
     prompt_text: str,
     system_prompt: Optional[str],
 ) -> List[dict]:
-    """Build one JSONL line per video.
+    """Build one JSONL line per media item.
 
     Each line has ``"key"`` (subfolder/stem) and ``"request"`` (a
-    GenerateContentRequest dict referencing the uploaded file URI).
+    GenerateContentRequest dict referencing uploaded video/audio file URIs).
     """
     lines: List[dict] = []
 
     for subfolder, entries in video_map.items():
         for entry in entries:
-            file_name = path_to_file_name[entry["video"]]
-            # The file URI format used in batch JSONL
-            file_uri = f"https://generativelanguage.googleapis.com/v1beta/{file_name}"
+            video_file = path_to_file[entry["video"]]
+            parts: List[dict] = [
+                {"text": prompt_text},
+                {"file_data": video_file},
+            ]
+
+            audio_path = entry.get("audio")
+            if audio_path:
+                parts.append({"file_data": path_to_file[audio_path]})
 
             request_body: Dict[str, Any] = {
                 "contents": [
                     {
                         "role": "user",
-                        "parts": [
-                            {"text": prompt_text},
-                            {"file_data": {"file_uri": file_uri}},
-                        ],
+                        "parts": parts,
                     }
                 ],
             }
@@ -270,6 +311,7 @@ def append_registry_entry(
     output_json: str,
     data_root: str,
     video_map: Dict[str, List[dict]],
+    no_audio: bool,
 ) -> None:
     """Append a new entry to the shared registry."""
     entries = load_registry(registry_path)
@@ -286,6 +328,7 @@ def append_registry_entry(
         "output_json": output_json,
         "data_root": data_root,
         "video_map": video_map,
+        "no_audio": no_audio,
     })
     save_registry(registry_path, entries)
     print(f"[INFO] Registered run '{run_id}' in {registry_path}")
@@ -390,6 +433,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Batch identifier string (stored in registry and used in run_id).",
     )
+    parser.add_argument(
+        "--no-audio",
+        action="store_true",
+        help="Run video-only requests by omitting separate same-stem .wav inputs.",
+    )
     return parser.parse_args()
 
 
@@ -409,22 +457,23 @@ def main() -> None:
     print(f"[INFO] Model: {model_name}")
     print(f"[INFO] Prompt text:\n{prompt_text}\n")
 
-    # --- Collect videos ---
-    video_map = collect_videos(args.data_root)
+    # --- Collect media inputs ---
+    video_map = collect_media_inputs(args.data_root, require_audio=not args.no_audio)
     total = sum(len(v) for v in video_map.values())
-    print(f"[INFO] Found {total} video(s) across {len(video_map)} subfolder(s).")
+    input_label = "video item(s)" if args.no_audio else "video/audio pair(s)"
+    print(f"[INFO] Found {total} {input_label} across {len(video_map)} subfolder(s).")
     if total == 0:
         print("[WARN] Nothing to process.")
         return
 
-    # --- Upload videos ---
+    # --- Upload media ---
     client = get_client(api_key_path=args.api_key_path)
-    path_to_file_name = upload_videos(client, video_map)
+    path_to_file = upload_media(client, video_map)
 
     # --- Build JSONL ---
     jsonl_lines = build_jsonl_requests(
         video_map=video_map,
-        path_to_file_name=path_to_file_name,
+        path_to_file=path_to_file,
         prompt_text=prompt_text,
         system_prompt=args.system_prompt,
     )
@@ -461,6 +510,7 @@ def main() -> None:
         output_json=str(Path(args.output).resolve()),
         data_root=args.data_root,
         video_map=video_map,
+        no_audio=args.no_audio,
     )
 
     print(f"\n[INFO] Batch job submitted: {batch_job.name}")

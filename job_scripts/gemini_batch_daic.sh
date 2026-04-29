@@ -18,6 +18,7 @@
 #   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --gemini-mode 2.5-flash
 #   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated
 #   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --comparison
+#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --no-audio
 
 set -euo pipefail
 
@@ -31,6 +32,7 @@ batch_number=""
 gemini_mode="2.5-flash"
 annotated=0
 comparison=0
+no_audio=0
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -56,9 +58,12 @@ while [ "$#" -gt 0 ]; do
             annotated=1; shift ;;
         --comparison)
             comparison=1; shift ;;
+        --no-audio)
+            no_audio=1; shift ;;
         -h|--help)
-            echo "Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison]" >&2
+            echo "Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison] [--no-audio]" >&2
             echo "  --utt is required unless --annotated is set. With --annotated, all 1/2/3-utt groups are submitted." >&2
+            echo "  --no-audio is only valid together with --annotated, omits .wav inputs, and selects no-audio result roots." >&2
             exit 0 ;;
         -*)
             echo "[ERROR] Unknown option: $1" >&2; exit 1 ;;
@@ -70,7 +75,7 @@ done
 # ---------------------------------------------------------------------------
 # Required-argument checks
 # ---------------------------------------------------------------------------
-usage_msg="Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison]"
+usage_msg="Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison] [--no-audio]"
 
 if [ -z "$dataset_name" ]; then echo "[ERROR] --dataset is required" >&2; echo "$usage_msg" >&2; exit 1; fi
 if [ -z "$prompt_choice" ]; then echo "[ERROR] --prompt is required" >&2; echo "$usage_msg" >&2; exit 1; fi
@@ -87,6 +92,11 @@ if [ "$annotated" = "0" ] && [ -z "$utt_count" ]; then
 fi
 if [ "$comparison" = "1" ] && [ "$annotated" = "0" ]; then
     echo "[ERROR] --comparison is only supported together with --annotated" >&2
+    echo "$usage_msg" >&2
+    exit 1
+fi
+if [ "$no_audio" = "1" ] && [ "$annotated" = "0" ]; then
+    echo "[ERROR] --no-audio is only supported together with --annotated" >&2
     echo "$usage_msg" >&2
     exit 1
 fi
@@ -127,10 +137,18 @@ default_output_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_be
 if [ "$annotated" = "1" ]; then
     if [ "$comparison" = "1" ]; then
         gestalt_root="${gestalt_data_root}/human_eval/task2/manipulation_full/data_comparison"
-        output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_comparison/gemini"
+        if [ "$no_audio" = "1" ]; then
+            output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_noaudio_comparison/gemini"
+        else
+            output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_comparison/gemini"
+        fi
     else
         gestalt_root="${gestalt_data_root}/human_eval/task2/manipulation_full/data"
-        output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results/gemini"
+        if [ "$no_audio" = "1" ]; then
+            output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results_noaudio/gemini"
+        else
+            output_root="${gestalt_data_root}/human_eval/task2/manipulation_full/results/gemini"
+        fi
     fi
 else
     gestalt_root="${default_gestalt_root}"
@@ -209,6 +227,7 @@ echo "[INFO] utt            = ${utt_count:-all}"
 echo "[INFO] batch          = $batch_id"
 echo "[INFO] annotated      = $annotated"
 echo "[INFO] comparison     = $comparison"
+echo "[INFO] no_audio       = $no_audio"
 echo "[INFO] gestalt_root   = $gestalt_root"
 echo "[INFO] output_root    = $output_root"
 echo "[INFO] gemini_mode    = $gemini_mode"
@@ -217,6 +236,11 @@ echo "[INFO] prompt_choice  = $prompt_choice"
 echo "[INFO] inference_script = $inference_script"
 echo "[INFO] registry       = $registry_file"
 echo ""
+
+python_extra_args=()
+if [ "$no_audio" = "1" ]; then
+    python_extra_args+=(--no-audio)
+fi
 
 for current_utt in "${utt_counts[@]}"; do
     data_parent="${gestalt_root}/${dataset_name}/context/${current_utt}-utt_group/batch${batch_id}"
@@ -245,7 +269,8 @@ for current_utt in "${utt_counts[@]}"; do
             --api-key-path "$api_key_file" \
             --dataset "$dataset_name" \
             --batch-id "batch${batch_id}" \
-            --registry "$registry_file"
+            --registry "$registry_file" \
+            "${python_extra_args[@]}"
 
     echo ""
 done
