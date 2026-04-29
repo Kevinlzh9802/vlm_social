@@ -7,14 +7,15 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=logs/human_annotation_similarity_daic_%j.out
+#SBATCH --error=logs/human_annotation_similarity_daic_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
-SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
-DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/analysis.sif"
+DEFAULT_DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
 DEFAULT_TASK_JSON="${DEFAULT_DATA_ROOT}/human_eval/task1"
 DEFAULT_ANNOTATION_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/annotations"
 DEFAULT_EXTRACTION_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task1/annotation_extracted"
@@ -137,7 +138,7 @@ if [[ -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; then
     exit 1
 fi
 
-mkdir -p /home/nfs/zli33/slurm_outputs/vlm_social
+mkdir -p logs/vlm_social
 mkdir -p "${EXTRACTION_OUTPUT_DIR}" "${PLOT_DIR}" "${PLOT_DATA_DIR}"
 
 echo "Project root:           ${PROJECT_ROOT}"
@@ -170,7 +171,7 @@ fi
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
-    --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
+    --bind "${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench}" \
     "${SIF_PATH}" \
     "${PYTHON_ARGS[@]}"
 

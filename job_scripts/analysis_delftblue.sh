@@ -7,16 +7,17 @@
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=logs/analysis_delftblue_%j.out
+#SBATCH --error=logs/analysis_delftblue_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/zli33/projects/vlm_social"
-SIF_PATH="/scratch/zli33/apptainers/analysis.sif"
-DEFAULT_RESULTS_ROOT="/scratch/zli33/data/gestalt_bench/results"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/analysis.sif"
+DEFAULT_RESULTS_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}/results"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
-DEFAULT_MODEL_PATH="/scratch/zli33/models/all-MiniLM-L6-v2"
+DEFAULT_MODEL_PATH="${MODEL_ROOT:-/path/to/models}/all-MiniLM-L6-v2"
 DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 
 usage() {
@@ -29,7 +30,7 @@ usage() {
     echo "  --with-scatter: include scatter points in per-folder clip-to-final plots (default: disabled)" >&2
     echo "" >&2
     echo "Pre-download the model on a login node before submitting:" >&2
-    echo "  apptainer exec --bind /scratch/zli33:/scratch/zli33 ${SIF_PATH} \\" >&2
+    echo "  apptainer exec --bind ${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench} ${SIF_PATH} \\" >&2
     echo "    python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('${DEFAULT_MODEL}').save('${DEFAULT_MODEL_PATH}')\"" >&2
 }
 
@@ -100,7 +101,7 @@ fi
 if [[ ! -d "${MODEL_PATH}" ]]; then
     echo "Pre-downloaded model not found: ${MODEL_PATH}" >&2
     echo "Download it on a login node first (network is unavailable on compute nodes):" >&2
-    echo "  apptainer exec --bind /scratch/zli33:/scratch/zli33 ${SIF_PATH} \\" >&2
+    echo "  apptainer exec --bind ${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench} ${SIF_PATH} \\" >&2
     echo "    python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('${MODEL}').save('${MODEL_PATH}')\"" >&2
     exit 1
 fi
@@ -128,7 +129,9 @@ fi
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
-    --bind /home/zli33:/home/zli33 \
-    --bind /scratch/zli33:/scratch/zli33 \
+    --bind "${PROJECT_ROOT}:${PROJECT_ROOT}" \
+    --bind "${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench}" \
+    --bind "${RESULTS_ROOT}:${RESULTS_ROOT}" \
+    --bind "${MODEL_PATH}:${MODEL_PATH}" \
     "${SIF_PATH}" \
     "${PYTHON_ARGS[@]}"

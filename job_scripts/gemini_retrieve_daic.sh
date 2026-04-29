@@ -7,8 +7,9 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.err
+#SBATCH --output=logs/gemini_retrieve_daic_%j.out
+#SBATCH --error=logs/gemini_retrieve_daic_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 # Scan the shared Gemini batch registry, download results for all completed
 # jobs, and mark them as retrieved.  No dataset / prompt / utt parameters
@@ -70,10 +71,10 @@ fi
 # Paths
 # ---------------------------------------------------------------------------
 project_dir="${SLURM_SUBMIT_DIR:-.}"
-sif_file=/tudelft.net/staff-umbrella/neon/apptainer/gemini.sif
+sif_file=${APPTAINER_ROOT:-/path/to/apptainers}/gemini.sif
 
-gestalt_data_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
-default_results_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval
+gestalt_data_root=${DATA_ROOT:-/path/to/data/gestalt_bench}
+default_results_root=${RESULTS_ROOT:-/path/to/results/gestalt_bench}/human_eval
 
 if [ "$annotated" = "1" ]; then
     if [ "$comparison" = "1" ]; then
@@ -96,7 +97,7 @@ else
     output_root="${default_results_root}/gemini"
 fi
 
-api_key_file=/home/nfs/zli33/keys/gemini_api.txt
+api_key_file=${API_KEY_FILE:-/path/to/api_key.txt}
 registry_file="${output_root}/gemini_registry.json"
 
 # ---------------------------------------------------------------------------
@@ -117,7 +118,7 @@ if [ ! -f "$registry_file" ]; then
 fi
 
 # Ensure slurm log directory exists
-mkdir -p /home/nfs/zli33/slurm_outputs/gemini-batch
+mkdir -p logs/gemini-batch
 
 # ---------------------------------------------------------------------------
 echo "[INFO] project_dir  = $project_dir"

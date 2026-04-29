@@ -7,8 +7,9 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.err
+#SBATCH --output=logs/gemini_batch_daic_%j.out
+#SBATCH --error=logs/gemini_batch_daic_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 # Submit a Gemini Batch API job (upload-only, exits immediately).
 # Use gemini_retrieve_daic.sh to collect results afterwards.
@@ -129,10 +130,10 @@ batch_id=$(printf "%02d" "$batch_number")
 # Paths
 # ---------------------------------------------------------------------------
 project_dir="${SLURM_SUBMIT_DIR:-.}"
-sif_file=/tudelft.net/staff-umbrella/neon/apptainer/gemini.sif
-gestalt_data_root=/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench
+sif_file=${APPTAINER_ROOT:-/path/to/apptainers}/gemini.sif
+gestalt_data_root=${DATA_ROOT:-/path/to/data/gestalt_bench}
 default_gestalt_root="${gestalt_data_root}/human_eval/samples"
-default_output_root=/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini
+default_output_root=${RESULTS_ROOT:-/path/to/results/gestalt_bench}/human_eval/gemini
 
 if [ "$annotated" = "1" ]; then
     if [ "$comparison" = "1" ]; then
@@ -163,7 +164,7 @@ fi
 
 inference_script="api_models/gemini_batch.py"
 prompt_config="${project_dir}/api_models/configs/prompts.json"
-api_key_file=/home/nfs/zli33/keys/gemini_api.txt
+api_key_file=${API_KEY_FILE:-/path/to/api_key.txt}
 registry_file="${output_root}/gemini_registry.json"
 
 # ---------------------------------------------------------------------------
@@ -211,7 +212,7 @@ if [ ! -f "$api_key_file" ]; then
 fi
 
 # Ensure output and slurm log directories exist
-mkdir -p /home/nfs/zli33/slurm_outputs/gemini-batch
+mkdir -p logs/gemini-batch
 for current_utt in "${utt_counts[@]}"; do
     output_dir="${output_root}/${dataset_name}/context/${current_utt}-utt_group/${gemini_mode}_${prompt_choice}_single-turn"
     mkdir -p "$output_dir"

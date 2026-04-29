@@ -8,8 +8,9 @@
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/qwen2.5-omni/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/qwen2.5-omni/slurm_%j.err
+#SBATCH --output=logs/qwen_delftblue_%j.out
+#SBATCH --error=logs/qwen_delftblue_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 # Batch Qwen2.5-Omni inference via Apptainer.
 #
@@ -192,12 +193,12 @@ batch_id=$(printf "%02d" "$batch_number")
 # Paths
 # ---------------------------------------------------------------------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-project_dir=/home/zli33/projects/Qwen2.5-Omni
-sif_file=/scratch/zli33/apptainers/qwen2.5-omni-inference.sif
-hf_cache_host=/scratch/zli33/.cache/huggingface
-data_root_host=/scratch/zli33/data
-model_root_host=/scratch/zli33/models
-gestalt_root=/scratch/zli33/data/gestalt_bench
+project_dir=${QWEN_PROJECT_ROOT:-${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}/Qwen2.5-Omni}
+sif_file=${APPTAINER_ROOT:-/path/to/apptainers}/qwen2.5-omni-inference.sif
+hf_cache_host=${HF_CACHE:-${MODEL_ROOT:-/path/to/models}/.cache/huggingface}
+data_root_host=${DATA_ROOT:-/path/to/data/gestalt_bench}
+model_root_host=${MODEL_ROOT:-/path/to/models}
+gestalt_root=${DATA_ROOT:-/path/to/data/gestalt_bench}
 
 # Batch-specific paths
 if [ "$mode_name" = "nested" ]; then
@@ -209,7 +210,7 @@ else
 fi
 output_dir="${gestalt_root}/results/qwen2.5/${dataset_name}/${mode_name}/${utt_count}-utt_group/${model_size}_${prompt_choice}_${conversation_mode}"
 output_json="$output_dir/batch${batch_id}.json"
-model_path="/scratch/zli33/models/Qwen2.5-Omni-${model_size}"
+model_path="${MODEL_ROOT:-/path/to/models}/Qwen2.5-Omni-${model_size}"
 prompt_config="$project_dir/prompts/prompts.json"
 
 # ---------------------------------------------------------------------------
@@ -247,7 +248,7 @@ if ! python3 -c 'import json, sys; data = json.load(open(sys.argv[1], encoding="
 fi
 
 # Ensure output and cache directories exist
-mkdir -p /scratch/zli33/slurm_outputs/qwen2.5-omni
+mkdir -p logs/qwen2.5-omni
 mkdir -p "$hf_cache_host"
 mkdir -p "$output_dir"
 

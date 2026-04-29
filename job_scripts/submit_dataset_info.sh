@@ -7,16 +7,17 @@
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=logs/submit_dataset_info_%j.out
+#SBATCH --error=logs/submit_dataset_info_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SIF_PATH="${PROJECT_ROOT}/apptainer/vlm_social.sif"
-DEFAULT_INPUT_ROOT="/scratch/zli33/data/gestalt_bench/mintrec2"
+DEFAULT_INPUT_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}/mintrec2"
 DEFAULT_INPUT_FOLDER="raw"
-DEFAULT_OUTPUT_ROOT="/scratch/zli33/data/gestalt_bench/results/gesbench"
+DEFAULT_OUTPUT_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}/results/gesbench"
 
 usage() {
     echo "Usage: sbatch $0 [input_folder] [output_root]" >&2
@@ -59,7 +60,7 @@ echo "Output dir: ${OUTPUT_DIR}"
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
-    --bind /scratch:/scratch \
+    --bind "${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench}" \
     "${SIF_PATH}" \
     python /workspace/dataset/dataset_info.py \
     "${INPUT_DIR}" \

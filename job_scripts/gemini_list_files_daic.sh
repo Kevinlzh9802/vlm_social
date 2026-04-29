@@ -7,8 +7,9 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/gemini-batch/slurm_%j.err
+#SBATCH --output=logs/gemini_list_files_daic_%j.out
+#SBATCH --error=logs/gemini_list_files_daic_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 # List and delete all files uploaded to the Gemini Files API.
 #
@@ -21,8 +22,8 @@ set -euo pipefail
 # Paths
 # ---------------------------------------------------------------------------
 project_dir="${SLURM_SUBMIT_DIR:-.}"
-sif_file=/tudelft.net/staff-umbrella/neon/apptainer/gemini.sif
-api_key_file=/home/nfs/zli33/keys/gemini_api.txt
+sif_file=${APPTAINER_ROOT:-/path/to/apptainers}/gemini.sif
+api_key_file=${API_KEY_FILE:-/path/to/api_key.txt}
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -35,7 +36,7 @@ if [ ! -f "$api_key_file" ]; then
     echo "[ERROR] API key file not found: $api_key_file" >&2; exit 1
 fi
 
-mkdir -p /home/nfs/zli33/slurm_outputs/gemini-batch
+mkdir -p logs/gemini-batch
 
 # ---------------------------------------------------------------------------
 echo "[INFO] project_dir  = $project_dir"

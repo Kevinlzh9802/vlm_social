@@ -7,18 +7,19 @@
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=logs/gaze_blocked_focus_delftblue_%j.out
+#SBATCH --error=logs/gaze_blocked_focus_delftblue_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/zli33/projects/vlm_social"
-SIF_PATH="/scratch/zli33/apptainers/eyetrack.sif"
-DEFAULT_PUPIL_PARENT="/scratch/zli33/data/gestalt_bench/human_eval/pupil"
-DEFAULT_ANNOTATION_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/results"
-DEFAULT_VIDEO_JSON="/scratch/zli33/data/gestalt_bench/human_eval/task2/task2.json"
-DEFAULT_SOURCE_VIDEOS="/scratch/zli33/data/gestalt_bench/human_eval/videos"
-DEFAULT_OUTPUT_DIR="/scratch/zli33/data/gestalt_bench/human_eval/task2/extraction_focus_gaze_blocked"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/eyetrack.sif"
+DEFAULT_PUPIL_PARENT="${DATA_ROOT:-/path/to/data/gestalt_bench}/human_eval/pupil"
+DEFAULT_ANNOTATION_DIR="${DATA_ROOT:-/path/to/data/gestalt_bench}/human_eval/task2/results"
+DEFAULT_VIDEO_JSON="${DATA_ROOT:-/path/to/data/gestalt_bench}/human_eval/task2/task2.json"
+DEFAULT_SOURCE_VIDEOS="${DATA_ROOT:-/path/to/data/gestalt_bench}/human_eval/videos"
+DEFAULT_OUTPUT_DIR="${DATA_ROOT:-/path/to/data/gestalt_bench}/human_eval/task2/extraction_focus_gaze_blocked"
 DEFAULT_MEDIA_URL_PREFIX="http://localhost:5000/api/media/gestalt_bench/annotation1/"
 DEFAULT_GAZE_MAPPING="legacy-extraction"
 DEFAULT_RESPONSE_SELECTION="latest-submitted"
@@ -165,7 +166,7 @@ fi
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
-    --bind /home/zli33:/home/zli33 \
-    --bind /scratch/zli33:/scratch/zli33 \
+    --bind "${PROJECT_ROOT}:${PROJECT_ROOT}" \
+    --bind "${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench}" \
     "${SIF_PATH}" \
     "${PYTHON_ARGS[@]}"

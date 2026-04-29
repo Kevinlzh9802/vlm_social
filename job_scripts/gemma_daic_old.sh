@@ -8,16 +8,17 @@
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:a40:1
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/gemma/slurm_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/gemma/slurm_%j.err
+#SBATCH --output=logs/gemma_daic_old_%j.out
+#SBATCH --error=logs/gemma_daic_old_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
-SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/gemma.sif"
-DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
-MODEL_PATH="/tudelft.net/staff-umbrella/neon/zonghuan/models/GemmaE4B"
-HF_CACHE="/tudelft.net/staff-umbrella/neon/zonghuan/.cache/huggingface"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/gemma.sif"
+DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
+MODEL_PATH="${MODEL_ROOT:-/path/to/models}/GemmaE4B"
+HF_CACHE="${HF_CACHE:-${MODEL_ROOT:-/path/to/models}/.cache/huggingface}"
 
 dataset_name=""
 prompt_choice=""
@@ -229,7 +230,7 @@ if [[ ! -f "${prompt_config}" ]]; then
     exit 1
 fi
 
-mkdir -p /home/nfs/zli33/slurm_outputs/gemma
+mkdir -p logs/gemma
 mkdir -p "${HF_CACHE}"
 
 if [[ "${annotated}" == "1" ]]; then
@@ -298,8 +299,10 @@ for current_utt_count in "${utt_counts[@]}"; do
 
     srun apptainer exec --nv \
         --bind "${PROJECT_ROOT}:/workspace" \
-        --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
-        --bind /home/nfs/zli33:/home/nfs/zli33 \
+        --bind "${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench}" \
+        --bind "${PROJECT_ROOT}:${PROJECT_ROOT}" \
+        --bind "${MODEL_PATH}:${MODEL_PATH}" \
+        --bind "${HF_CACHE}:${HF_CACHE}" \
         --env HF_HOME="${HF_CACHE}" \
         --env TRANSFORMERS_CACHE="${HF_CACHE}" \
         "${SIF_PATH}" \

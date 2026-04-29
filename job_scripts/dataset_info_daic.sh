@@ -7,16 +7,17 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=64G
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=logs/dataset_info_daic_%j.out
+#SBATCH --error=logs/dataset_info_daic_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
-SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/vlm_social.sif"
-DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/vlm_social.sif"
+DEFAULT_DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
 DEFAULT_INPUT_PATH="mintrec2/raw"
-DEFAULT_OUTPUT_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench"
+DEFAULT_OUTPUT_ROOT="${RESULTS_ROOT:-/path/to/results/gestalt_bench}"
 
 usage() {
     echo "Usage: sbatch $0 [input_path] [output_root]" >&2
@@ -59,7 +60,8 @@ echo "Output dir: ${OUTPUT_DIR}"
 
 srun apptainer exec \
     --bind "${PROJECT_ROOT}:/workspace" \
-    --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
+    --bind "${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench}" \
+    --bind "${OUTPUT_ROOT}:${OUTPUT_ROOT}" \
     "${SIF_PATH}" \
     python /workspace/dataset/dataset_info.py \
     "${INPUT_DIR}" \

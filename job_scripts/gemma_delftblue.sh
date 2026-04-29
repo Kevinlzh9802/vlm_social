@@ -8,16 +8,17 @@
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/gemma/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/gemma/slurm_%j.err
+#SBATCH --output=logs/gemma_delftblue_%j.out
+#SBATCH --error=logs/gemma_delftblue_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/zli33/projects/vlm_social"
-SIF_PATH="/scratch/zli33/apptainers/gemma.sif"
-DATA_ROOT="/scratch/zli33/data/gestalt_bench"
-MODEL_PATH="/scratch/zli33/models/GemmaE4B"
-HF_CACHE="/scratch/zli33/.cache/huggingface"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/gemma.sif"
+DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
+MODEL_PATH="${MODEL_ROOT:-/path/to/models}/GemmaE4B"
+HF_CACHE="${HF_CACHE:-${MODEL_ROOT:-/path/to/models}/.cache/huggingface}"
 
 dataset_name=""
 prompt_choice=""
@@ -229,7 +230,7 @@ if [[ ! -f "${prompt_config}" ]]; then
     exit 1
 fi
 
-mkdir -p /scratch/zli33/slurm_outputs/gemma
+mkdir -p logs/gemma
 mkdir -p "${HF_CACHE}"
 
 if [[ "${annotated}" == "1" ]]; then
@@ -298,8 +299,10 @@ for current_utt_count in "${utt_counts[@]}"; do
 
     srun apptainer exec --nv \
         --bind "${PROJECT_ROOT}:/workspace" \
-        --bind /home/zli33:/home/zli33 \
-        --bind /scratch/zli33:/scratch/zli33 \
+        --bind "${PROJECT_ROOT}:${PROJECT_ROOT}" \
+        --bind "${DATA_ROOT:-/path/to/data/gestalt_bench}:${DATA_ROOT:-/path/to/data/gestalt_bench}" \
+        --bind "${MODEL_PATH}:${MODEL_PATH}" \
+        --bind "${HF_CACHE}:${HF_CACHE}" \
         --env HF_HOME="${HF_CACHE}" \
         --env TRANSFORMERS_CACHE="${HF_CACHE}" \
         --pwd /workspace \

@@ -7,13 +7,14 @@
 #SBATCH --mem-per-cpu=2000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=logs/zip_seamless_context_3utt_delftblue_%j.out
+#SBATCH --error=logs/zip_seamless_context_3utt_delftblue_%j.err
+# Submit from the repository root; ensure logs/ exists before sbatch.
 
 set -euo pipefail
 
-DEFAULT_SOURCE_DIR="/scratch/zli33/data/gestalt_bench/seamless_interaction/context/3-utt_group"
-DEFAULT_OUTPUT_ZIP="/scratch/zli33/data/gestalt_bench/seamless_interaction/context/3-utt_group.zip"
+DEFAULT_SOURCE_DIR="${DATA_ROOT:-/path/to/data/gestalt_bench}/seamless_interaction/context/3-utt_group"
+DEFAULT_OUTPUT_ZIP="${DATA_ROOT:-/path/to/data/gestalt_bench}/seamless_interaction/context/3-utt_group.zip"
 
 usage() {
     echo "Usage:" >&2
