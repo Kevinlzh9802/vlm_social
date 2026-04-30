@@ -8,8 +8,8 @@
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:a40:1
 #SBATCH --mail-type=END
-#SBATCH --output=logs/gemma_daic_old_%j.out
-#SBATCH --error=logs/gemma_daic_old_%j.err
+#SBATCH --output=logs/gemma_<cluster1>_old_%j.out
+#SBATCH --error=logs/gemma_<cluster1>_old_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers HF_CACHE=/path/to/huggingface-cache
 

@@ -39,7 +39,7 @@ mkdir -p logs/ming-lite-omni
 
 ## Job Scripts
 
-`job_scripts/build_apptainer_daic.sh`
+`job_scripts/build_apptainer_<cluster1>.sh`
 
 - Builds the Ming-Lite-Omni Apptainer image from `apptainer/Ming-lite-omni.def`.
 - Writes to `${SIF_PATH}` when set, otherwise `${APPTAINER_ROOT}/ming-lite-omni.sif`.
@@ -47,7 +47,7 @@ mkdir -p logs/ming-lite-omni
 Example:
 
 ```bash
-sbatch --export=ALL,MING_PROJECT_ROOT=/path/to/Ming-lite-omni,APPTAINER_ROOT=/path/to/apptainers job_scripts/build_apptainer_daic.sh
+sbatch --export=ALL,MING_PROJECT_ROOT=/path/to/Ming-lite-omni,APPTAINER_ROOT=/path/to/apptainers job_scripts/build_apptainer_<cluster1>.sh
 ```
 
 `job_scripts/inference_test.sh`
@@ -65,7 +65,7 @@ sbatch job_scripts/inference_test.sh test_audio_tasks.py
 
 `job_scripts/inference_batch.sh`
 
-- Main DelftBlue-style batch inference script.
+- Main <cluster2>-style batch inference script.
 - Supports `context` and `nested` modes.
 - Supports `single-turn` and `multi-turn`; nested mode forces `multi-turn`.
 - Supports annotator mode with `--annotator <n>`, which runs utterance groups 1, 2, and 3.
@@ -79,9 +79,9 @@ sbatch job_scripts/inference_batch.sh --dataset mintrec2 --mode nested --utt 3 -
 sbatch job_scripts/inference_batch.sh --dataset mintrec2 --mode context --batch 2 --prompt intention --annotator 1
 ```
 
-`job_scripts/inference_batch_daic.sh`
+`job_scripts/inference_batch_<cluster1>.sh`
 
-- DAIC-style batch inference script.
+- <cluster1>-style batch inference script.
 - Supports `--annotated` mode for task-2 manipulation data.
 - With `--annotated`, `--comparison` switches to comparison data/results and `--no-audio` omits separate audio inputs.
 - Supports `--max-frames <n>` and `--attn-implementation auto|eager|sdpa|flash_attention_2`.
@@ -89,15 +89,15 @@ sbatch job_scripts/inference_batch.sh --dataset mintrec2 --mode context --batch 
 Examples:
 
 ```bash
-sbatch job_scripts/inference_batch_daic.sh --dataset mintrec2 --mode context --utt 2 --batch 2 --prompt affordance
-sbatch job_scripts/inference_batch_daic.sh --dataset mintrec2 --mode context --batch 2 --prompt intention --annotated
-sbatch job_scripts/inference_batch_daic.sh --dataset mintrec2 --mode context --batch 2 --prompt intention --annotated --comparison
-sbatch job_scripts/inference_batch_daic.sh --dataset mintrec2 --mode context --batch 2 --prompt intention --annotated --no-audio
+sbatch job_scripts/inference_batch_<cluster1>.sh --dataset mintrec2 --mode context --utt 2 --batch 2 --prompt affordance
+sbatch job_scripts/inference_batch_<cluster1>.sh --dataset mintrec2 --mode context --batch 2 --prompt intention --annotated
+sbatch job_scripts/inference_batch_<cluster1>.sh --dataset mintrec2 --mode context --batch 2 --prompt intention --annotated --comparison
+sbatch job_scripts/inference_batch_<cluster1>.sh --dataset mintrec2 --mode context --batch 2 --prompt intention --annotated --no-audio
 ```
 
-`job_scripts/inference_batch_daic_a40.sh` and `job_scripts/inference_batch_daic_old.sh`
+`job_scripts/inference_batch_<cluster1>_a40.sh` and `job_scripts/inference_batch_<cluster1>_old.sh`
 
-- Alternative DAIC variants kept for compatibility with earlier A40/legacy runs.
+- Alternative <cluster1> variants kept for compatibility with earlier A40/legacy runs.
 - They use the same path variables and data layout as the main Ming batch scripts.
 
 `job_scripts/inference_qwen.sh`
@@ -125,7 +125,7 @@ Standard outputs are written to:
 ${DATA_ROOT}/results/ming-lite-omni/${dataset}/${mode}/${utt}-utt_group/Ming-lite-omni_${prompt}_${conversation_mode}/batch${batch_id}.json
 ```
 
-DAIC annotated outputs are written under one of:
+<cluster1> annotated outputs are written under one of:
 
 ```text
 ${DATA_ROOT}/human_eval/task2/manipulation_full/results/ming-lite-omni

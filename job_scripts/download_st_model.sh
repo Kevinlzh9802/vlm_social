@@ -40,4 +40,4 @@ print('Saved to ${OUTPUT_DIR}')
 "
 
 echo "Done. You can now submit the job:"
-echo "  sbatch job_scripts/analysis_delftblue.sh --model-path ${OUTPUT_DIR}"
+echo "  sbatch job_scripts/analysis_<cluster2>.sh --model-path ${OUTPUT_DIR}"

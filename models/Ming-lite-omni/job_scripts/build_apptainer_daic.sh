@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name="ming-lite-omni_build_daic"
+#SBATCH --job-name="ming-lite-omni_build_<cluster1>"
 #SBATCH --qos=short
 #SBATCH --time=2:00:00
 #SBATCH --ntasks=1
@@ -9,8 +9,8 @@
 #SBATCH --account ewi-insy-prb
 #SBATCH --partition insy,general
 #SBATCH --mail-type=END,FAIL
-#SBATCH --output=logs/ming-lite-omni/build_apptainer_daic_%j.out
-#SBATCH --error=logs/ming-lite-omni/build_apptainer_daic_%j.err
+#SBATCH --output=logs/ming-lite-omni/build_apptainer_<cluster1>_%j.out
+#SBATCH --error=logs/ming-lite-omni/build_apptainer_<cluster1>_%j.err
 # Submit from the model project root; ensure logs/ming-lite-omni exists before sbatch.
 # User paths to set: export MING_PROJECT_ROOT=/path/to/Ming-lite-omni APPTAINER_ROOT=/path/to/apptainers LOG_DIR=logs/ming-lite-omni
 # Optional build paths: export SIF_PATH=/path/to/ming-lite-omni.sif APPTAINER_TMPDIR=/path/to/tmp
@@ -23,13 +23,13 @@ MING_PROJECT_ROOT="${MING_PROJECT_ROOT:-${PROJECT_DIR:-${PROJECT_ROOT}}}"
 APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
 LOG_DIR="${LOG_DIR:-logs/ming-lite-omni}"
 
-# Build the Apptainer image on DAIC.
+# Build the Apptainer image on <cluster1>.
 #
 # Submit from the project folder:
-#   sbatch job_scripts/build_apptainer_daic.sh
+#   sbatch job_scripts/build_apptainer_<cluster1>.sh
 #
 # Optional overrides:
-#   sbatch --export=ALL,MING_PROJECT_ROOT=/path/to/Ming-lite-omni,SIF_PATH=/path/to/ming-lite-omni.sif job_scripts/build_apptainer_daic.sh
+#   sbatch --export=ALL,MING_PROJECT_ROOT=/path/to/Ming-lite-omni,SIF_PATH=/path/to/ming-lite-omni.sif job_scripts/build_apptainer_<cluster1>.sh
 
 project_dir="${MING_PROJECT_ROOT}"
 log_dir="${LOG_DIR}"

@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --mail-type=END
-#SBATCH --output=logs/human_annotation_similarity_daic_%j.out
-#SBATCH --error=logs/human_annotation_similarity_daic_%j.err
+#SBATCH --output=logs/human_annotation_similarity_<cluster1>_%j.out
+#SBATCH --error=logs/human_annotation_similarity_<cluster1>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 

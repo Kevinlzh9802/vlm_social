@@ -38,36 +38,36 @@ mkdir -p logs/gemini-batch
 
 Gemini batch inference is a two-step process:
 
-1. Submit one or more batch jobs with `job_scripts/gemini_batch_daic.sh`.
-2. Retrieve finished jobs later with `job_scripts/gemini_retrieve_daic.sh`.
+1. Submit one or more batch jobs with `job_scripts/gemini_batch_<cluster1>.sh`.
+2. Retrieve finished jobs later with `job_scripts/gemini_retrieve_<cluster1>.sh`.
 
 Standard human-evaluation sample submission:
 
 ```bash
-sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention
-sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --gemini-mode 2.5-flash
+sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention
+sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --gemini-mode 2.5-flash
 ```
 
 Retrieve completed standard jobs:
 
 ```bash
-sbatch job_scripts/gemini_retrieve_daic.sh
+sbatch job_scripts/gemini_retrieve_<cluster1>.sh
 ```
 
 Annotated task-2 submission:
 
 ```bash
-sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated
-sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --comparison
-sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --no-audio
+sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated
+sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --comparison
+sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --no-audio
 ```
 
 Retrieve annotated task-2 jobs with the same mode flags:
 
 ```bash
-sbatch job_scripts/gemini_retrieve_daic.sh --annotated
-sbatch job_scripts/gemini_retrieve_daic.sh --annotated --comparison
-sbatch job_scripts/gemini_retrieve_daic.sh --annotated --no-audio
+sbatch job_scripts/gemini_retrieve_<cluster1>.sh --annotated
+sbatch job_scripts/gemini_retrieve_<cluster1>.sh --annotated --comparison
+sbatch job_scripts/gemini_retrieve_<cluster1>.sh --annotated --no-audio
 ```
 
 ## Data and Output Layout
@@ -111,6 +111,6 @@ ${DATA_ROOT}/human_eval/task2/manipulation_full/results_noaudio_comparison/gemin
 To inspect or clean uploaded Gemini Files API items:
 
 ```bash
-sbatch job_scripts/gemini_list_files_daic.sh
+sbatch job_scripts/gemini_list_files_<cluster1>.sh
 ```
 

@@ -7,15 +7,15 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
 #SBATCH --mail-type=END
-#SBATCH --output=logs/gemini_list_files_daic_%j.out
-#SBATCH --error=logs/gemini_list_files_daic_%j.err
+#SBATCH --output=logs/gemini_list_files_<cluster1>_%j.out
+#SBATCH --error=logs/gemini_list_files_<cluster1>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export APPTAINER_ROOT=/path/to/apptainers API_KEY_FILE=/path/to/api_key.txt
 
 # List and delete all files uploaded to the Gemini Files API.
 #
 # Usage:
-#   sbatch job_scripts/gemini_list_files_daic.sh
+#   sbatch job_scripts/gemini_list_files_<cluster1>.sh
 
 set -euo pipefail
 

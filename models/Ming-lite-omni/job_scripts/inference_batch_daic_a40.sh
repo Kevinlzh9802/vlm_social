@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name="ming-lite-omni_inference_daic_a40"
+#SBATCH --job-name="ming-lite-omni_inference_<cluster1>_a40"
 #SBATCH --time=0:20:00
 #SBATCH --partition=ewi-insy,all
 #SBATCH --ntasks=1
@@ -7,22 +7,22 @@
 #SBATCH --mem-per-cpu=8GB
 #SBATCH --gres=gpu:nvidia_l40:1
 #SBATCH --mail-type=END
-#SBATCH --output=logs/ming-lite-omni/inference_batch_daic_a40_%j.out
-#SBATCH --error=logs/ming-lite-omni/inference_batch_daic_a40_%j.err
+#SBATCH --output=logs/ming-lite-omni/inference_batch_<cluster1>_a40_%j.out
+#SBATCH --error=logs/ming-lite-omni/inference_batch_<cluster1>_a40_%j.err
 # Submit from the model project root; ensure logs/ming-lite-omni exists before sbatch.
 # User paths to set: export MING_PROJECT_ROOT=/path/to/Ming-lite-omni DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 # Optional log path: export LOG_DIR=logs/ming-lite-omni
 
 
 
-# Batch Ming-Lite-Omni inference via Apptainer on DAIC A40 GPUs.
+# Batch Ming-Lite-Omni inference via Apptainer on <cluster1> A40 GPUs.
 #
 # Submit from the project folder:
-#   sbatch job_scripts/inference_batch_daic_a40.sh --dataset mintrec2 --mode context --utt 2 --batch 2 --prompt affordance
-#   sbatch job_scripts/inference_batch_daic_a40.sh -set mintrec2 --mode nested --utt 3 --batch 12 -prompt intention
-#   sbatch job_scripts/inference_batch_daic_a40.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention --conversation-mode single-turn
-#   sbatch job_scripts/inference_batch_daic_a40.sh --dataset mintrec6 --mode nested --utt 2 --batch 5 --prompt intention
-#   sbatch job_scripts/inference_batch_daic_a40.sh --dataset mintrec2 --utt 3 --batch 9 --prompt affordance
+#   sbatch job_scripts/inference_batch_<cluster1>_a40.sh --dataset mintrec2 --mode context --utt 2 --batch 2 --prompt affordance
+#   sbatch job_scripts/inference_batch_<cluster1>_a40.sh -set mintrec2 --mode nested --utt 3 --batch 12 -prompt intention
+#   sbatch job_scripts/inference_batch_<cluster1>_a40.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention --conversation-mode single-turn
+#   sbatch job_scripts/inference_batch_<cluster1>_a40.sh --dataset mintrec6 --mode nested --utt 2 --batch 5 --prompt intention
+#   sbatch job_scripts/inference_batch_<cluster1>_a40.sh --dataset mintrec2 --utt 3 --batch 9 --prompt affordance
 
 set -euo pipefail
 
@@ -32,7 +32,7 @@ DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
 APPTAINER_ROOT="${APPTAINER_ROOT:-/path/to/apptainers}"
 LOG_DIR="${LOG_DIR:-logs/ming-lite-omni}"
 
-usage_message="Usage: sbatch job_scripts/inference_batch_daic_a40.sh --dataset <dataset> [--mode <context|nested>] [--utt <1|2|3>] --batch <number> [--conversation-mode <single-turn|multi-turn>] [--attn-implementation <auto|eager|sdpa|flash_attention_2>] [--annotator <n>] --prompt <prompt_choice>"
+usage_message="Usage: sbatch job_scripts/inference_batch_<cluster1>_a40.sh --dataset <dataset> [--mode <context|nested>] [--utt <1|2|3>] --batch <number> [--conversation-mode <single-turn|multi-turn>] [--attn-implementation <auto|eager|sdpa|flash_attention_2>] [--annotator <n>] --prompt <prompt_choice>"
 
 dataset_name=""
 prompt_choice=""

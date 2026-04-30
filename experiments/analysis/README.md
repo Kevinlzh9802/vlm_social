@@ -42,7 +42,7 @@ Clip progress is binned by `position / clip_count`, rounded into `--progress-par
 Run:
 
 ```bash
-sbatch job_scripts/analysis_daic.sh
+sbatch job_scripts/analysis_<cluster1>.sh
 ```
 
 The wrapper calls `main.py`. It reads model result JSON files under:
@@ -101,7 +101,7 @@ Use `--from-plot-data` to regenerate aggregate plots without re-reading result J
 Run:
 
 ```bash
-sbatch job_scripts/human_annotation_similarity_daic.sh
+sbatch job_scripts/human_annotation_similarity_<cluster1>.sh
 ```
 
 This wrapper calls `human_annotation_similarity.py`. The script accepts either a pre-extracted `human_annotations.csv` or a directory of raw annotation JSONs. In normal usage it reads:
@@ -127,14 +127,14 @@ Outputs:
   - per-dataset/utterance partial-to-full percentile and average plots
   - all-dataset aggregate plots
 
-The `partial_to_full_points.csv` file includes `neighboring_similarity_to_next`, which allows `analysis_daic.sh` to overlay human semantic-turnover curves on the model plots.
+The `partial_to_full_points.csv` file includes `neighboring_similarity_to_next`, which allows `analysis_<cluster1>.sh` to overlay human semantic-turnover curves on the model plots.
 
 ## Human-vs-Model Similarity
 
 Run:
 
 ```bash
-sbatch job_scripts/human_model_similarity_daic.sh
+sbatch job_scripts/human_model_similarity_<cluster1>.sh
 ```
 
 This wrapper calls `human_model_similarity.py`. It extracts or loads human annotations, indexes model results from the configured result roots, aligns human and model clips by dataset, task, utterance count, and clip identifier, then computes diagonal cosine similarity between paired human/model embeddings.
@@ -152,7 +152,7 @@ Outputs:
 Run:
 
 ```bash
-sbatch job_scripts/manipulation_result_similarity_daic.sh
+sbatch job_scripts/manipulation_result_similarity_<cluster1>.sh
 ```
 
 This wrapper calls `manipulation_result_similarity.py`. It compares model answers on gaze-manipulated task-2 data against the corresponding full benchmark answers.
@@ -188,7 +188,7 @@ Outputs include:
 Run:
 
 ```bash
-sbatch job_scripts/parse_human_annotations_daic.sh
+sbatch job_scripts/parse_human_annotations_<cluster1>.sh
 ```
 
 This calls `parse_human_annotations.py` and writes linked human annotation CSV/JSON files without computing embeddings or plots. Use it when you only need the normalized annotation table for inspection or downstream scripts.

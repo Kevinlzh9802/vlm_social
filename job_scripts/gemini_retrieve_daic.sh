@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --mail-type=END
-#SBATCH --output=logs/gemini_retrieve_daic_%j.out
-#SBATCH --error=logs/gemini_retrieve_daic_%j.err
+#SBATCH --output=logs/gemini_retrieve_<cluster1>_%j.out
+#SBATCH --error=logs/gemini_retrieve_<cluster1>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers API_KEY_FILE=/path/to/api_key.txt
 
@@ -17,10 +17,10 @@
 # needed — everything is stored in the registry.
 #
 # Usage:
-#   sbatch job_scripts/gemini_retrieve_daic.sh
-#   sbatch job_scripts/gemini_retrieve_daic.sh --annotated
-#   sbatch job_scripts/gemini_retrieve_daic.sh --annotated --comparison
-#   sbatch job_scripts/gemini_retrieve_daic.sh --annotated --no-audio
+#   sbatch job_scripts/gemini_retrieve_<cluster1>.sh
+#   sbatch job_scripts/gemini_retrieve_<cluster1>.sh --annotated
+#   sbatch job_scripts/gemini_retrieve_<cluster1>.sh --annotated --comparison
+#   sbatch job_scripts/gemini_retrieve_<cluster1>.sh --annotated --no-audio
 
 set -euo pipefail
 
@@ -43,7 +43,7 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: sbatch job_scripts/gemini_retrieve_daic.sh [--annotated] [--comparison] [--no-audio]" >&2
+            echo "Usage: sbatch job_scripts/gemini_retrieve_<cluster1>.sh [--annotated] [--comparison] [--no-audio]" >&2
             echo "  --comparison is only valid together with --annotated." >&2
             echo "  --no-audio is only valid together with --annotated and selects no-audio result roots." >&2
             exit 0
@@ -114,7 +114,7 @@ fi
 
 if [ ! -f "$registry_file" ]; then
     echo "[ERROR] Registry file not found: $registry_file" >&2
-    echo "  Submit a job first with gemini_batch_daic.sh." >&2
+    echo "  Submit a job first with gemini_batch_<cluster1>.sh." >&2
     exit 1
 fi
 

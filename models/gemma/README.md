@@ -8,9 +8,9 @@ Main file:
 
 The Slurm wrappers are in the repository root:
 
-- `job_scripts/gemma_daic.sh`
-- `job_scripts/gemma_delftblue.sh`
-- `job_scripts/gemma_daic_old.sh`
+- `job_scripts/gemma_<cluster1>.sh`
+- `job_scripts/gemma_<cluster2>.sh`
+- `job_scripts/gemma_<cluster1>_old.sh`
 
 ## Required Paths
 
@@ -49,16 +49,16 @@ mkdir -p logs/gemma
 Standard context run:
 
 ```bash
-sbatch job_scripts/gemma_daic.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention
-sbatch job_scripts/gemma_daic.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --conversation-mode multi-turn
+sbatch job_scripts/gemma_<cluster1>.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention
+sbatch job_scripts/gemma_<cluster1>.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --conversation-mode multi-turn
 ```
 
 Annotated task-2 run:
 
 ```bash
-sbatch job_scripts/gemma_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated
-sbatch job_scripts/gemma_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --comparison
-sbatch job_scripts/gemma_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --no-audio
+sbatch job_scripts/gemma_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated
+sbatch job_scripts/gemma_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --comparison
+sbatch job_scripts/gemma_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --no-audio
 ```
 
 Useful runtime options:

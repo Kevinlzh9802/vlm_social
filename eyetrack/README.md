@@ -44,13 +44,13 @@ exports/<three_digit_export_id>/surfaces/gaze_positions_on_surface_*.csv
 Run:
 
 ```bash
-sbatch job_scripts/eyetrack_annotation_daic.sh
+sbatch job_scripts/eyetrack_annotation_<cluster1>.sh
 ```
 
-or, on DelftBlue:
+or, on <cluster2>:
 
 ```bash
-sbatch job_scripts/eyetrack_annotation_delftblue.sh
+sbatch job_scripts/eyetrack_annotation_<cluster2>.sh
 ```
 
 The wrapper calls:
@@ -94,7 +94,7 @@ Two screen-to-video mappings are supported:
 Use:
 
 ```bash
-sbatch job_scripts/eyetrack_annotation_daic.sh --focus-mapping legacy-extraction
+sbatch job_scripts/eyetrack_annotation_<cluster1>.sh --focus-mapping legacy-extraction
 ```
 
 ## Outputs
@@ -116,7 +116,7 @@ Important files:
 The gaze-blocking workflow uses the same extracted gaze alignment to create manipulated video clips:
 
 ```bash
-sbatch job_scripts/gaze_blocked_partition_daic.sh
+sbatch job_scripts/gaze_blocked_partition_<cluster1>.sh
 ```
 
 It calls `eyetrack/gaze_blocked_partition.py`, builds gaze points from the annotation intervals, maps them into video coordinates, and writes task-2 `context/{1,2,3}-utt_group` data with a gaze-centered blur or block mask.

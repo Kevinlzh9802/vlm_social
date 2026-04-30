@@ -7,8 +7,8 @@
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=logs/gaze_blocked_focus_delftblue_%j.out
-#SBATCH --error=logs/gaze_blocked_focus_delftblue_%j.err
+#SBATCH --output=logs/gaze_blocked_focus_<cluster2>_%j.out
+#SBATCH --error=logs/gaze_blocked_focus_<cluster2>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 

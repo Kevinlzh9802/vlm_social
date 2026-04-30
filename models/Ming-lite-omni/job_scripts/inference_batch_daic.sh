@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name="ming-lite-omni_inference_daic"
+#SBATCH --job-name="ming-lite-omni_inference_<cluster1>"
 #SBATCH --time=1:00:00
 #SBATCH --partition=ewi-insy,all # Request partition. Default is 'general'
 #SBATCH --ntasks=1
@@ -7,8 +7,8 @@
 #SBATCH --mem-per-cpu=8GB 
 #SBATCH --gres=gpu:nvidia_rtx_pro_6000:1            # Request 1 GPU of any type
 #SBATCH --mail-type=END
-#SBATCH --output=logs/ming-lite-omni/inference_batch_daic_%j.out
-#SBATCH --error=logs/ming-lite-omni/inference_batch_daic_%j.err
+#SBATCH --output=logs/ming-lite-omni/inference_batch_<cluster1>_%j.out
+#SBATCH --error=logs/ming-lite-omni/inference_batch_<cluster1>_%j.err
 # Submit from the model project root; ensure logs/ming-lite-omni exists before sbatch.
 # User paths to set: export MING_PROJECT_ROOT=/path/to/Ming-lite-omni DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 # Optional log path: export LOG_DIR=logs/ming-lite-omni

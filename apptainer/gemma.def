@@ -15,8 +15,8 @@ From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
             python /workspace/gemma/batch_infer_context.py --help
 
     The job scripts expect this image at:
-        DAIC:      /tudelft.net/staff-umbrella/neon/apptainer/gemma.sif
-        DelftBlue: /scratch/zli33/apptainers/gemma.sif
+        <cluster1>:      /tudelft.net/staff-umbrella/neon/apptainer/gemma.sif
+        <cluster2>: /scratch/zli33/apptainers/gemma.sif
 
 %environment
     export LC_ALL=C.UTF-8

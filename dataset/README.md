@@ -20,8 +20,8 @@ mkdir -p logs
 
 Dialogue partitioning is implemented by `dialogue_partition.py` and wrapped by:
 
-- `job_scripts/dialogue_partition_daic.sh`
-- `job_scripts/dialogue_partition_delftblue.sh`
+- `job_scripts/dialogue_partition_<cluster1>.sh`
+- `job_scripts/dialogue_partition_<cluster2>.sh`
 - `job_scripts/dialogue_partition_transfer.sh`
 
 The input folder must contain videos named:
@@ -33,7 +33,7 @@ dia<dialogue_id>_utt<utterance_id>.mp4
 Example:
 
 ```bash
-sbatch job_scripts/dialogue_partition_daic.sh --input-path mintrec2/raw --mode context --utt 1,2,3
+sbatch job_scripts/dialogue_partition_<cluster1>.sh --input-path mintrec2/raw --mode context --utt 1,2,3
 ```
 
 The wrapper maps `--input-path dataset/subfolder` to:
@@ -88,7 +88,7 @@ partition_dialogues.csv
 Human-evaluation sample packs are created by `select_human_eval_samples.py` and wrapped by:
 
 ```bash
-job_scripts/select_human_eval_samples_daic.sh
+job_scripts/select_human_eval_samples_<cluster1>.sh
 ```
 
 This workflow samples from already partitioned `context` folders. The expected input layout is:
@@ -107,7 +107,7 @@ ${DATA_ROOT}/seamless_interaction/context/2-utt_group/
 Run:
 
 ```bash
-sbatch job_scripts/select_human_eval_samples_daic.sh
+sbatch job_scripts/select_human_eval_samples_<cluster1>.sh
 ```
 
 By default, it uses `--seed 42`, overwrites the output root, and writes to:
@@ -145,7 +145,7 @@ selection_summary.txt
 To change the destination or seed:
 
 ```bash
-sbatch job_scripts/select_human_eval_samples_daic.sh --output-root /path/to/output --seed 123
+sbatch job_scripts/select_human_eval_samples_<cluster1>.sh --output-root /path/to/output --seed 123
 ```
 
 Use `--no-overwrite` to fail instead of replacing an existing output root.

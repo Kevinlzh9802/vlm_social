@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --mail-type=END
-#SBATCH --output=logs/gaze_blocked_focus_daic_%j.out
-#SBATCH --error=logs/gaze_blocked_focus_daic_%j.err
+#SBATCH --output=logs/gaze_blocked_focus_<cluster1>_%j.out
+#SBATCH --error=logs/gaze_blocked_focus_<cluster1>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 
@@ -38,10 +38,10 @@ usage() {
 }
 
 # Submission examples:
-#   sbatch job_scripts/gaze_blocked_focus_daic.sh
-#   sbatch job_scripts/gaze_blocked_focus_daic.sh --utt 1,2,3
-#   sbatch job_scripts/gaze_blocked_focus_daic.sh --comparison
-#   sbatch job_scripts/gaze_blocked_focus_daic.sh --output-dir ${DATA_ROOT:-/path/to/data/gestalt_bench}/human_eval/task2/manipulation_full/data --utt 2 --no-overwrite
+#   sbatch job_scripts/gaze_blocked_focus_<cluster1>.sh
+#   sbatch job_scripts/gaze_blocked_focus_<cluster1>.sh --utt 1,2,3
+#   sbatch job_scripts/gaze_blocked_focus_<cluster1>.sh --comparison
+#   sbatch job_scripts/gaze_blocked_focus_<cluster1>.sh --output-dir ${DATA_ROOT:-/path/to/data/gestalt_bench}/human_eval/task2/manipulation_full/data --utt 2 --no-overwrite
 
 PUPIL_PARENT="${DEFAULT_PUPIL_PARENT}"
 ANNOTATION_DIR="${DEFAULT_ANNOTATION_DIR}"

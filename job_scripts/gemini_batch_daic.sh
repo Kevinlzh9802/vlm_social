@@ -7,20 +7,20 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --mail-type=END
-#SBATCH --output=logs/gemini_batch_daic_%j.out
-#SBATCH --error=logs/gemini_batch_daic_%j.err
+#SBATCH --output=logs/gemini_batch_<cluster1>_%j.out
+#SBATCH --error=logs/gemini_batch_<cluster1>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers API_KEY_FILE=/path/to/api_key.txt
 
 # Submit a Gemini Batch API job (upload-only, exits immediately).
-# Use gemini_retrieve_daic.sh to collect results afterwards.
+# Use gemini_retrieve_<cluster1>.sh to collect results afterwards.
 #
 # Examples:
-#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention
-#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --gemini-mode 2.5-flash
-#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated
-#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --comparison
-#   sbatch job_scripts/gemini_batch_daic.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --no-audio
+#   sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --utt 1 --batch 1 --prompt intention
+#   sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --utt 2 --batch 3 --prompt affordance --gemini-mode 2.5-flash
+#   sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated
+#   sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --comparison
+#   sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset mintrec2 --batch 1 --prompt intention --annotated --no-audio
 
 set -euo pipefail
 
@@ -63,7 +63,7 @@ while [ "$#" -gt 0 ]; do
         --no-audio)
             no_audio=1; shift ;;
         -h|--help)
-            echo "Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison] [--no-audio]" >&2
+            echo "Usage: sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison] [--no-audio]" >&2
             echo "  --utt is required unless --annotated is set. With --annotated, all 1/2/3-utt groups are submitted." >&2
             echo "  --no-audio is only valid together with --annotated, omits .wav inputs, and selects no-audio result roots." >&2
             exit 0 ;;
@@ -77,7 +77,7 @@ done
 # ---------------------------------------------------------------------------
 # Required-argument checks
 # ---------------------------------------------------------------------------
-usage_msg="Usage: sbatch job_scripts/gemini_batch_daic.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison] [--no-audio]"
+usage_msg="Usage: sbatch job_scripts/gemini_batch_<cluster1>.sh --dataset <dataset> --batch <number> --prompt <prompt_choice> [--utt <1|2|3>] [--gemini-mode <mode>] [--annotated] [--comparison] [--no-audio]"
 
 if [ -z "$dataset_name" ]; then echo "[ERROR] --dataset is required" >&2; echo "$usage_msg" >&2; exit 1; fi
 if [ -z "$prompt_choice" ]; then echo "[ERROR] --prompt is required" >&2; echo "$usage_msg" >&2; exit 1; fi
@@ -278,4 +278,4 @@ for current_utt in "${utt_counts[@]}"; do
 done
 
 echo ""
-echo "[INFO] Batch job(s) submitted. Run gemini_retrieve_daic.sh to download results later."
+echo "[INFO] Batch job(s) submitted. Run gemini_retrieve_<cluster1>.sh to download results later."

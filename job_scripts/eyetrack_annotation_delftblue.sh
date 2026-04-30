@@ -7,8 +7,8 @@
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=logs/eyetrack_annotation_delftblue_%j.out
-#SBATCH --error=logs/eyetrack_annotation_delftblue_%j.err
+#SBATCH --output=logs/eyetrack_annotation_<cluster2>_%j.out
+#SBATCH --error=logs/eyetrack_annotation_<cluster2>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbenchATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 

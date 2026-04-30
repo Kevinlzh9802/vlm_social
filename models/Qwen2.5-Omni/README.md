@@ -50,7 +50,7 @@ sbatch job_scripts/inference_test.sh --model "${MODEL_ROOT}/Qwen2.5-Omni-7B"
 
 `job_scripts/inference_batch.sh`
 
-- Main DelftBlue-style batch inference script.
+- Main <cluster2>-style batch inference script.
 - Supports `context` and `nested` modes.
 - Supports model sizes `7B` and `3B`.
 - Supports `single-turn` and `multi-turn`; nested mode forces `multi-turn`.
@@ -64,9 +64,9 @@ sbatch job_scripts/inference_batch.sh --dataset mintrec2 --mode nested --utt 3 -
 sbatch job_scripts/inference_batch.sh --dataset mintrec2 --mode context --batch 2 --model 7B --prompt intention -annotator 1
 ```
 
-`job_scripts/inference_batch_daic.sh`
+`job_scripts/inference_batch_<cluster1>.sh`
 
-- DAIC-style batch inference script.
+- <cluster1>-style batch inference script.
 - Supports the same standard `context` and `nested` modes as `inference_batch.sh`.
 - Supports annotated task-2 runs with `--annotated`.
 - With `--annotated`, `--comparison` switches to comparison data/results and `--no-audio` omits separate audio inputs.
@@ -74,10 +74,10 @@ sbatch job_scripts/inference_batch.sh --dataset mintrec2 --mode context --batch 
 Examples:
 
 ```bash
-sbatch job_scripts/inference_batch_daic.sh --dataset mintrec2 --mode context --utt 2 --batch 2 --model 7B --prompt affordance
-sbatch job_scripts/inference_batch_daic.sh --dataset mintrec2 --mode context --batch 2 --model 7B --prompt intention --annotated
-sbatch job_scripts/inference_batch_daic.sh --dataset mintrec2 --mode context --batch 2 --model 7B --prompt intention --annotated --comparison
-sbatch job_scripts/inference_batch_daic.sh --dataset mintrec2 --mode context --batch 2 --model 7B --prompt intention --annotated --no-audio
+sbatch job_scripts/inference_batch_<cluster1>.sh --dataset mintrec2 --mode context --utt 2 --batch 2 --model 7B --prompt affordance
+sbatch job_scripts/inference_batch_<cluster1>.sh --dataset mintrec2 --mode context --batch 2 --model 7B --prompt intention --annotated
+sbatch job_scripts/inference_batch_<cluster1>.sh --dataset mintrec2 --mode context --batch 2 --model 7B --prompt intention --annotated --comparison
+sbatch job_scripts/inference_batch_<cluster1>.sh --dataset mintrec2 --mode context --batch 2 --model 7B --prompt intention --annotated --no-audio
 ```
 
 ## Data and Output Layout
@@ -100,7 +100,7 @@ Standard outputs are written to:
 ${DATA_ROOT}/results/qwen2.5/${dataset}/${mode}/${utt}-utt_group/${model_size}_${prompt}_${conversation_mode}/batch${batch_id}.json
 ```
 
-DAIC annotated outputs are written under one of:
+<cluster1> annotated outputs are written under one of:
 
 ```text
 ${DATA_ROOT}/human_eval/task2/manipulation_full/results/qwen2.5

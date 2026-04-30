@@ -8,8 +8,8 @@
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=logs/qwen_delftblue_%j.out
-#SBATCH --error=logs/qwen_delftblue_%j.err
+#SBATCH --output=logs/qwen_<cluster2>_%j.out
+#SBATCH --error=logs/qwen_<cluster2>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbench QWEN_PROJECT_ROOT=/path/to/Qwen2.5-Omni DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers HF_CACHE=/path/to/huggingface-cache
 

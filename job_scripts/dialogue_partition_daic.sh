@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --mail-type=END
-#SBATCH --output=logs/dialogue_partition_daic_%j.out
-#SBATCH --error=logs/dialogue_partition_daic_%j.err
+#SBATCH --output=logs/dialogue_partition_<cluster1>_%j.out
+#SBATCH --error=logs/dialogue_partition_<cluster1>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 

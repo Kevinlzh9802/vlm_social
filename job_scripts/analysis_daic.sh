@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
 #SBATCH --mail-type=END
-#SBATCH --output=logs/analysis_daic_%j.out
-#SBATCH --error=logs/analysis_daic_%j.err
+#SBATCH --output=logs/analysis_<cluster1>_%j.out
+#SBATCH --error=logs/analysis_<cluster1>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 
@@ -32,8 +32,8 @@ usage() {
     echo "Usage:" >&2
     echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--gemma-results-root PATH] [--skip-gemini] [--skip-gemma] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--save-plot-data] [--plot-data-dir PATH] [--from-plot-data PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
     echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
-    echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
-    echo "  gemma-results-root: Gemma 4 result tree from gemma_daic.sh (default: ${DEFAULT_GEMMA_RESULTS_ROOT})" >&2
+    echo "  gemini-results-root: Gemini result tree from gemini_retrieve_<cluster1>.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
+    echo "  gemma-results-root: Gemma 4 result tree from gemma_<cluster1>.sh (default: ${DEFAULT_GEMMA_RESULTS_ROOT})" >&2
     echo "  --skip-gemini: do not include Gemini partial-to-full similarity lines" >&2
     echo "  --skip-gemma: do not include Gemma 4 results when --results-root does not already include them" >&2
     echo "  human-annotation-summary-csv: partial_to_full_percentiles.csv from human_annotation_similarity.py (default: ${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV}); the sibling partial_to_full_points.csv is also required for human ST overlay" >&2
@@ -48,7 +48,7 @@ usage() {
     echo "  --with-scatter: include scatter points in per-folder clip-to-final plots (default: disabled)" >&2
     echo "" >&2
     echo "If the human summary CSV is missing, run:" >&2
-    echo "  sbatch job_scripts/human_annotation_similarity_daic.sh" >&2
+    echo "  sbatch job_scripts/human_annotation_similarity_<cluster1>.sh" >&2
 }
 
 RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}"
@@ -179,26 +179,26 @@ fi
 
 if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_GEMINI}" == "0" && ! -d "${GEMINI_RESULTS_ROOT}" ]]; then
     echo "Gemini results root does not exist: ${GEMINI_RESULTS_ROOT}" >&2
-    echo "Run gemini_retrieve_daic.sh after Gemini jobs complete, pass --gemini-results-root, or pass --skip-gemini." >&2
+    echo "Run gemini_retrieve_<cluster1>.sh after Gemini jobs complete, pass --gemini-results-root, or pass --skip-gemini." >&2
     exit 1
 fi
 
 if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_ANNOTATION_SUMMARY_CSV}" ]]; then
     echo "Human annotation summary CSV does not exist: ${HUMAN_ANNOTATION_SUMMARY_CSV}" >&2
-    echo "Run human_annotation_similarity_daic.sh first or pass --skip-human-overlay." >&2
+    echo "Run human_annotation_similarity_<cluster1>.sh first or pass --skip-human-overlay." >&2
     exit 1
 fi
 
 if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_GEMMA}" == "0" && ! -d "${GEMMA_RESULTS_ROOT}" ]]; then
     echo "Gemma results root does not exist: ${GEMMA_RESULTS_ROOT}" >&2
-    echo "Run gemma_daic.sh first, pass --gemma-results-root, or pass --skip-gemma." >&2
+    echo "Run gemma_<cluster1>.sh first, pass --gemma-results-root, or pass --skip-gemma." >&2
     exit 1
 fi
 
 HUMAN_ANNOTATION_POINTS_CSV="$(dirname "${HUMAN_ANNOTATION_SUMMARY_CSV}")/partial_to_full_points.csv"
 if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" && ! -f "${HUMAN_ANNOTATION_POINTS_CSV}" ]]; then
     echo "Human annotation point CSV does not exist: ${HUMAN_ANNOTATION_POINTS_CSV}" >&2
-    echo "Run human_annotation_similarity_daic.sh first or pass --skip-human-overlay." >&2
+    echo "Run human_annotation_similarity_<cluster1>.sh first or pass --skip-human-overlay." >&2
     exit 1
 fi
 
@@ -207,7 +207,7 @@ if [[ -z "${FROM_PLOT_DATA}" && "${SKIP_HUMAN_OVERLAY}" == "0" ]]; then
     HUMAN_POINTS_HEADER="${HUMAN_POINTS_HEADER%$'\r'}"
     if [[ ",${HUMAN_POINTS_HEADER}," != *",neighboring_similarity_to_next,"* ]]; then
         echo "Human annotation point CSV is missing neighboring_similarity_to_next: ${HUMAN_ANNOTATION_POINTS_CSV}" >&2
-        echo "Rerun human_annotation_similarity_daic.sh so analysis can overlay human ST curves, or pass --skip-human-overlay." >&2
+        echo "Rerun human_annotation_similarity_<cluster1>.sh so analysis can overlay human ST curves, or pass --skip-human-overlay." >&2
         exit 1
     fi
 fi

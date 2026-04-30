@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --mail-type=END
-#SBATCH --output=logs/human_model_similarity_daic_%j.out
-#SBATCH --error=logs/human_model_similarity_daic_%j.err
+#SBATCH --output=logs/human_model_similarity_<cluster1>_%j.out
+#SBATCH --error=logs/human_model_similarity_<cluster1>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 
@@ -33,8 +33,8 @@ usage() {
     echo "Usage:" >&2
     echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--gemma-results-root PATH] [--skip-gemini] [--skip-gemma] [--task-json PATH] [--annotation-dir PATH] [--extraction-output-dir PATH] [--plot-dir PATH] [--plot-data-dir PATH] [--task-number N] [--model MODEL] [--model-path PATH] [--progress-partitions N]" >&2
     echo "  results-root: model results root (default: ${DEFAULT_RESULTS_ROOT})" >&2
-    echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
-    echo "  gemma-results-root: Gemma 4 result tree from gemma_daic.sh (default: ${DEFAULT_GEMMA_RESULTS_ROOT})" >&2
+    echo "  gemini-results-root: Gemini result tree from gemini_retrieve_<cluster1>.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
+    echo "  gemma-results-root: Gemma 4 result tree from gemma_<cluster1>.sh (default: ${DEFAULT_GEMMA_RESULTS_ROOT})" >&2
     echo "  --skip-gemini: do not include Gemini in human-model similarity analysis" >&2
     echo "  --skip-gemma: do not include Gemma 4 results when --results-root does not already include them" >&2
     echo "  task-json: task media JSON used for linking (default: ${DEFAULT_TASK_JSON})" >&2
@@ -164,13 +164,13 @@ fi
 
 if [[ "${SKIP_GEMINI}" == "0" && ! -d "${GEMINI_RESULTS_ROOT}" ]]; then
     echo "Gemini results root does not exist: ${GEMINI_RESULTS_ROOT}" >&2
-    echo "Run gemini_retrieve_daic.sh after Gemini jobs complete, pass --gemini-results-root, or pass --skip-gemini." >&2
+    echo "Run gemini_retrieve_<cluster1>.sh after Gemini jobs complete, pass --gemini-results-root, or pass --skip-gemini." >&2
     exit 1
 fi
 
 if [[ "${SKIP_GEMMA}" == "0" && ! -d "${GEMMA_RESULTS_ROOT}" ]]; then
     echo "Gemma results root does not exist: ${GEMMA_RESULTS_ROOT}" >&2
-    echo "Run gemma_daic.sh first, pass --gemma-results-root, or pass --skip-gemma." >&2
+    echo "Run gemma_<cluster1>.sh first, pass --gemma-results-root, or pass --skip-gemma." >&2
     exit 1
 fi
 

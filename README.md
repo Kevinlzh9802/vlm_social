@@ -75,7 +75,7 @@ Human annotation JSONs can be normalized into linked CSV/JSON tables before anal
 The relevant wrapper is:
 
 ```bash
-sbatch job_scripts/parse_human_annotations_daic.sh
+sbatch job_scripts/parse_human_annotations_<cluster1>.sh
 ```
 
 Human annotation extraction is also invoked automatically by the human annotation and human/model similarity analyses when raw annotation directories are provided. See [experiments/analysis/README.md](experiments/analysis/README.md) for details.

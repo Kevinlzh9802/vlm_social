@@ -140,7 +140,7 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help=(
             "Additional result root to include, e.g. the Gemini results tree "
-            "created by gemini_retrieve_daic.sh. May be passed multiple times."
+            "created by gemini_retrieve_<cluster1>.sh. May be passed multiple times."
         ),
     )
     parser.add_argument(
