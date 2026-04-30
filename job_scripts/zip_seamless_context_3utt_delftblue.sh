@@ -7,8 +7,8 @@
 #SBATCH --mem-per-cpu=2000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=logs/zip_seamless_context_3utt_delftblue_%j.out
-#SBATCH --error=logs/zip_seamless_context_3utt_delftblue_%j.err
+#SBATCH --output=logs/zip_seamless_context_3utt_<cluster2>_%j.out
+#SBATCH --error=logs/zip_seamless_context_3utt_<cluster2>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
 # User paths to set: export DATA_ROOT=/path/to/data/gestalt_bench
 
