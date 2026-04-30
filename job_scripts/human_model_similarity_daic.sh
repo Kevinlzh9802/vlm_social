@@ -10,7 +10,7 @@
 #SBATCH --output=logs/human_model_similarity_daic_%j.out
 #SBATCH --error=logs/human_model_similarity_daic_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
-# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
+# User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 
 set -euo pipefail
 
@@ -189,7 +189,7 @@ if [[ -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; then
     exit 1
 fi
 
-mkdir -p logs/vlm_social
+mkdir -p logs/gesbench
 mkdir -p "${EXTRACTION_OUTPUT_DIR}" "${PLOT_DIR}" "${PLOT_DATA_DIR}"
 
 echo "Project root:           ${PROJECT_ROOT}"

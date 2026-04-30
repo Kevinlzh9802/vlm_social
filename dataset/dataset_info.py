@@ -13,7 +13,7 @@ import re
 
 import cv2
 
-temp_cache_dir = Path(tempfile.gettempdir()) / "vlm_social_cache"
+temp_cache_dir = Path(tempfile.gettempdir()) / "gesbench_cache"
 temp_cache_dir.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(temp_cache_dir / "matplotlib"))
 os.environ.setdefault("XDG_CACHE_HOME", str(temp_cache_dir))

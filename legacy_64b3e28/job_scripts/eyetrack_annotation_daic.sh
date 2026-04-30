@@ -7,12 +7,12 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
 #SBATCH --mail-type=END
-#SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=/home/nfs/zli33/slurm_outputs/gesbench/slurm_%j.out
+#SBATCH --error=/home/nfs/zli33/slurm_outputs/gesbench/slurm_%j.err
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
+PROJECT_ROOT="/home/nfs/zli33/projects/gesbench"
 LEGACY_ROOT="${PROJECT_ROOT}/legacy_64b3e28"
 SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/eyetrack.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"

@@ -10,12 +10,12 @@
 #SBATCH --output=logs/dataset_info_daic_%j.out
 #SBATCH --error=logs/dataset_info_daic_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
-# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
+# User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
-SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/vlm_social.sif"
+SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/gesbench.sif"
 DEFAULT_DATA_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}"
 DEFAULT_INPUT_PATH="mintrec2/raw"
 DEFAULT_OUTPUT_ROOT="${RESULTS_ROOT:-/path/to/results/gestalt_bench}"
@@ -39,7 +39,7 @@ fi
 
 if [[ ! -f "${SIF_PATH}" ]]; then
     echo "Missing Apptainer image: ${SIF_PATH}" >&2
-    echo "Build it first with: cd ${PROJECT_ROOT}/apptainer && apptainer build vlm_social.sif vlm_social.def" >&2
+    echo "Build it first with: cd ${PROJECT_ROOT}/apptainer && apptainer build gesbench.sif gesbench.def" >&2
     exit 1
 fi
 

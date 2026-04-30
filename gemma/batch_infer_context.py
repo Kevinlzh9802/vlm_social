@@ -343,12 +343,12 @@ def render_gemma_chat_text(processor: Any, messages: list[dict], enable_thinking
         if "chat template" not in str(exc).lower():
             raise
 
-    if not getattr(processor, "_vlm_social_warned_missing_chat_template", False):
+    if not getattr(processor, "_gesbench_warned_missing_chat_template", False):
         print(
             "[WARN] Processor has no chat template; using built-in Gemma 4 fallback template.",
             flush=True,
         )
-        setattr(processor, "_vlm_social_warned_missing_chat_template", True)
+        setattr(processor, "_gesbench_warned_missing_chat_template", True)
     try:
         return processor.apply_chat_template(
             messages,

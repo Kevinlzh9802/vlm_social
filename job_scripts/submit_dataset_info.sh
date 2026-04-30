@@ -10,12 +10,12 @@
 #SBATCH --output=logs/submit_dataset_info_%j.out
 #SBATCH --error=logs/submit_dataset_info_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
-# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench
+# User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench
 
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SIF_PATH="${PROJECT_ROOT}/apptainer/vlm_social.sif"
+SIF_PATH="${PROJECT_ROOT}/apptainer/gesbench.sif"
 DEFAULT_INPUT_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}/mintrec2"
 DEFAULT_INPUT_FOLDER="raw"
 DEFAULT_OUTPUT_ROOT="${DATA_ROOT:-/path/to/data/gestalt_bench}/results/gesbench"
@@ -39,7 +39,7 @@ fi
 
 if [[ ! -f "${SIF_PATH}" ]]; then
     echo "Missing Apptainer image: ${SIF_PATH}" >&2
-    echo "Build it first with: cd ${PROJECT_ROOT}/apptainer && apptainer build vlm_social.sif vlm_social.def" >&2
+    echo "Build it first with: cd ${PROJECT_ROOT}/apptainer && apptainer build gesbench.sif gesbench.def" >&2
     exit 1
 fi
 

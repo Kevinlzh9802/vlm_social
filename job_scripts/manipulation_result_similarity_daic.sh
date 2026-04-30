@@ -10,7 +10,7 @@
 #SBATCH --output=logs/manipulation_result_similarity_daic_%j.out
 #SBATCH --error=logs/manipulation_result_similarity_daic_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
-# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers
+# User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers
 
 set -euo pipefail
 
@@ -155,7 +155,7 @@ if [[ -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; then
     exit 1
 fi
 
-mkdir -p logs/vlm_social
+mkdir -p logs/gesbench
 mkdir -p "${OUTPUT_DIR}"
 
 echo "Project root:            ${PROJECT_ROOT}"

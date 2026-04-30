@@ -11,7 +11,7 @@
 #SBATCH --output=logs/qwen_delftblue_%j.out
 #SBATCH --error=logs/qwen_delftblue_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
-# User paths to set: export PROJECT_ROOT=/path/to/vlm_social QWEN_PROJECT_ROOT=/path/to/Qwen2.5-Omni DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers HF_CACHE=/path/to/huggingface-cache
+# User paths to set: export PROJECT_ROOT=/path/to/gesbench QWEN_PROJECT_ROOT=/path/to/Qwen2.5-Omni DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers HF_CACHE=/path/to/huggingface-cache
 
 # Batch Qwen2.5-Omni inference via Apptainer.
 #

@@ -27,7 +27,7 @@ done
 
 # Call the Python script with the validated arguments
 #python ../evaluate.py --model_name "$model_name" --visual_strat "$visual_strat" --task "$task"
-apptainer exec --nv --bind /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan:/mnt/zonghuan --bind /home/nfs/zli33:/mnt/zli33 /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_builds/containers/internvl2-8.sif python /home/nfs/zli33/projects/vlm_social/internvl/localize_person.py --model_name "$model_name" --visual_strat "$visual_strat" --task "$task"
+apptainer exec --nv --bind /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan:/mnt/zonghuan --bind /home/nfs/zli33:/mnt/zli33 /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_builds/containers/internvl2-8.sif python /home/nfs/zli33/projects/gesbench/internvl/localize_person.py --model_name "$model_name" --visual_strat "$visual_strat" --task "$task"
 
 # sample usage
 # ./infer_main.sh --model_name internvl2b --visual_strat concat --task cgroup

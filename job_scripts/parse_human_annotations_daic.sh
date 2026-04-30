@@ -10,7 +10,7 @@
 #SBATCH --output=logs/parse_human_annotations_daic_%j.out
 #SBATCH --error=logs/parse_human_annotations_daic_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
-# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
+# User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 
 set -euo pipefail
 
@@ -94,7 +94,7 @@ if [[ ! -d "${ANNOTATION_DIR}" ]]; then
 fi
 
 mkdir -p "${OUTPUT_DIR}"
-mkdir -p logs/vlm_social
+mkdir -p logs/gesbench
 
 OUTPUT_CSV="${OUTPUT_DIR}/human_annotations.csv"
 OUTPUT_JSON="${OUTPUT_DIR}/human_annotations_linked.json"

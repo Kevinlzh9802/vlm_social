@@ -28,17 +28,17 @@ def get_paths_based_on_hostname():
         'tud1006233': {
             'dataset_dir': '/home/zonghuan/tudelft/projects/datasets/modification/',
             'model_path': '/home/zonghuan/tudelft/projects/large_models/models/',
-            'output_file': '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/results'
+            'output_file': '/home/zonghuan/tudelft/projects/gesbench/internvl/experiments/results'
         },
         'daic': {
             'dataset_dir': '/mnt/zonghuan/datasets/vlm_baseline/',
             'model_path': '/mnt/zonghuan/large_models/models/',
-            'output_file': '/mnt/zli33/projects/vlm_social/internvl/experiments/results'
+            'output_file': '/mnt/zli33/projects/gesbench/internvl/experiments/results'
         },
         'default': {
             'dataset_dir': '/mnt/zonghuan/datasets/vlm_baseline/',
             'model_path': '/mnt/zonghuan/large_models/models/',
-            'output_file': '/mnt/zli33/projects/vlm_social/internvl/experiments/results'
+            'output_file': '/mnt/zli33/projects/gesbench/internvl/experiments/results'
         }
     }
 

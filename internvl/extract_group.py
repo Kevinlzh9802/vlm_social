@@ -179,10 +179,10 @@ def evaluate_groups(result_folder, file_name):
     input_file_path = os.path.join(result_folder, file_name)
     if 'cgroup' in file_name:
         # gt_file = 'D:\\Desktop\\results\\conflab_cgroup.json'
-        gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_cgroup.json'
+        gt_file = '/home/zonghuan/tudelft/projects/gesbench/conflab_cgroup.json'
     elif 'fform' in file_name:
         # gt_file = 'D:\\Desktop\\results\\conflab_fform.json'
-        gt_file = '/home/zonghuan/tudelft/projects/vlm_social/conflab_fform.json'
+        gt_file = '/home/zonghuan/tudelft/projects/gesbench/conflab_fform.json'
     else:
         return
 
@@ -264,7 +264,7 @@ def main():
     #                      tab='F-formation')
 
     # result_folder = 'D:\\Desktop\\results\\'
-    result_folder = '/home/zonghuan/tudelft/projects/vlm_social/internvl/experiments/cluster_raw/results/'
+    result_folder = '/home/zonghuan/tudelft/projects/gesbench/internvl/experiments/cluster_raw/results/'
     for file in os.listdir(result_folder):
         if file.endswith('.txt'):
             print(file)

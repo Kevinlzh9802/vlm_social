@@ -7,12 +7,12 @@
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
 #SBATCH --account=research-eemcs-insy
-#SBATCH --output=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.out
-#SBATCH --error=/scratch/zli33/slurm_outputs/vlm_social/slurm_%j.err
+#SBATCH --output=/scratch/zli33/slurm_outputs/gesbench/slurm_%j.out
+#SBATCH --error=/scratch/zli33/slurm_outputs/gesbench/slurm_%j.err
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/zli33/projects/vlm_social"
+PROJECT_ROOT="/home/zli33/projects/gesbench"
 LEGACY_ROOT="${PROJECT_ROOT}/legacy_64b3e28"
 SIF_PATH="/scratch/zli33/apptainers/eyetrack.sif"
 DEFAULT_PUPIL_PARENT="/scratch/zli33/data/gestalt_bench/human_eval/pupil"

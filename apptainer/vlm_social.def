@@ -8,13 +8,13 @@ From: ubuntu:22.04
 %help
     Build from the apptainer directory:
         cd apptainer
-        apptainer build vlm_social.sif vlm_social.def
+        apptainer build gesbench.sif gesbench.def
 
     Example usage:
-        apptainer exec --bind ..:/workspace vlm_social.sif \
+        apptainer exec --bind ..:/workspace gesbench.sif \
             python /workspace/dataset/dataset_info.py /path/to/videos /path/to/output
 
-        apptainer exec --bind ..:/workspace vlm_social.sif \
+        apptainer exec --bind ..:/workspace gesbench.sif \
             python /workspace/experiments/analysis/main.py
 
 %files
@@ -36,7 +36,7 @@ From: ubuntu:22.04
     if [ ! -f /opt/requirements.txt ]; then
         echo "ERROR: /opt/requirements.txt not found."
         echo "Make sure to build from the apptainer/ directory:"
-        echo "    cd apptainer && apptainer build vlm_social.sif vlm_social.def"
+        echo "    cd apptainer && apptainer build gesbench.sif gesbench.def"
         exit 1
     fi
 

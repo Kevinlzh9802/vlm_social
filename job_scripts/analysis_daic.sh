@@ -10,7 +10,7 @@
 #SBATCH --output=logs/analysis_daic_%j.out
 #SBATCH --error=logs/analysis_daic_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
-# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
+# User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 
 set -euo pipefail
 
@@ -217,7 +217,7 @@ if [[ -z "${FROM_PLOT_DATA}" && -n "${MODEL_PATH}" && ! -d "${MODEL_PATH}" ]]; t
     exit 1
 fi
 
-mkdir -p logs/vlm_social
+mkdir -p logs/gesbench
 if [[ "${SAVE_PLOT_DATA}" == "1" ]]; then
     mkdir -p "${PLOT_DATA_DIR}"
 fi

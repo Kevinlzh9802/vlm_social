@@ -11,7 +11,7 @@
 #SBATCH --output=logs/gemma_delftblue_%j.out
 #SBATCH --error=logs/gemma_delftblue_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
-# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers HF_CACHE=/path/to/huggingface-cache
+# User paths to set: export PROJECT_ROOT=/path/to/gesbench DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers HF_CACHE=/path/to/huggingface-cache
 
 set -euo pipefail
 
