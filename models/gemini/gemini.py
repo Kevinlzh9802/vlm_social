@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 from google import genai
 from google.genai import types as genai_types
 
-from prompt_utils import (
+from models.gemini.prompt_utils import (
     PROMPT_CONFIG_PATH as SHARED_PROMPT_CONFIG_PATH,
     build_prompt_variant_key as shared_build_prompt_variant_key,
     load_prompt_templates as shared_load_prompt_templates,

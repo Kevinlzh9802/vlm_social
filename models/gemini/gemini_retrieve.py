@@ -51,7 +51,7 @@ from gemini import (
     DEFAULT_API_KEY_PATH,
     get_client,
 )
-from gemini_batch import (
+from models.gemini.gemini_batch import (
     DEFAULT_REGISTRY_PATH,
     load_registry,
     save_registry,
