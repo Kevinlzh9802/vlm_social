@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=20
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
+#SBATCH --account=<account>
 #SBATCH --output=logs/submit_dataset_info_%j.out
 #SBATCH --error=logs/submit_dataset_info_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.

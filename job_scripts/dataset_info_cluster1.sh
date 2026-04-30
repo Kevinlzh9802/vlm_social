@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="dataset_info"
 #SBATCH --time=3:59:00
-#SBATCH --partition=insy,general # Request partition. Default is 'general' 
+#SBATCH --partition=<partition> # Request partition. Default is 'general' 
 #SBATCH --qos=short         # Request Quality of Service. Default is 'short' (maximum run time: 4 hours)
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1

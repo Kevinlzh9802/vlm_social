@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="ming-lite-omni_inference_<cluster1>_old"
-#SBATCH --partition=insy,general
+#SBATCH --partition=<partition>
 #SBATCH --qos=short
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8

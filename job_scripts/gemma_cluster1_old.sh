@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="gemma_e4b_infer"
-#SBATCH --partition=insy,general
+#SBATCH --partition=<partition>
 #SBATCH --qos=medium 
 #SBATCH --time=10:00:00
 #SBATCH --ntasks=1

@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
+#SBATCH --account=<account>
 #SBATCH --output=logs/seamless_utterance_%j.out
 #SBATCH --error=logs/seamless_utterance_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.

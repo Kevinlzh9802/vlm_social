@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
+#SBATCH --account=<account>
 #SBATCH --output=logs/eyetrack_annotation_<cluster2>_%j.out
 #SBATCH --error=logs/eyetrack_annotation_<cluster2>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.

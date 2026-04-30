@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="human_annot"
 #SBATCH --time=00:30:00
-#SBATCH --partition=insy,general
+#SBATCH --partition=<partition>
 #SBATCH --qos=medium
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1

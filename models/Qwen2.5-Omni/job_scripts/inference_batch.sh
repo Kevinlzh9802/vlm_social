@@ -7,7 +7,7 @@
 #SBATCH --mem-per-cpu=8000M
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
+#SBATCH --account=<account>
 #SBATCH --output=logs/qwen2.5-omni/inference_batch_%j.out
 #SBATCH --error=logs/qwen2.5-omni/inference_batch_%j.err
 # Submit from the model project root; ensure logs/qwen2.5-omni exists before sbatch.

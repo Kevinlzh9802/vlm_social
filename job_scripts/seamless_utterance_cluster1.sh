@@ -2,7 +2,7 @@
 #SBATCH --job-name="seamless_utt"
 #SBATCH --time=18:00:00
 #SBATCH --qos=medium         # Request Quality of Service. Default is 'short' (maximum run time: 4 hours)
-#SBATCH --partition=insy,general  # Request partition. Default is 'general'
+#SBATCH --partition=<partition>  # Request partition. Default is 'general'
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G

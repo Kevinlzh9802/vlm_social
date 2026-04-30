@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="gemini-retrieve"
-#SBATCH --partition=insy,general
+#SBATCH --partition=<partition>
 #SBATCH --time=01:00:00
 #SBATCH --qos=short
 #SBATCH --ntasks=1

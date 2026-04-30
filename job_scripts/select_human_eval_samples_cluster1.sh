@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="human_eval_sel"
 #SBATCH --time=03:59:00
-#SBATCH --partition=insy,general
+#SBATCH --partition=<partition>
 #SBATCH --qos=short
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1

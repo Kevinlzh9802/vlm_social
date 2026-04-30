@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="manip_result_sim"
 #SBATCH --time=00:15:00
-#SBATCH --partition=insy,general
+#SBATCH --partition=<partition>
 #SBATCH --qos=medium
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1

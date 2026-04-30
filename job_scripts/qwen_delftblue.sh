@@ -7,7 +7,7 @@
 #SBATCH --mem-per-cpu=8000M
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
+#SBATCH --account=<account>
 #SBATCH --output=logs/qwen_<cluster2>_%j.out
 #SBATCH --error=logs/qwen_<cluster2>_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.

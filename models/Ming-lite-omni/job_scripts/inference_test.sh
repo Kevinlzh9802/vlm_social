@@ -7,7 +7,7 @@
 #SBATCH --mem-per-cpu=8000M
 #SBATCH --gpus-per-task=1
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
+#SBATCH --account=<account>
 #SBATCH --output=logs/ming-lite-omni/inference_test_%j.out
 #SBATCH --error=logs/ming-lite-omni/inference_test_%j.err
 # Submit from the model project root; ensure logs/ming-lite-omni exists before sbatch.

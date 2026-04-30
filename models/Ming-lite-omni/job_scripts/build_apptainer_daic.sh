@@ -7,7 +7,7 @@
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:a40
 #SBATCH --account ewi-insy-prb
-#SBATCH --partition insy,general
+#SBATCH --partition <partition>
 #SBATCH --mail-type=END,FAIL
 #SBATCH --output=logs/ming-lite-omni/build_apptainer_<cluster1>_%j.out
 #SBATCH --error=logs/ming-lite-omni/build_apptainer_<cluster1>_%j.err

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="gemini-list-files"
-#SBATCH --partition=insy,general
+#SBATCH --partition=<partition>
 #SBATCH --time=18:00:00
 #SBATCH --qos=medium
 #SBATCH --ntasks=1

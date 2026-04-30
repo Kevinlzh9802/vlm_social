@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --mem-per-cpu=3000M
 #SBATCH --mail-type=END
-#SBATCH --account=research-eemcs-insy
+#SBATCH --account=<account>
 #SBATCH --output=logs/dialogue_partition_transfer_%j.out
 #SBATCH --error=logs/dialogue_partition_transfer_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
