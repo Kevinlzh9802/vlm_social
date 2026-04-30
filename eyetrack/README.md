@@ -138,8 +138,6 @@ Useful options:
 ## Debug Utilities
 
 - `eyetrack/annotation_intervals.py`: prints video timing tables from annotation JSON files.
-- `eyetrack/eyetrack_test.py`: extracts raw `gaze.pldata` samples for manually supplied intervals.
-- `eyetrack/pupil_world_gaze_overlay.py`: writes `world_gaze.mp4` and `world_gaze_points.csv` inside Pupil recording folders.
 - `eyetrack/gaze_extraction.py`: shared loading, timestamp alignment, media resolution, and interval filtering helpers.
 - `eyetrack/focus_plot.py`: screen-to-video mapping and static focus plotting.
 
