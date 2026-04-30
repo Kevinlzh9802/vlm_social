@@ -579,7 +579,7 @@ def prepare_record(
         resolved_audio_local_path_prefix = effective_local_prefix(
             audio_local_path_prefix, local_path_prefix
         )
-        audio_entries = record.get("audio")
+        audio_entries = record.get("audios")
         if not isinstance(audio_entries, Sequence) or isinstance(
             audio_entries, (str, bytes, bytearray)
         ):
