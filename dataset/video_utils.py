@@ -211,7 +211,7 @@ def cut_videos_in_folder(
             )
 
 def main():
-    dataset_path = '/home/zonghuan/tudelft/projects/datasets/MIntRec2.0'
+    dataset_path = '<project-root>/projects/datasets/MIntRec2.0'
     # Example usage
     video_folder = os.path.join(dataset_path, 'in-scope-20260223T102217Z-1-002', 'in-scope', 'raw_data')
     output_folder = os.path.join(dataset_path, 'modification', 'in-scope-20260223T102217Z-1-002', 'in-scope', 'raw_data_segmented')

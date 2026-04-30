@@ -11,7 +11,7 @@ For model details, licenses, checkpoints, and general examples, refer to the ups
 Set these paths before submitting jobs:
 
 ```bash
-export QWEN_PROJECT_ROOT=/path/to/vlm_social/models/Qwen2.5-Omni
+export QWEN_PROJECT_ROOT=/path/to/GesBench/models/Qwen2.5-Omni
 export DATA_ROOT=/path/to/data/gestalt_bench
 export MODEL_ROOT=/path/to/models
 export APPTAINER_ROOT=/path/to/apptainers

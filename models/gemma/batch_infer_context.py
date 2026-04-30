@@ -28,7 +28,7 @@ import torch
 from transformers import AutoModelForMultimodalLM, AutoProcessor
 
 
-DEFAULT_MODEL_PATH = os.environ.get("MODEL_PATH", "/scratch/zli33/models/GemmaE4B")
+DEFAULT_MODEL_PATH = os.environ.get("MODEL_PATH", "MODEL_ROOT=/path/to/models/Gemma-4-E4B")
 DEFAULT_PROMPT_CONFIG_PATH = (
     Path(__file__).resolve().parents[1] / "api_models" / "configs" / "prompts.json"
 )

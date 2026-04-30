@@ -2,7 +2,7 @@ Bootstrap: docker
 From: pytorch/pytorch:2.7.0-cuda12.8-cudnn9-devel
 
 %labels
-    Author zonghuan
+    Author anonym
     Description "Apptainer image for Ming-Lite-Omni inference"
 
 %environment

@@ -2,7 +2,7 @@ Bootstrap: docker
 From: ubuntu:22.04
 
 %labels
-    Author zonghuan
+    Author anonym
     Description Lightweight environment for Gemini Batch API inference (gemini_batch.py)
 
 %help

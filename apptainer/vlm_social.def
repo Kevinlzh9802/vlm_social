@@ -2,7 +2,7 @@ Bootstrap: docker
 From: ubuntu:22.04
 
 %labels
-    Author zonghuan
+    Author anonym
     Description VLM Social analysis environment with video stats and sentence-transformers
 
 %help

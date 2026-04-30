@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
-DEFAULT_DATA_ROOT = Path("/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench")
+DEFAULT_DATA_ROOT = Path("/path/to/data/gestalt_bench")
 DEFAULT_OUTPUT_ROOT = DEFAULT_DATA_ROOT / "human_eval" / "samples"
 SINGLE_GROUP_PATTERN = re.compile(r"^d(?P<dialogue>\d+)u(?P<utterance>\d+)$")
 

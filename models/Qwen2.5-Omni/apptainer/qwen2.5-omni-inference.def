@@ -2,7 +2,7 @@ Bootstrap: docker
 From: nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
 
 %labels
-    Author zonghuan
+    Author anonym
     Description "Apptainer image for Qwen2.5-Omni inference (Transformers)"
 
 %help

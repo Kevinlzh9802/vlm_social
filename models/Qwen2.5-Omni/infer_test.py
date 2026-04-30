@@ -20,17 +20,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("MODEL_PATH", "/scratch/zli33/models/Qwen2.5-Omni-7B"),
+        default=os.environ.get("MODEL_PATH", "/path/to/GesBench/models/Qwen2.5-Omni"),
         help="Model id or local model path.",
     )
     parser.add_argument(
         "--audio",
-        default="/scratch/zli33/data/gestalt_bench/sample/clip_11.wav",
+        default="path/to/samples/clip_11.wav",
         help="Audio URL or local file path.",
     )
     parser.add_argument(
         "--video",
-        default="/scratch/zli33/data/gestalt_bench/sample/clip_11.mp4",
+        default="/path/to/samples/clip_11.mp4",
         help="Video URL or local file path.",
     )
     parser.add_argument(

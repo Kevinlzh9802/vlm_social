@@ -11,7 +11,7 @@ For model details, licenses, checkpoints, and general examples, refer to the ups
 Set these paths before submitting jobs:
 
 ```bash
-export MING_PROJECT_ROOT=/path/to/vlm_social/models/Ming-lite-omni
+export MING_PROJECT_ROOT=/path/to/GesBench/models/Ming-lite-omni
 export DATA_ROOT=/path/to/data/gestalt_bench
 export APPTAINER_ROOT=/path/to/apptainers
 ```

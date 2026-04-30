@@ -2,7 +2,7 @@ Bootstrap: docker
 From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 
 %labels
-    Author zonghuan
+    Author anonym
     Description GPU environment for Gemma 4 E4B multimodal video/audio inference
 
 %help
@@ -15,8 +15,8 @@ From: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
             python /workspace/gemma/batch_infer_context.py --help
 
     The job scripts expect this image at:
-        <cluster1>:      /tudelft.net/staff-umbrella/neon/apptainer/gemma.sif
-        <cluster2>: /scratch/zli33/apptainers/gemma.sif
+        <cluster1>: /path/to/apptainers/gemma.sif
+        <cluster2>: /path/to/apptainers/gemma.sif
 
 %environment
     export LC_ALL=C.UTF-8
