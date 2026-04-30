@@ -13,6 +13,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="/home/zli33/linuxhome/projects/vlm_social"
+CONTAINER_PROJECT_ROOT="/workspace"
 SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/gemma.sif"
 DATA_ROOT="/tudelft.net/staff-umbrella/neon/ingroup_dataset"
 MODEL_PATH="/tudelft.net/staff-umbrella/neon/zonghuan/models/GemmaE4B"
@@ -25,6 +26,7 @@ input_json="/tudelft.net/staff-umbrella/neon/B1_pipeline/annotation_clips.json"
 output_dir="/tudelft.net/staff-umbrella/neon/B1_pipeline/model_responses"
 output_json=""
 prompt_config="${PROJECT_ROOT}/gemma/prompt_ingroup.json"
+container_prompt_config="${CONTAINER_PROJECT_ROOT}/gemma/prompt_ingroup.json"
 max_new_tokens="512"
 max_video_frames="32"
 enable_thinking=0
@@ -71,6 +73,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --prompt-config)
             prompt_config="${2:?Missing value for --prompt-config}"
+            container_prompt_config="${prompt_config}"
             shift 2
             ;;
         --model-path)
@@ -208,6 +211,10 @@ if [[ ! -f "${prompt_config}" ]]; then
     exit 1
 fi
 
+if [[ "${prompt_config}" == "${PROJECT_ROOT}"/* ]]; then
+    container_prompt_config="${CONTAINER_PROJECT_ROOT}/${prompt_config#"${PROJECT_ROOT}/"}"
+fi
+
 if [[ ! -f "${input_json}" ]]; then
     echo "[ERROR] Input JSON not found: ${input_json}" >&2
     exit 1
@@ -218,6 +225,7 @@ mkdir -p "${HF_CACHE}"
 mkdir -p "$(dirname "${output_json}")"
 
 echo "[INFO] project_root              = ${PROJECT_ROOT}"
+echo "[INFO] container_project_root    = ${CONTAINER_PROJECT_ROOT}"
 echo "[INFO] sif_path                  = ${SIF_PATH}"
 echo "[INFO] data_root                 = ${DATA_ROOT}"
 echo "[INFO] input_json                = ${input_json}"
@@ -225,6 +233,7 @@ echo "[INFO] output_dir                = ${output_dir}"
 echo "[INFO] output_json               = ${output_json}"
 echo "[INFO] model_path                = ${MODEL_PATH}"
 echo "[INFO] prompt_config             = ${prompt_config}"
+echo "[INFO] container_prompt_config   = ${container_prompt_config}"
 echo "[INFO] max_new_tokens            = ${max_new_tokens}"
 echo "[INFO] max_video_frames          = ${max_video_frames}"
 echo "[INFO] no_audio                  = ${no_audio}"
@@ -238,11 +247,11 @@ echo "[INFO] audio_media_path_prefix   = ${AUDIO_MEDIA_PATH_PREFIX}"
 echo "[INFO] audio_local_path_prefix   = ${AUDIO_LOCAL_PATH_PREFIX}"
 
 python_args=(
-    python /workspace/gemma/batch_infer_ingroup.py
+    python "${CONTAINER_PROJECT_ROOT}/gemma/batch_infer_ingroup.py"
     --model "${MODEL_PATH}"
     --input-json "${input_json}"
     --output "${output_json}"
-    --prompt-config "${prompt_config}"
+    --prompt-config "${container_prompt_config}"
     --max-new-tokens "${max_new_tokens}"
     --max-video-frames "${max_video_frames}"
     --video-media-path-prefix "${VIDEO_MEDIA_PATH_PREFIX}"
@@ -271,6 +280,7 @@ srun apptainer exec --nv \
     --bind "${PROJECT_ROOT}:/workspace" \
     --bind /tudelft.net/staff-umbrella/neon:/tudelft.net/staff-umbrella/neon \
     --bind /home/zli33/linuxhome:/home/zli33/linuxhome \
+    --pwd "${CONTAINER_PROJECT_ROOT}" \
     --env HF_HOME="${HF_CACHE}" \
     --env TRANSFORMERS_CACHE="${HF_CACHE}" \
     "${SIF_PATH}" \
