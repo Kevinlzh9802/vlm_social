@@ -1,1 +1,0 @@
-apptainer exec --nv --bind /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan:/mnt/zonghuan --bind /home/nfs/zli33:/mnt/zli33 /tudelft.net/staff-bulk/ewi/insy/SPCLab/zonghuan/large_builds/containers/internvl2-8.sif python /home/nfs/zli33/projects/gesbench/internvl/localize_person.py
