@@ -1,0 +1,52 @@
+{
+  "system_prompt": "You are a helpful multimodal assistant.",
+  "intro": "Welcome!\nIn this task, you will watch a 30-second video clip. Identify the intentions of the participant indicated below. Then, briefly explain your reasoning.\n\n{Picture of participant and ID}\n\nAn intention is what a person wants to achieve, based on beliefs about the situation and what they desire to happen.\n\nPlease use the provided guidelines and express your best intuition, even in cases where the intentions may be subtle. Your interpretation of the presented behavior is in itself valid, and we would like to understand diverse interpretations of intentions.\n\nDo not look up definitions or use AI tools (e.g., ChatGPT) to complete any of this task.\n\nInterpreting the Situation\n\nWhen forming your interpretation, you may consider:\n\nCues: Directly observable or audible elements.\nThis includes actions, gestures, speech, objects, sounds, and locations.\n\nAsk yourself: What can I directly see or hear?\n\nSituation characteristics: The general feel or atmosphere of the interaction as a whole.\n\nAsk yourself: How does the situation feel overall?\nExamples: tense, relaxed, awkward, friendly, formal, hostile.\n\nSituation type: The category or context of the interaction, including assumptions about roles or relationships.\n\nAsk yourself: What kind of situation is this?\n\nExamples: job interview, casual conversation, negotiation, strangers meeting, boss–employee interaction.\n\nSocial scripts: The step-by-step mental plan people follow to achieve a goal in a social setting or expected playbook of the situation\n\nAsk yourself: What is the expected sequence of events here? Who usually does what?\nExamples: greeting → introduction → conversation, ordering → paying → leaving, turn-taking in conversation\n\nHow to Annotate\n\n1. Watch and pause\nWatch the clip and pause as soon as you notice an intention.\n\nAdjust the timestamp to mark the exact start and end of the intention.\n\n2. Do you see multiple possibilities?\n\nClick \u201c+\u201d to add more entries if you see multiple intentions or interpretations.\n\n3. Give your reasoning\nComplete the questionnaire under the video. Use your first impression and intuition; there is no right or wrong answer.\n\n4. Continue the search\nResume the video and repeat this process for every new intention you see until the clip ends. If you have annotated the full video, you may submit.\n\nGrading rubric:\nYour response will be evaluated based on the following criteria:\n\nIntention (not just actions): Describe what the participant is trying to achieve, not just what they are doing. Actions alone (cues) are not enough; you must also include a goal.\n\nAssumptions about the participant: Include what you assume about the participant’s beliefs or desires. What do they think is happening? What do they want?\n\nAssumptions about the situation: Use your interpretation of the situation to support your answer, based on:\n\nSituation type (what kind of situation this is)\n\nSocial scripts (what typically happens in this situation)\n\nSituation characteristics (overall tone)\n\nDon't spend too much time per question. Your initial response is valid.",
+  "questions": [
+    {
+      "label": "Timestamps",
+      "prompt": "Mark the start and end times at which you perceive this intention in the video.",
+      "response_format": "[Timestamp start] [Timestamp end]"
+    },
+    {
+      "label": "Describe the Intention",
+      "prompt": "What intention do you see at this moment? Provide a brief description of what you think the person is trying to do or achieve.",
+      "response_format": "[Free text]"
+    },
+    {
+      "label": "Confidence in Interpretation",
+      "prompt": "On a scale of 1-5, how confident are you in this interpretation?",
+      "response_format": "[Likert 1-5]"
+    },
+    {
+      "label": "Why",
+      "prompt": "What did you see or hear (observable cues), and how did you interpret them to arrive at this intention (assumptions about the participant’s beliefs or desires or the situation, for example situation type, characteristic, or scripts)? Do not just list cues; explain how they led you to your conclusion.",
+      "response_format": "[Free text]"
+    },
+    {
+      "label": "Confidence in Explanation",
+      "prompt": "On a scale of 1-5, how confident are you in this explanation?",
+      "response_format": "[Likert 1-5]"
+    },
+    {
+      "label": "Intensity",
+      "prompt": "On a scale of 1-5, how much of a priority does this intention appear to be for the participant?",
+      "response_format": "[Likert 1-5]"
+    },
+    {
+      "label": "Counterfactual Explanation",
+      "prompt": "Can you think of an alternative way the situation could be interpreted that would lead to a very different understanding of the participant’s intentions? Describe the assumption or interpretation that would change your understanding.",
+      "response_format": "[Free text]"
+    },
+    {
+      "label": "No Intention",
+      "prompt": "If you watch the entire clip and see no clear intention, you may check the box.",
+      "response_format": "[Checkbox]"
+    }
+  ],
+  "examples": [
+    {
+      "title": "Annotation Form Overview",
+      "content": "For each intention you identify, provide timestamps, a brief intention description, a confidence rating, your reasoning from cues and assumptions, a confidence rating for the explanation, an intensity rating, a counterfactual explanation, and optionally mark that there is no clear intention."
+    }
+  ]
+}
