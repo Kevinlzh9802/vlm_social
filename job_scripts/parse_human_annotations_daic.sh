@@ -10,6 +10,7 @@
 #SBATCH --output=logs/parse_human_annotations_daic_%j.out
 #SBATCH --error=logs/parse_human_annotations_daic_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
+# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench APPTAINER_ROOT=/path/to/apptainers
 
 set -euo pipefail
 

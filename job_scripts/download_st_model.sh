@@ -9,6 +9,8 @@
 #   model_name = all-MiniLM-L6-v2
 #   output_dir = ${MODEL_ROOT:-/path/to/models}/<model_name>
 
+# User paths to set: export MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers
+
 set -euo pipefail
 
 SIF_PATH="${APPTAINER_ROOT:-/path/to/apptainers}/analysis.sif"

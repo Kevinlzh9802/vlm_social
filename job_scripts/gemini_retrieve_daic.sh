@@ -10,6 +10,7 @@
 #SBATCH --output=logs/gemini_retrieve_daic_%j.out
 #SBATCH --error=logs/gemini_retrieve_daic_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
+# User paths to set: export DATA_ROOT=/path/to/data/gestalt_bench RESULTS_ROOT=/path/to/results/gestalt_bench APPTAINER_ROOT=/path/to/apptainers API_KEY_FILE=/path/to/api_key.txt
 
 # Scan the shared Gemini batch registry, download results for all completed
 # jobs, and mark them as retrieved.  No dataset / prompt / utt parameters

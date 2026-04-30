@@ -10,6 +10,7 @@
 #SBATCH --output=logs/gemini_list_files_daic_%j.out
 #SBATCH --error=logs/gemini_list_files_daic_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
+# User paths to set: export APPTAINER_ROOT=/path/to/apptainers API_KEY_FILE=/path/to/api_key.txt
 
 # List and delete all files uploaded to the Gemini Files API.
 #

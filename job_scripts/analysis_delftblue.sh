@@ -10,6 +10,7 @@
 #SBATCH --output=logs/analysis_delftblue_%j.out
 #SBATCH --error=logs/analysis_delftblue_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
+# User paths to set: export PROJECT_ROOT=/path/to/vlm_social DATA_ROOT=/path/to/data/gestalt_bench MODEL_ROOT=/path/to/models APPTAINER_ROOT=/path/to/apptainers
 
 set -euo pipefail
 

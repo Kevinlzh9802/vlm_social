@@ -10,6 +10,7 @@
 #SBATCH --output=logs/zip_seamless_context_3utt_delftblue_%j.out
 #SBATCH --error=logs/zip_seamless_context_3utt_delftblue_%j.err
 # Submit from the repository root; ensure logs/ exists before sbatch.
+# User paths to set: export DATA_ROOT=/path/to/data/gestalt_bench
 
 set -euo pipefail
 
