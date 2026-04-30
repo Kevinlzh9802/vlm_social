@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -171,6 +172,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional cap on the number of retained records to process.",
+    )
+    parser.add_argument(
+        "--start-index",
+        type=int,
+        default=0,
+        help="First zero-based manifest index to consider.",
+    )
+    parser.add_argument(
+        "--end-index",
+        type=int,
+        default=None,
+        help="Last zero-based manifest index to consider, inclusive.",
     )
     parser.add_argument(
         "--exclude-video-substring",
@@ -390,7 +403,7 @@ def effective_local_prefix(
     return specific_prefix if specific_prefix is not None else shared_prefix
 
 
-def ordered_speaker_union(record: Mapping[str, Any]) -> list[int] | None:
+def select_audio_speakers(record: Mapping[str, Any]) -> tuple[int, list[int]] | None:
     participant = record.get("participant")
     if not isinstance(participant, int) or participant <= 0:
         return None
@@ -403,13 +416,13 @@ def ordered_speaker_union(record: Mapping[str, Any]) -> list[int] | None:
     ):
         return None
 
-    ordered_ids: list[int] = []
-    for speaker_id in [participant, *conversation_floor]:
+    floor_ids: list[int] = []
+    for speaker_id in conversation_floor:
         if not isinstance(speaker_id, int) or speaker_id <= 0:
             return None
-        if speaker_id not in ordered_ids:
-            ordered_ids.append(speaker_id)
-    return ordered_ids
+        if speaker_id != participant and speaker_id not in floor_ids:
+            floor_ids.append(speaker_id)
+    return participant, floor_ids
 
 
 def path_matches_any(path: Path | None, patterns: Sequence[str]) -> bool:
@@ -417,6 +430,93 @@ def path_matches_any(path: Path | None, patterns: Sequence[str]) -> bool:
         return False
     path_text = str(path)
     return any(pattern and pattern in path_text for pattern in patterns)
+
+
+def safe_filename_part(value: Any) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("._") or "record"
+
+
+def load_audio_for_mix(audio_path: Path, target_sampling_rate: int | None = None) -> tuple[Any, int]:
+    try:
+        import librosa
+    except ImportError as exc:
+        raise RuntimeError("librosa is required to aggregate conversation-floor audio") from exc
+
+    audio, sampling_rate = librosa.load(str(audio_path), sr=None, mono=True)
+    if target_sampling_rate is not None and sampling_rate != target_sampling_rate:
+        audio = librosa.resample(
+            y=audio,
+            orig_sr=sampling_rate,
+            target_sr=target_sampling_rate,
+        )
+        sampling_rate = target_sampling_rate
+    return audio, int(sampling_rate)
+
+
+def write_audio_for_mix(audio_path: Path, audio: Any, sampling_rate: int) -> None:
+    try:
+        import soundfile as sf
+    except ImportError as exc:
+        raise RuntimeError("soundfile is required to write aggregated audio") from exc
+
+    audio_path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(audio_path), audio, sampling_rate, subtype="FLOAT")
+
+
+def aggregate_conversation_floor_audio(
+    *,
+    participant_audio_path: Path,
+    conversation_floor_audio_paths: Sequence[Path],
+    output_audio_path: Path,
+    record_id: str,
+    length_tolerance_seconds: float = 1.0,
+    length_tolerance_ratio: float = 0.05,
+) -> list[str]:
+    import numpy as np
+
+    warnings: list[str] = []
+    participant_audio, sampling_rate = load_audio_for_mix(participant_audio_path)
+    target_length = len(participant_audio)
+    tolerance_samples = max(
+        int(sampling_rate * length_tolerance_seconds),
+        int(target_length * length_tolerance_ratio),
+    )
+    mixed_tracks: list[Any] = []
+
+    for audio_path in conversation_floor_audio_paths:
+        audio, _ = load_audio_for_mix(audio_path, target_sampling_rate=sampling_rate)
+        length_delta = len(audio) - target_length
+        if abs(length_delta) > tolerance_samples:
+            warning = (
+                f"record {record_id}: discarded conversation-floor audio "
+                f"{audio_path} because length differs by {length_delta} sample(s)"
+            )
+            print(f"[WARN] {warning}", flush=True)
+            warnings.append(warning)
+            continue
+
+        if len(audio) < target_length:
+            audio = np.pad(audio, (0, target_length - len(audio)))
+        elif len(audio) > target_length:
+            audio = audio[:target_length]
+        mixed_tracks.append(audio)
+
+    if not mixed_tracks:
+        warning = (
+            f"record {record_id}: no valid conversation-floor audio tracks to aggregate; "
+            "using silence for audio2"
+        )
+        print(f"[WARN] {warning}", flush=True)
+        warnings.append(warning)
+        mixed_audio = np.zeros(target_length, dtype=np.float32)
+    else:
+        mixed_audio = np.sum(np.stack(mixed_tracks, axis=0), axis=0).astype(np.float32)
+        peak = float(np.max(np.abs(mixed_audio))) if mixed_audio.size else 0.0
+        if peak > 1.0:
+            mixed_audio = mixed_audio / peak
+
+    write_audio_for_mix(output_audio_path, mixed_audio, sampling_rate)
+    return warnings
 
 
 def prepare_record(
@@ -433,6 +533,7 @@ def prepare_record(
     audio_media_path_prefix: str | None,
     audio_local_path_prefix: Path | None,
     no_audio: bool,
+    aggregated_audio_dir: Path,
     exclude_video_substrings: Sequence[str],
     exclude_audio_substrings: Sequence[str],
     user_prompt_template: str,
@@ -465,6 +566,12 @@ def prepare_record(
     source_audio_paths: list[str] = []
     rewritten_audio_paths: list[str] = []
     audio_paths: list[str] = []
+    participant_speaker_id: int | None = None
+    conversation_floor_speaker_ids: list[int] = []
+    participant_audio_path: str | None = None
+    conversation_floor_audio_paths: list[str] = []
+    aggregated_conversation_floor_audio_path: str | None = None
+    audio_warnings: list[str] = []
     if not no_audio:
         resolved_audio_media_path_prefix = effective_media_prefix(
             audio_media_path_prefix, media_path_prefix
@@ -478,14 +585,18 @@ def prepare_record(
         ):
             return None, "invalid_audio_list"
 
-        speaker_ids = ordered_speaker_union(record)
-        if speaker_ids is None:
+        speaker_selection = select_audio_speakers(record)
+        if speaker_selection is None:
             return None, "invalid_speaker_selection"
 
-        for speaker_id in speaker_ids:
+        participant_speaker_id, conversation_floor_speaker_ids = speaker_selection
+
+        def resolve_audio_for_speaker(
+            speaker_id: int,
+        ) -> tuple[str, str, Path] | tuple[None, None, None]:
             audio_index = speaker_id - 1
             if audio_index < 0 or audio_index >= len(audio_entries):
-                return None, "audio_index_out_of_range"
+                return None, None, None
 
             source_audio_path = audio_entries[audio_index]
             resolved_audio_path, rewritten_audio_path = resolve_prefixed_media_path(
@@ -496,17 +607,60 @@ def prepare_record(
                 local_path_prefix=resolved_audio_local_path_prefix,
             )
             if resolved_audio_path is None:
-                return None, "missing_audio_path"
+                return None, None, None
             if path_matches_any(resolved_audio_path, exclude_audio_substrings):
-                return None, "excluded_audio"
+                return None, None, None
             if not resolved_audio_path.exists():
-                return None, "audio_not_found"
+                return None, None, None
 
-            source_audio_paths.append(str(source_audio_path))
-            rewritten_audio_paths.append(
-                "" if rewritten_audio_path is None else str(rewritten_audio_path)
+            return (
+                str(source_audio_path),
+                "" if rewritten_audio_path is None else str(rewritten_audio_path),
+                resolved_audio_path,
             )
-            audio_paths.append(str(resolved_audio_path))
+
+        resolved_participant_audio = resolve_audio_for_speaker(participant_speaker_id)
+        if resolved_participant_audio == (None, None, None):
+            return None, "participant_audio_not_found"
+
+        source_participant_audio, rewritten_participant_audio, participant_audio = (
+            resolved_participant_audio
+        )
+        source_audio_paths.append(str(source_participant_audio))
+        rewritten_audio_paths.append(str(rewritten_participant_audio))
+        participant_audio_path = str(participant_audio)
+
+        resolved_conversation_floor_paths: list[Path] = []
+        for speaker_id in conversation_floor_speaker_ids:
+            resolved_floor_audio = resolve_audio_for_speaker(speaker_id)
+            if resolved_floor_audio == (None, None, None):
+                return None, "conversation_floor_audio_not_found"
+            source_audio_path, rewritten_audio_path, resolved_audio_path = resolved_floor_audio
+            source_audio_paths.append(str(source_audio_path))
+            rewritten_audio_paths.append(str(rewritten_audio_path))
+            conversation_floor_audio_paths.append(str(resolved_audio_path))
+            resolved_conversation_floor_paths.append(resolved_audio_path)
+
+        aggregate_audio_name = (
+            f"{record_index:06d}_{safe_filename_part(record_id)}_conversation_floor.wav"
+        )
+        aggregate_audio_path = aggregated_audio_dir / aggregate_audio_name
+        try:
+            audio_warnings = aggregate_conversation_floor_audio(
+                participant_audio_path=participant_audio,
+                conversation_floor_audio_paths=resolved_conversation_floor_paths,
+                output_audio_path=aggregate_audio_path,
+                record_id=str(record_id),
+            )
+        except Exception as exc:
+            print(
+                f"[WARN] record {record_id}: failed to aggregate conversation-floor audio: {exc}",
+                flush=True,
+            )
+            return None, "audio_aggregation_failed"
+
+        aggregated_conversation_floor_audio_path = str(aggregate_audio_path)
+        audio_paths = [str(participant_audio), str(aggregate_audio_path)]
 
     return (
         {
@@ -515,10 +669,21 @@ def prepare_record(
             "source_video_path": None if source_video_path is None else str(source_video_path),
             "rewritten_video_path": rewritten_video_path,
             "video_path": str(video_path),
-            "speaker_ids": [] if no_audio else speaker_ids,
+            "speaker_ids": [] if no_audio else [
+                participant_speaker_id,
+                *conversation_floor_speaker_ids,
+            ],
+            "participant_speaker_id": participant_speaker_id,
+            "conversation_floor_speaker_ids": conversation_floor_speaker_ids,
             "source_audio_paths": source_audio_paths,
             "rewritten_audio_paths": rewritten_audio_paths,
             "audio_paths": audio_paths,
+            "participant_audio_path": participant_audio_path,
+            "conversation_floor_audio_paths": conversation_floor_audio_paths,
+            "aggregated_conversation_floor_audio_path": (
+                aggregated_conversation_floor_audio_path
+            ),
+            "audio_warnings": audio_warnings,
             "user_prompt": render_prompt(user_prompt_template, record),
             "source_record": record,
         },
@@ -529,7 +694,16 @@ def prepare_record(
 def main() -> None:
     args = parse_args()
 
+    if args.start_index < 0:
+        raise ValueError(f"--start-index must be non-negative: {args.start_index}")
+    if args.end_index is not None and args.end_index < args.start_index:
+        raise ValueError(
+            f"--end-index must be greater than or equal to --start-index: "
+            f"{args.end_index} < {args.start_index}"
+        )
+
     input_json_path = args.input_json.expanduser().resolve()
+    output_path = args.output.expanduser().resolve()
     prompt_config_path = args.prompt_config.expanduser().resolve()
     media_root = None if args.media_root is None else args.media_root.expanduser().resolve()
     local_path_prefix = (
@@ -559,7 +733,17 @@ def main() -> None:
     )
 
     all_records = load_manifest_records(input_json_path)
+    end_index = len(all_records) - 1 if args.end_index is None else args.end_index
+    selected_records = [
+        (record_index, record)
+        for record_index, record in enumerate(all_records)
+        if args.start_index <= record_index <= end_index
+    ]
     print(f"[INFO] Loaded {len(all_records)} record(s) from {input_json_path}")
+    print(
+        f"[INFO] Selected manifest index range: "
+        f"{args.start_index}-{end_index} ({len(selected_records)} record(s))"
+    )
     print(f"[INFO] Prompt config: {prompt_config_path}")
     print(f"[INFO] Media path prefix: {args.media_path_prefix}")
     print(f"[INFO] Local path prefix: {local_path_prefix}")
@@ -574,8 +758,9 @@ def main() -> None:
     skipped_records: list[dict[str, Any]] = []
     skip_counter: Counter[str] = Counter()
     manifest_dir = input_json_path.parent
+    aggregated_audio_dir = output_path.parent / "_audio_mixes" / output_path.stem
 
-    for record_index, record in enumerate(all_records):
+    for record_index, record in selected_records:
         prepared, skip_reason = prepare_record(
             record=record,
             record_index=record_index,
@@ -589,6 +774,7 @@ def main() -> None:
             audio_media_path_prefix=args.audio_media_path_prefix,
             audio_local_path_prefix=audio_local_path_prefix,
             no_audio=args.no_audio,
+            aggregated_audio_dir=aggregated_audio_dir,
             exclude_video_substrings=args.exclude_video_substring,
             exclude_audio_substrings=args.exclude_audio_substring,
             user_prompt_template=prompt_config["user_prompt_template"],
@@ -684,9 +870,17 @@ def main() -> None:
                 "rewritten_video_path": item["rewritten_video_path"],
                 "video_path": item["video_path"],
                 "speaker_ids": item["speaker_ids"],
+                "participant_speaker_id": item["participant_speaker_id"],
+                "conversation_floor_speaker_ids": item["conversation_floor_speaker_ids"],
                 "source_audio_paths": item["source_audio_paths"],
                 "rewritten_audio_paths": item["rewritten_audio_paths"],
                 "audio_paths": item["audio_paths"],
+                "participant_audio_path": item["participant_audio_path"],
+                "conversation_floor_audio_paths": item["conversation_floor_audio_paths"],
+                "aggregated_conversation_floor_audio_path": (
+                    item["aggregated_conversation_floor_audio_path"]
+                ),
+                "audio_warnings": item["audio_warnings"],
                 "system": system_prompt,
                 "user": item["user_prompt"],
                 "assistant": response,
@@ -698,12 +892,16 @@ def main() -> None:
         "input_json": str(input_json_path),
         "prompt_config": str(prompt_config_path),
         "record_count": len(all_records),
+        "selected_record_count": len(selected_records),
+        "start_index": args.start_index,
+        "end_index": end_index,
         "retained_count": len(kept_records),
         "skipped_count": len(skipped_records),
         "processed_count": len(results),
         "error_count": error_count,
         "no_audio": args.no_audio,
         "max_video_frames": args.max_video_frames,
+        "aggregated_audio_dir": None if args.no_audio else str(aggregated_audio_dir),
         "skip_reasons": dict(sorted(skip_counter.items())),
     }
 
@@ -712,12 +910,12 @@ def main() -> None:
         "__skipped__": skipped_records,
         "results": results,
     }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
         json.dumps(output_payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    print(f"[INFO] Results saved to {args.output.resolve()}")
+    print(f"[INFO] Results saved to {output_path}")
 
 
 if __name__ == "__main__":
