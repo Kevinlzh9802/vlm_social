@@ -48,6 +48,9 @@ except ImportError:
 
 
 DEFAULT_PROMPT_CONFIG_PATH = Path(__file__).resolve().with_name("prompt_ingroup.json")
+DEFAULT_PARTICIPANT_IMAGE_ROOT = Path(
+    "/tudelft.net/staff-umbrella/neon/B1_pipeline/participant_imgs"
+)
 
 
 class SafeFormatDict(dict[str, Any]):
@@ -125,6 +128,15 @@ def parse_args() -> argparse.Namespace:
         "--id-key",
         default="id",
         help="Record key used as the stable result id. Dotted paths are supported.",
+    )
+    parser.add_argument(
+        "--participant-image-root",
+        type=Path,
+        default=DEFAULT_PARTICIPANT_IMAGE_ROOT,
+        help=(
+            "Folder containing participant_<n>.png files used to identify the "
+            "indicated participant."
+        ),
     )
     parser.add_argument(
         "--media-root",
@@ -425,6 +437,16 @@ def select_audio_speakers(record: Mapping[str, Any]) -> tuple[int, list[int]] | 
     return participant, floor_ids
 
 
+def resolve_participant_image_path(
+    record: Mapping[str, Any],
+    participant_image_root: Path,
+) -> Path | None:
+    participant = record.get("participant")
+    if not isinstance(participant, int) or participant <= 0:
+        return None
+    return participant_image_root / f"participant_{participant}.png"
+
+
 def path_matches_any(path: Path | None, patterns: Sequence[str]) -> bool:
     if path is None:
         return False
@@ -532,6 +554,7 @@ def prepare_record(
     video_local_path_prefix: Path | None,
     audio_media_path_prefix: str | None,
     audio_local_path_prefix: Path | None,
+    participant_image_root: Path,
     no_audio: bool,
     aggregated_audio_dir: Path,
     exclude_video_substrings: Sequence[str],
@@ -562,6 +585,12 @@ def prepare_record(
         return None, "excluded_video"
     if not video_path.exists():
         return None, "video_not_found"
+
+    participant_image_path = resolve_participant_image_path(record, participant_image_root)
+    if participant_image_path is None:
+        return None, "missing_participant_image"
+    if not participant_image_path.exists():
+        return None, "participant_image_not_found"
 
     source_audio_paths: list[str] = []
     rewritten_audio_paths: list[str] = []
@@ -669,6 +698,7 @@ def prepare_record(
             "source_video_path": None if source_video_path is None else str(source_video_path),
             "rewritten_video_path": rewritten_video_path,
             "video_path": str(video_path),
+            "participant_image_path": str(participant_image_path),
             "speaker_ids": [] if no_audio else [
                 participant_speaker_id,
                 *conversation_floor_speaker_ids,
@@ -719,6 +749,7 @@ def main() -> None:
         if args.audio_local_path_prefix is None
         else args.audio_local_path_prefix.expanduser().resolve()
     )
+    participant_image_root = args.participant_image_root.expanduser().resolve()
 
     if not input_json_path.is_file():
         raise FileNotFoundError(f"Input JSON not found: {input_json_path}")
@@ -751,6 +782,7 @@ def main() -> None:
     print(f"[INFO] Video local path prefix: {video_local_path_prefix}")
     print(f"[INFO] Audio media path prefix: {args.audio_media_path_prefix}")
     print(f"[INFO] Audio local path prefix: {audio_local_path_prefix}")
+    print(f"[INFO] Participant image root: {participant_image_root}")
     print(f"[INFO] No audio: {args.no_audio}")
     print(f"[INFO] Max video frames: {args.max_video_frames}")
 
@@ -773,6 +805,7 @@ def main() -> None:
             video_local_path_prefix=video_local_path_prefix,
             audio_media_path_prefix=args.audio_media_path_prefix,
             audio_local_path_prefix=audio_local_path_prefix,
+            participant_image_root=participant_image_root,
             no_audio=args.no_audio,
             aggregated_audio_dir=aggregated_audio_dir,
             exclude_video_substrings=args.exclude_video_substring,
@@ -832,6 +865,7 @@ def main() -> None:
         )
 
         user_content: list[dict[str, Any]] = []
+        user_content.append({"type": "image", "image": item["participant_image_path"]})
         if not args.no_audio:
             for audio_path in item["audio_paths"]:
                 user_content.append({"type": "audio", "audio": audio_path})
@@ -869,6 +903,7 @@ def main() -> None:
                 "source_video_path": item["source_video_path"],
                 "rewritten_video_path": item["rewritten_video_path"],
                 "video_path": item["video_path"],
+                "participant_image_path": item["participant_image_path"],
                 "speaker_ids": item["speaker_ids"],
                 "participant_speaker_id": item["participant_speaker_id"],
                 "conversation_floor_speaker_ids": item["conversation_floor_speaker_ids"],

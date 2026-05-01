@@ -195,6 +195,17 @@ def load_audio_array(audio_path: str | Path, sampling_rate: int) -> Any:
     return audio
 
 
+def load_image(image_path: str | Path) -> Any:
+    """Load an image as RGB PIL.Image."""
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required to pre-decode Gemma image inputs") from exc
+
+    with Image.open(str(image_path)) as image:
+        return image.convert("RGB")
+
+
 def build_prompt_variant_key(prompt_choice: str, utt_count: int) -> str:
     utt_suffix = "single_utt" if utt_count == 1 else "multi_utt"
     return f"{prompt_choice}_{utt_suffix}"
@@ -287,7 +298,8 @@ def min_message_video_num_frames(messages: list[dict]) -> int | None:
 def collect_media_inputs(
     messages: list[dict],
     audio_sampling_rate: int,
-) -> tuple[list[Any], list[Any]]:
+) -> tuple[list[Any], list[Any], list[Any]]:
+    images: list[Any] = []
     audios: list[Any] = []
     videos: list[Any] = []
     for message in messages:
@@ -298,7 +310,12 @@ def collect_media_inputs(
             if not isinstance(item, Mapping):
                 continue
             item_type = item.get("type")
-            if item_type == "audio":
+            if item_type == "image":
+                image_path = item.get("image")
+                if image_path is None:
+                    continue
+                images.append(load_image(image_path))
+            elif item_type == "audio":
                 audio_path = item.get("audio")
                 if audio_path is None:
                     continue
@@ -309,7 +326,7 @@ def collect_media_inputs(
                     continue
                 num_frames = int(item.get("num_frames") or 32)
                 videos.append(load_video_frames(video_path, num_frames=num_frames))
-    return audios, videos
+    return images, audios, videos
 
 
 def combine_system_and_user_prompt(system_prompt: str, user_prompt: str) -> str:
@@ -375,7 +392,7 @@ def build_gemma_inputs(
         messages=messages,
         enable_thinking=enable_thinking,
     )
-    audios, videos = collect_media_inputs(
+    images, audios, videos = collect_media_inputs(
         messages=messages,
         audio_sampling_rate=get_audio_sampling_rate(processor),
     )
@@ -384,6 +401,8 @@ def build_gemma_inputs(
         "return_tensors": "pt",
         "padding": True,
     }
+    if images:
+        processor_kwargs["images"] = images
     if audios:
         processor_kwargs["audio"] = audios
     if videos:
