@@ -2,7 +2,7 @@
 #SBATCH --job-name="manip_result_sim"
 #SBATCH --time=00:15:00
 #SBATCH --partition=insy,general
-#SBATCH --qos=medium
+#SBATCH --qos=short
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
