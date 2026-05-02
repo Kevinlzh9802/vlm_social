@@ -92,6 +92,26 @@ def parse_args() -> argparse.Namespace:
         help="Full benchmark result tree to search across, e.g. gestalt_bench/results.",
     )
     parser.add_argument(
+        "--additional-source-results-root",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Additional manipulated-result tree to iterate from. May be passed "
+            "multiple times, e.g. for a separately stored Gemini source tree."
+        ),
+    )
+    parser.add_argument(
+        "--additional-reference-results-root",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Additional full benchmark result tree to search across. May be "
+            "passed multiple times, e.g. the Gemini tree from gemini_retrieve_daic.sh."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         required=True,
@@ -208,6 +228,29 @@ def index_result_clips(
                                 )
 
     return {key: value[1] for key, value in indexed.items()}, warnings
+
+
+def index_result_clips_from_roots(
+    results_roots: Sequence[Path],
+    root_label: str,
+) -> tuple[dict[tuple[str, str, str, int, str], ClipResult], list[str]]:
+    merged: dict[tuple[str, str, str, int, str], ClipResult] = {}
+    warnings: list[str] = []
+
+    for results_root in results_roots:
+        clips, root_warnings = index_result_clips(results_root)
+        warnings.extend(root_warnings)
+        for key, clip_result in clips.items():
+            existing = merged.get(key)
+            if existing is not None:
+                warnings.append(
+                    f"Duplicate {root_label} clip result for {key} in "
+                    f"{clip_result.batch_json}; keeping first match from {existing.batch_json}"
+                )
+                continue
+            merged[key] = clip_result
+
+    return merged, warnings
 
 
 def compute_clip_similarities(
@@ -468,13 +511,23 @@ def main() -> None:
     args = parse_args()
     source_results_root = args.source_results_root.expanduser().resolve()
     reference_results_root = args.reference_results_root.expanduser().resolve()
+    additional_source_results_roots = [
+        root.expanduser().resolve() for root in args.additional_source_results_root
+    ]
+    additional_reference_results_roots = [
+        root.expanduser().resolve() for root in args.additional_reference_results_root
+    ]
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if not source_results_root.is_dir():
-        raise FileNotFoundError(f"Source results root does not exist: {source_results_root}")
-    if not reference_results_root.is_dir():
-        raise FileNotFoundError(f"Reference results root does not exist: {reference_results_root}")
+    source_results_roots = [source_results_root, *additional_source_results_roots]
+    reference_results_roots = [reference_results_root, *additional_reference_results_roots]
+    for root in source_results_roots:
+        if not root.is_dir():
+            raise FileNotFoundError(f"Source results root does not exist: {root}")
+    for root in reference_results_roots:
+        if not root.is_dir():
+            raise FileNotFoundError(f"Reference results root does not exist: {root}")
 
     from sentence_transformers import SentenceTransformer
 
@@ -486,12 +539,24 @@ def main() -> None:
         print(f"[INFO] Loading embedding model by name: {model_loc}")
     embedding_model = SentenceTransformer(model_loc)
 
-    print(f"[INFO] Indexing source results from {source_results_root}")
-    source_clips, source_warnings = index_result_clips(source_results_root)
+    print(
+        "[INFO] Indexing source results from "
+        f"{', '.join(str(root) for root in source_results_roots)}"
+    )
+    source_clips, source_warnings = index_result_clips_from_roots(
+        source_results_roots,
+        root_label="source",
+    )
     print(f"[INFO] Indexed {len(source_clips)} source clips")
 
-    print(f"[INFO] Indexing reference results from {reference_results_root}")
-    reference_clips, reference_warnings = index_result_clips(reference_results_root)
+    print(
+        "[INFO] Indexing reference results from "
+        f"{', '.join(str(root) for root in reference_results_roots)}"
+    )
+    reference_clips, reference_warnings = index_result_clips_from_roots(
+        reference_results_roots,
+        root_label="reference",
+    )
     print(f"[INFO] Indexed {len(reference_clips)} reference clips")
 
     comparisons, comparison_warnings = compute_clip_similarities(
@@ -539,6 +604,12 @@ def main() -> None:
         {
             "source_results_root": str(source_results_root),
             "reference_results_root": str(reference_results_root),
+            "additional_source_results_roots": [
+                str(root) for root in additional_source_results_roots
+            ],
+            "additional_reference_results_roots": [
+                str(root) for root in additional_reference_results_roots
+            ],
             "point_count": len(point_rows),
             "points": point_rows,
         },
@@ -582,6 +653,12 @@ def main() -> None:
         {
             "source_results_root": str(source_results_root),
             "reference_results_root": str(reference_results_root),
+            "additional_source_results_roots": [
+                str(root) for root in additional_source_results_roots
+            ],
+            "additional_reference_results_roots": [
+                str(root) for root in additional_reference_results_roots
+            ],
             "comparison_count": len(comparisons),
             "dataset_utt_rows": dataset_utt_rows,
             "utt_rows": utt_rows,

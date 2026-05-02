@@ -20,6 +20,7 @@ DEFAULT_COMPARISON_SOURCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/human_eval/task2/ma
 DEFAULT_NO_AUDIO_SOURCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/results_noaudio"
 DEFAULT_NO_AUDIO_COMPARISON_SOURCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/results_noaudio_comparison"
 DEFAULT_REFERENCE_RESULTS_ROOT="${DEFAULT_DATA_ROOT}/results"
+DEFAULT_GEMINI_REFERENCE_RESULTS_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/results/gestalt_bench/human_eval/gemini"
 DEFAULT_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/result_similarity"
 DEFAULT_COMPARISON_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/results_similarity_comparison"
 DEFAULT_NO_AUDIO_OUTPUT_DIR="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/result_similarity_noaudio"
@@ -29,24 +30,28 @@ DEFAULT_MODEL_PATH=""
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--comparison] [--no-audio] [--source-results-root PATH] [--reference-results-root PATH] [--output-dir PATH] [--model MODEL] [--model-path PATH]" >&2
+    echo "  sbatch $0 [--comparison] [--no-audio] [--source-results-root PATH] [--reference-results-root PATH] [--gemini-reference-results-root PATH] [--skip-gemini-reference] [--output-dir PATH] [--model MODEL] [--model-path PATH]" >&2
     echo "  source-results-root: manipulated task-2 result tree (default: ${DEFAULT_SOURCE_RESULTS_ROOT})" >&2
     echo "  --comparison: use comparison source/output defaults (${DEFAULT_COMPARISON_SOURCE_RESULTS_ROOT}, ${DEFAULT_COMPARISON_OUTPUT_DIR})" >&2
     echo "  --no-audio: use no-audio source/output defaults (${DEFAULT_NO_AUDIO_SOURCE_RESULTS_ROOT}, ${DEFAULT_NO_AUDIO_OUTPUT_DIR}) or comparison no-audio defaults with --comparison" >&2
     echo "  reference-results-root: full benchmark result tree (default: ${DEFAULT_REFERENCE_RESULTS_ROOT})" >&2
+    echo "  gemini-reference-results-root: full benchmark Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_REFERENCE_RESULTS_ROOT})" >&2
+    echo "  --skip-gemini-reference: do not include Gemini full benchmark reference answers." >&2
     echo "  output-dir: table and point-data output directory (default: ${DEFAULT_OUTPUT_DIR})" >&2
-    echo "  expected model folders under source/reference roots include qwen2.5 and gemma-4-e4b when available." >&2
+    echo "  expected model folders under source/reference roots include qwen2.5, gemma-4-e4b, and gemini when available." >&2
     echo "  model: SentenceTransformer model name (default: ${DEFAULT_MODEL})" >&2
     echo "  model-path: optional local SentenceTransformer directory. Recommended on compute nodes." >&2
 }
 
 SOURCE_RESULTS_ROOT="${DEFAULT_SOURCE_RESULTS_ROOT}"
 REFERENCE_RESULTS_ROOT="${DEFAULT_REFERENCE_RESULTS_ROOT}"
+GEMINI_REFERENCE_RESULTS_ROOT="${DEFAULT_GEMINI_REFERENCE_RESULTS_ROOT}"
 OUTPUT_DIR="${DEFAULT_OUTPUT_DIR}"
 MODEL="${DEFAULT_MODEL}"
 MODEL_PATH="${DEFAULT_MODEL_PATH}"
 COMPARISON=0
 NO_AUDIO=0
+SKIP_GEMINI_REFERENCE=0
 SOURCE_RESULTS_ROOT_EXPLICIT=0
 OUTPUT_DIR_EXPLICIT=0
 
@@ -68,6 +73,14 @@ while [[ $# -gt 0 ]]; do
         --reference-results-root)
             REFERENCE_RESULTS_ROOT="${2:?Missing value for --reference-results-root}"
             shift 2
+            ;;
+        --gemini-reference-results-root)
+            GEMINI_REFERENCE_RESULTS_ROOT="${2:?Missing value for --gemini-reference-results-root}"
+            shift 2
+            ;;
+        --skip-gemini-reference)
+            SKIP_GEMINI_REFERENCE=1
+            shift
             ;;
         --output-dir)
             OUTPUT_DIR="${2:?Missing value for --output-dir}"
@@ -139,11 +152,21 @@ if [[ ! -d "${REFERENCE_RESULTS_ROOT}" ]]; then
     exit 1
 fi
 
-for REQUIRED_MODEL_ROOT in qwen2.5 gemma-4-e4b; do
+if [[ "${SKIP_GEMINI_REFERENCE}" == "0" && ! -d "${GEMINI_REFERENCE_RESULTS_ROOT}" ]]; then
+    echo "Gemini reference results root does not exist: ${GEMINI_REFERENCE_RESULTS_ROOT}" >&2
+    echo "Run gemini_retrieve_daic.sh for the full benchmark, pass --gemini-reference-results-root, or pass --skip-gemini-reference." >&2
+    exit 1
+fi
+
+for REQUIRED_MODEL_ROOT in qwen2.5 gemma-4-e4b gemini; do
     if [[ ! -d "${SOURCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" ]]; then
         echo "[WARN] Source root is missing ${REQUIRED_MODEL_ROOT}: ${SOURCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" >&2
     fi
-    if [[ ! -d "${REFERENCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" ]]; then
+    if [[ "${REQUIRED_MODEL_ROOT}" == "gemini" ]]; then
+        if [[ "${SKIP_GEMINI_REFERENCE}" == "0" && ! -d "${GEMINI_REFERENCE_RESULTS_ROOT}" ]]; then
+            echo "[WARN] Gemini reference root is missing: ${GEMINI_REFERENCE_RESULTS_ROOT}" >&2
+        fi
+    elif [[ ! -d "${REFERENCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" ]]; then
         echo "[WARN] Reference root is missing ${REQUIRED_MODEL_ROOT}: ${REFERENCE_RESULTS_ROOT}/${REQUIRED_MODEL_ROOT}" >&2
     fi
 done
@@ -162,6 +185,8 @@ echo "Comparison mode:         ${COMPARISON}"
 echo "No-audio mode:           ${NO_AUDIO}"
 echo "Source results root:     ${SOURCE_RESULTS_ROOT}"
 echo "Reference results root:  ${REFERENCE_RESULTS_ROOT}"
+echo "Gemini reference root:   ${GEMINI_REFERENCE_RESULTS_ROOT}"
+echo "Skip Gemini reference:   ${SKIP_GEMINI_REFERENCE}"
 echo "Output dir:              ${OUTPUT_DIR}"
 echo "Model:                   ${MODEL}"
 echo "Model path:              ${MODEL_PATH:-<download by name>}"
@@ -173,6 +198,10 @@ PYTHON_ARGS=(
     --output-dir "${OUTPUT_DIR}"
     --model "${MODEL}"
 )
+
+if [[ "${SKIP_GEMINI_REFERENCE}" == "0" ]]; then
+    PYTHON_ARGS+=(--additional-reference-results-root "${GEMINI_REFERENCE_RESULTS_ROOT}")
+fi
 
 if [[ -n "${MODEL_PATH}" ]]; then
     PYTHON_ARGS+=(--model-path "${MODEL_PATH}")
