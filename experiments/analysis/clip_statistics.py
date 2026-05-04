@@ -214,7 +214,7 @@ def task1_group_id(path_text: str) -> str | None:
     if parsed_clip is None:
         return None
     clip_prefix, _clip_index = parsed_clip
-    return "/".join(parts[:-1] + (clip_prefix,))
+    return clip_prefix
 
 
 def keep_largest_clip_per_group(
@@ -387,16 +387,7 @@ def collect_task1_videos_from_annotations(
                     )
                 )
 
-    return sorted(
-        records,
-        key=lambda record: (
-            record.dataset,
-            record.utt_count,
-            record.group_id,
-            record.clip_index,
-            str(record.path),
-        ),
-    ), warnings
+    return keep_largest_clip_per_group(records), warnings
 
 
 def probe_duration(path: Path, ffprobe: str) -> float:
@@ -690,9 +681,9 @@ def main() -> None:
             records=task1_records,
             ffprobe=args.ffprobe,
             source_root=args.task1_annotation_dir.expanduser().resolve(),
-            warnings=task1_warnings,
-            stat_unit="one duration per unique video path from valid task1 annotations",
-        )
+        warnings=task1_warnings,
+        stat_unit="one duration per annotated dxuy video group, using the largest clip index",
+    )
         write_outputs(task1_root, args.output_name, task1_payload)
 
 
