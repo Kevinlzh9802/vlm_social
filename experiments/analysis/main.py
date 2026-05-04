@@ -991,8 +991,11 @@ def plot_combined_clip_to_final_mean_lines(
 ) -> bool:
     plt.figure(figsize=(8, 6))
     plotted_any = False
+    color_map = matplotlib.colormaps["tab10"]
+    model_labels = sorted(case_metrics)
+    pfs_x_step = 1.0 / progress_partitions
 
-    for model_label in sorted(case_metrics):
+    for model_index, model_label in enumerate(model_labels):
         grouped_values = filter_grouped_values_for_plot(
             collect_clip_to_final_bins(
                 utterance_metrics=case_metrics[model_label],
@@ -1064,7 +1067,7 @@ def plot_combined_human_model_partial_to_full_lines(
 ) -> bool:
     plt.figure(figsize=(10, 7))
     plotted_any = False
-    color_map = plt.cm.get_cmap("tab10")
+    color_map = matplotlib.colormaps["tab10"]
     if stat_name != "mean" and not (stat_name == "percentile" and percentile is not None):
         raise ValueError(f"Unsupported stat_name={stat_name} percentile={percentile}")
 
@@ -1233,7 +1236,11 @@ def plot_neighbor_similarity_by_clip_count(
     values = [grouped_similarities[clip_count] for clip_count in clip_counts]
 
     plt.figure(figsize=(9, 6))
-    plt.boxplot(values, labels=[str(value) for value in clip_counts], showfliers=False)
+    plt.boxplot(
+        values,
+        tick_labels=[str(value) for value in clip_counts],
+        showfliers=False,
+    )
 
     for position, clip_count in enumerate(clip_counts, start=1):
         plt.scatter(
@@ -1278,7 +1285,11 @@ def plot_semantic_turnover_by_clip_count(
     values = [grouped_turnover[clip_count] for clip_count in clip_counts]
 
     plt.figure(figsize=(9, 6))
-    plt.boxplot(values, labels=[str(value) for value in clip_counts], showfliers=False)
+    plt.boxplot(
+        values,
+        tick_labels=[str(value) for value in clip_counts],
+        showfliers=False,
+    )
 
     for position, clip_count in enumerate(clip_counts, start=1):
         plt.scatter(
@@ -1310,7 +1321,7 @@ def plot_combined_st_threshold_lines(
 ) -> bool:
     plt.figure(figsize=(10, 7))
     plotted_any = False
-    color_map = plt.cm.get_cmap("tab10")
+    color_map = matplotlib.colormaps["tab10"]
     model_labels = sorted(case_metrics)
     series_count = len(model_labels) + (1 if human_case_metrics is not None else 0)
     threshold_x_step = min_positive_x_step(turnover_thresholds)
