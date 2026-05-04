@@ -35,14 +35,14 @@ PFS_TASK_QUESTION_LABELS = {
     "intention": "Q_1",
     "affordance": "Q_2",
 }
-PFS_TITLE_FONT_SIZE = 20
-PFS_AXIS_LABEL_FONT_SIZE = 17
-PFS_TICK_LABEL_FONT_SIZE = 14
-PFS_LEGEND_FONT_SIZE = 13
-STR_TITLE_FONT_SIZE = 20
-STR_AXIS_LABEL_FONT_SIZE = 17
-STR_TICK_LABEL_FONT_SIZE = 14
-STR_LEGEND_FONT_SIZE = 13
+PFS_TITLE_FONT_SIZE = 25
+PFS_AXIS_LABEL_FONT_SIZE = 20
+PFS_TICK_LABEL_FONT_SIZE = 20
+PFS_LEGEND_FONT_SIZE = 18
+STR_TITLE_FONT_SIZE = 25
+STR_AXIS_LABEL_FONT_SIZE = 20
+STR_TICK_LABEL_FONT_SIZE = 20
+STR_LEGEND_FONT_SIZE = 18
 
 
 def parse_args() -> argparse.Namespace:
@@ -855,11 +855,7 @@ def plot_combined_human_model_partial_to_full_lines(
     plt.figure(figsize=(10, 7))
     plotted_any = False
     color_map = plt.cm.get_cmap("tab10")
-    if stat_name == "mean":
-        legend_suffix = "mean"
-    elif stat_name == "percentile" and percentile is not None:
-        legend_suffix = f"p{percentile}"
-    else:
+    if stat_name != "mean" and not (stat_name == "percentile" and percentile is not None):
         raise ValueError(f"Unsupported stat_name={stat_name} percentile={percentile}")
 
     for model_index, model_label in enumerate(sorted(case_metrics)):
@@ -894,7 +890,7 @@ def plot_combined_human_model_partial_to_full_lines(
             color=color_map(model_index % 10),
             marker="o",
             linewidth=1.8,
-            label=f"{model_label} {legend_suffix}",
+            label=model_label,
         )
         plotted_any = True
 
@@ -925,7 +921,7 @@ def plot_combined_human_model_partial_to_full_lines(
                 linestyle="--",
                 marker="s",
                 linewidth=2.2,
-                label=f"Human annotations {human_stat_key}",
+                label="Human annotations",
             )
             plotted_any = True
         else:
@@ -947,7 +943,7 @@ def plot_combined_human_model_partial_to_full_lines(
                 linestyle="--",
                 marker="s",
                 linewidth=2.2,
-                label=f"Human annotations {human_stat_key}",
+                label="Human annotations",
             )
             plotted_any = True
         else:
