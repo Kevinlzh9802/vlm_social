@@ -31,6 +31,16 @@ UTT_GROUP_PATTERN = re.compile(r"^(?P<size>[123])-utt_group$")
 MODEL_SIZE_PATTERN = re.compile(r"(?P<size>\d+[Bb])(?:[_-]|$)")
 DEFAULT_PROGRESS_PARTITIONS = 20
 DEFAULT_MIN_BIN_SAMPLES = 5
+ERROR_BAR_OFFSET_FRACTION = 0.12
+ERROR_BAR_COLORS = (
+    "#6B7280",
+    "#A855F7",
+    "#F97316",
+    "#0891B2",
+    "#84CC16",
+    "#DB2777",
+    "#0F766E",
+)
 PFS_TASK_QUESTION_LABELS = {
     "intention": "Q_1",
     "affordance": "Q_2",
@@ -425,6 +435,39 @@ def format_str_plot_title(task_name: str) -> str:
     return f"Average STR for ${question_label}$"
 
 
+def compute_series_x_offset(
+    series_index: int,
+    series_count: int,
+    x_step: float,
+    sigma_multiplier: float | None,
+) -> float:
+    if sigma_multiplier is None or series_count <= 1:
+        return 0.0
+    return (
+        series_index - (series_count - 1) / 2
+    ) * x_step * ERROR_BAR_OFFSET_FRACTION
+
+
+def offset_x_values(x_values: Sequence[float], x_offset: float) -> list[float]:
+    if x_offset == 0.0:
+        return [float(value) for value in x_values]
+    return [float(value) + x_offset for value in x_values]
+
+
+def min_positive_x_step(x_values: Sequence[float]) -> float:
+    sorted_values = sorted({float(value) for value in x_values})
+    steps = [
+        next_value - current_value
+        for current_value, next_value in zip(sorted_values, sorted_values[1:])
+        if next_value > current_value
+    ]
+    return min(steps) if steps else 1.0
+
+
+def error_bar_color(series_index: int) -> str:
+    return ERROR_BAR_COLORS[series_index % len(ERROR_BAR_COLORS)]
+
+
 def plot_line_with_optional_error_bars(
     x_values: Sequence[float],
     y_values: Sequence[float],
@@ -432,18 +475,20 @@ def plot_line_with_optional_error_bars(
     sigma_multiplier: float | None,
     **plot_kwargs: object,
 ) -> None:
-    plt.plot(x_values, y_values, **plot_kwargs)
+    x_offset = float(plot_kwargs.pop("x_offset", 0.0))
+    error_color = plot_kwargs.pop("error_color", plot_kwargs.get("color"))
+    plotted_x_values = offset_x_values(x_values, x_offset)
+    plt.plot(plotted_x_values, y_values, **plot_kwargs)
     if sigma_multiplier is None or std_values is None:
         return
 
-    color = plot_kwargs.get("color")
     yerr = np.asarray(std_values, dtype=float) * float(sigma_multiplier)
     plt.errorbar(
-        x_values,
+        plotted_x_values,
         y_values,
         yerr=yerr,
         fmt="none",
-        ecolor=color,
+        ecolor=error_color,
         capsize=3,
         elinewidth=1.1,
     )
@@ -492,6 +537,58 @@ def load_human_annotation_summary_csv(
             for stat_name, points in stat_rows.items()
         }
         for case_key, stat_rows in human_summary.items()
+    }
+
+
+def load_human_annotation_summary_csv_by_dataset(
+    summary_csv_path: Path,
+) -> dict[str, dict[tuple[int, str], dict[str, list[tuple[float, float]]]]]:
+    summary_path = summary_csv_path.expanduser().resolve()
+    if not summary_path.is_file():
+        raise FileNotFoundError(f"Human annotation summary CSV does not exist: {summary_path}")
+
+    human_summary_by_dataset: dict[
+        str, dict[tuple[int, str], dict[str, list[tuple[float, float]]]]
+    ] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    with summary_path.open("r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+            dataset_name = str(row.get("dataset", "")).strip()
+            if dataset_name not in DATASET_NAMES:
+                continue
+
+            prompt_name = str(row.get("prompt", "")).strip()
+            utt_count_text = str(row.get("utt_count", "")).strip()
+            if prompt_name not in TASK_NAMES or not utt_count_text.isdigit():
+                continue
+
+            case_key = (int(utt_count_text), prompt_name)
+            try:
+                progress_ratio = float(row["progress_ratio"])
+                stat_values = {
+                    "mean": float(row["mean_similarity"]),
+                    "p25": float(row["percentile_25"]),
+                    "p50": float(row["percentile_50"]),
+                    "p75": float(row["percentile_75"]),
+                }
+            except (KeyError, TypeError, ValueError) as exc:
+                print(f"[WARN] Skipping malformed human summary row {row}: {exc}")
+                continue
+
+            for stat_name, stat_value in stat_values.items():
+                human_summary_by_dataset[dataset_name][case_key][stat_name].append(
+                    (progress_ratio, stat_value)
+                )
+
+    return {
+        dataset_name: {
+            case_key: {
+                stat_name: sorted(points, key=lambda item: item[0])
+                for stat_name, points in stat_rows.items()
+            }
+            for case_key, stat_rows in dataset_rows.items()
+        }
+        for dataset_name, dataset_rows in human_summary_by_dataset.items()
     }
 
 
@@ -589,6 +686,110 @@ def load_human_annotation_turnover_points_csv(
         )
 
     return dict(case_metrics)
+
+
+def load_human_annotation_turnover_points_csv_by_dataset(
+    summary_csv_path: Path,
+) -> dict[str, dict[tuple[int, str], list[UtteranceMetrics]]]:
+    points_path = infer_human_annotation_points_csv(summary_csv_path)
+    if not points_path.is_file():
+        print(
+            "[WARN] Human annotation point CSV does not exist; "
+            f"skipping per-dataset human ST overlay: {points_path}"
+        )
+        return {}
+
+    grouped_rows: dict[
+        tuple[str, int, str, int, int],
+        list[tuple[int, float, float | None]],
+    ] = defaultdict(list)
+    with points_path.open("r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        if "neighboring_similarity_to_next" not in (reader.fieldnames or []):
+            print(
+                "[WARN] Human annotation point CSV has no "
+                "neighboring_similarity_to_next column; rerun "
+                "human_annotation_similarity.py to enable per-dataset human ST overlay."
+            )
+            return {}
+
+        for row in reader:
+            dataset_name = str(row.get("dataset", "")).strip()
+            if dataset_name not in DATASET_NAMES:
+                continue
+            prompt_name = str(row.get("prompt", "")).strip()
+            utt_count_text = str(row.get("utt_count", "")).strip()
+            if prompt_name not in TASK_NAMES or not utt_count_text.isdigit():
+                continue
+
+            try:
+                utt_count = int(utt_count_text)
+                utterance_index = int(row["utterance_index"])
+                clip_count = int(row["clip_count"])
+                clip_position = int(row["clip_position"])
+                similarity_to_full = float(row["similarity_to_full"])
+            except (KeyError, TypeError, ValueError) as exc:
+                print(f"[WARN] Skipping malformed human point row {row}: {exc}")
+                continue
+
+            neighboring_text = str(row.get("neighboring_similarity_to_next", "")).strip()
+            neighboring_similarity = None
+            if neighboring_text:
+                try:
+                    neighboring_similarity = float(neighboring_text)
+                except ValueError as exc:
+                    print(f"[WARN] Skipping malformed human neighbor value {row}: {exc}")
+                    continue
+
+            grouped_rows[
+                (dataset_name, utt_count, prompt_name, utterance_index, clip_count)
+            ].append((clip_position, similarity_to_full, neighboring_similarity))
+
+    dataset_case_metrics: dict[str, dict[tuple[int, str], list[UtteranceMetrics]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for (
+        dataset_name,
+        utt_count,
+        prompt_name,
+        _utterance_index,
+        clip_count,
+    ), point_rows in sorted(grouped_rows.items()):
+        ordered_rows = sorted(point_rows, key=lambda item: item[0])
+        clip_to_final_similarities = [similarity for _, similarity, _ in ordered_rows]
+        neighboring_similarities = [
+            similarity
+            for _, _, similarity in ordered_rows
+            if similarity is not None
+        ]
+        if len(clip_to_final_similarities) != clip_count:
+            print(
+                "[WARN] Skipping incomplete per-dataset human annotation utterance "
+                f"for ST overlay: dataset={dataset_name}, utt={utt_count}, "
+                f"task={prompt_name}, expected={clip_count}, "
+                f"actual={len(clip_to_final_similarities)}"
+            )
+            continue
+        if len(neighboring_similarities) != clip_count - 1:
+            print(
+                "[WARN] Skipping per-dataset human annotation utterance with "
+                f"incomplete neighbor similarities: dataset={dataset_name}, "
+                f"utt={utt_count}, task={prompt_name}, expected={clip_count - 1}, "
+                f"actual={len(neighboring_similarities)}"
+            )
+            continue
+        dataset_case_metrics[dataset_name][(utt_count, prompt_name)].append(
+            UtteranceMetrics(
+                clip_count=clip_count,
+                clip_to_final_similarities=clip_to_final_similarities,
+                neighboring_similarities=neighboring_similarities,
+            )
+        )
+
+    return {
+        dataset_name: dict(case_metrics)
+        for dataset_name, case_metrics in dataset_case_metrics.items()
+    }
 
 
 def plot_clip_to_final_scatter(
@@ -733,8 +934,9 @@ def plot_combined_clip_to_final_percentile_lines(
 ) -> bool:
     plt.figure(figsize=(8, 6))
     plotted_any = False
+    model_labels = sorted(case_metrics)
 
-    for model_label in sorted(case_metrics):
+    for model_label in model_labels:
         grouped_values = filter_grouped_values_for_plot(
             collect_clip_to_final_bins(
                 utterance_metrics=case_metrics[model_label],
@@ -810,6 +1012,14 @@ def plot_combined_clip_to_final_mean_lines(
             mean_values,
             std_values,
             sigma_multiplier,
+            color=color_map(model_index % 10),
+            error_color=error_bar_color(model_index),
+            x_offset=compute_series_x_offset(
+                model_index,
+                len(model_labels),
+                pfs_x_step,
+                sigma_multiplier,
+            ),
             marker="o",
             linewidth=1.8,
             label=model_label,
@@ -858,7 +1068,13 @@ def plot_combined_human_model_partial_to_full_lines(
     if stat_name != "mean" and not (stat_name == "percentile" and percentile is not None):
         raise ValueError(f"Unsupported stat_name={stat_name} percentile={percentile}")
 
-    for model_index, model_label in enumerate(sorted(case_metrics)):
+    model_labels = sorted(case_metrics)
+    series_count = len(model_labels) + (
+        1 if human_case_turnover_metrics is not None or human_case_summary else 0
+    )
+    pfs_x_step = 1.0 / progress_partitions
+
+    for model_index, model_label in enumerate(model_labels):
         grouped_values = filter_grouped_values_for_plot(
             collect_clip_to_final_bins(
                 utterance_metrics=case_metrics[model_label],
@@ -888,6 +1104,13 @@ def plot_combined_human_model_partial_to_full_lines(
             std_values,
             sigma_multiplier if stat_name == "mean" else None,
             color=color_map(model_index % 10),
+            error_color=error_bar_color(model_index),
+            x_offset=compute_series_x_offset(
+                model_index,
+                series_count,
+                pfs_x_step,
+                sigma_multiplier if stat_name == "mean" else None,
+            ),
             marker="o",
             linewidth=1.8,
             label=model_label,
@@ -918,6 +1141,13 @@ def plot_combined_human_model_partial_to_full_lines(
                 std_values,
                 sigma_multiplier if stat_name == "mean" else None,
                 color="#111111",
+                error_color="#666666",
+                x_offset=compute_series_x_offset(
+                    len(model_labels),
+                    series_count,
+                    pfs_x_step,
+                    sigma_multiplier if stat_name == "mean" else None,
+                ),
                 linestyle="--",
                 marker="s",
                 linewidth=2.2,
@@ -940,6 +1170,7 @@ def plot_combined_human_model_partial_to_full_lines(
                 None,
                 None,
                 color="#111111",
+                error_color="#666666",
                 linestyle="--",
                 marker="s",
                 linewidth=2.2,
@@ -1079,8 +1310,12 @@ def plot_combined_st_threshold_lines(
 ) -> bool:
     plt.figure(figsize=(10, 7))
     plotted_any = False
+    color_map = plt.cm.get_cmap("tab10")
+    model_labels = sorted(case_metrics)
+    series_count = len(model_labels) + (1 if human_case_metrics is not None else 0)
+    threshold_x_step = min_positive_x_step(turnover_thresholds)
 
-    for model_label in sorted(case_metrics):
+    for model_index, model_label in enumerate(model_labels):
         model_metrics = case_metrics[model_label]
         if not model_metrics:
             print(
@@ -1108,6 +1343,14 @@ def plot_combined_st_threshold_lines(
             averages,
             std_values,
             sigma_multiplier,
+            color=color_map(model_index % 10),
+            error_color=error_bar_color(model_index),
+            x_offset=compute_series_x_offset(
+                model_index,
+                series_count,
+                threshold_x_step,
+                sigma_multiplier,
+            ),
             marker="o",
             linewidth=1.8,
             label=model_label,
@@ -1136,6 +1379,13 @@ def plot_combined_st_threshold_lines(
                 human_std_values,
                 sigma_multiplier,
                 color="#111111",
+                error_color="#666666",
+                x_offset=compute_series_x_offset(
+                    len(model_labels),
+                    series_count,
+                    threshold_x_step,
+                    sigma_multiplier,
+                ),
                 linestyle="--",
                 marker="s",
                 linewidth=2.2,
@@ -1272,21 +1522,11 @@ def serialize_human_annotation_turnover_metrics(
     return rows
 
 
-def write_plot_data_json(
-    output_path: Path,
-    results_root: Path,
-    additional_results_roots: Sequence[Path],
-    plots_root: Path,
-    model_location: str,
-    turnover_thresholds: Sequence[float],
-    progress_partitions: int,
-    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
-    human_annotation_summary_csv: Path | None,
-    human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
-    human_annotation_turnover_metrics: dict[tuple[int, str], list[UtteranceMetrics]] | None,
-) -> None:
+def serialize_case_metrics(
+    case_metrics_by_key: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+) -> list[dict[str, object]]:
     cases: list[dict[str, object]] = []
-    for (utt_group_size, task_name), case_metrics in sorted(combined_case_metrics.items()):
+    for (utt_group_size, task_name), case_metrics in sorted(case_metrics_by_key.items()):
         models: list[dict[str, object]] = []
         for model_label, utterance_metrics in sorted(case_metrics.items()):
             models.append(
@@ -1309,7 +1549,97 @@ def write_plot_data_json(
                 "models": models,
             }
         )
+    return cases
 
+
+def load_case_metrics_from_rows(
+    case_rows: Sequence[dict[str, object]],
+) -> dict[tuple[int, str], dict[str, list[UtteranceMetrics]]]:
+    case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for case in case_rows:
+        utt_group_size = int(case["utt_group_size"])
+        task_name = str(case["task"])
+        for model_entry in case.get("models", []):
+            model_label = str(model_entry["model"])
+            for utterance in model_entry.get("utterances", []):
+                case_metrics[(utt_group_size, task_name)][model_label].append(
+                    UtteranceMetrics(
+                        clip_count=int(utterance["clip_count"]),
+                        clip_to_final_similarities=[
+                            float(value)
+                            for value in utterance["clip_to_final_similarities"]
+                        ],
+                        neighboring_similarities=[
+                            float(value)
+                            for value in utterance["neighboring_similarities"]
+                        ],
+                    )
+                )
+    return case_metrics
+
+
+def serialize_human_annotation_summary_by_dataset(
+    human_annotation_summary_by_dataset: dict[
+        str, dict[tuple[int, str], dict[str, list[tuple[float, float]]]]
+    ] | None,
+) -> list[dict[str, object]]:
+    if human_annotation_summary_by_dataset is None:
+        return []
+    return [
+        {
+            "dataset": dataset_name,
+            "rows": serialize_human_annotation_summary(human_annotation_summary),
+        }
+        for dataset_name, human_annotation_summary in sorted(
+            human_annotation_summary_by_dataset.items()
+        )
+    ]
+
+
+def serialize_human_annotation_turnover_metrics_by_dataset(
+    human_annotation_turnover_metrics_by_dataset: dict[
+        str, dict[tuple[int, str], list[UtteranceMetrics]]
+    ] | None,
+) -> list[dict[str, object]]:
+    if human_annotation_turnover_metrics_by_dataset is None:
+        return []
+    return [
+        {
+            "dataset": dataset_name,
+            "rows": serialize_human_annotation_turnover_metrics(
+                human_annotation_turnover_metrics
+            ),
+        }
+        for dataset_name, human_annotation_turnover_metrics in sorted(
+            human_annotation_turnover_metrics_by_dataset.items()
+        )
+    ]
+
+
+def write_plot_data_json(
+    output_path: Path,
+    results_root: Path,
+    additional_results_roots: Sequence[Path],
+    plots_root: Path,
+    model_location: str,
+    turnover_thresholds: Sequence[float],
+    progress_partitions: int,
+    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    dataset_case_metrics: dict[
+        str, dict[tuple[int, str], dict[str, list[UtteranceMetrics]]]
+    ],
+    human_annotation_summary_csv: Path | None,
+    human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+    human_annotation_summary_by_dataset: dict[
+        str, dict[tuple[int, str], dict[str, list[tuple[float, float]]]]
+    ] | None,
+    human_annotation_turnover_metrics: dict[tuple[int, str], list[UtteranceMetrics]] | None,
+    human_annotation_turnover_metrics_by_dataset: dict[
+        str, dict[tuple[int, str], list[UtteranceMetrics]]
+    ] | None,
+) -> None:
     payload = {
         "schema_version": 1,
         "description": (
@@ -1335,10 +1665,23 @@ def write_plot_data_json(
         "human_annotation_summary": serialize_human_annotation_summary(
             human_annotation_summary
         ),
+        "human_annotation_summary_by_dataset": serialize_human_annotation_summary_by_dataset(
+            human_annotation_summary_by_dataset
+        ),
         "human_annotation_turnover_metrics": serialize_human_annotation_turnover_metrics(
             human_annotation_turnover_metrics
         ),
-        "cases": cases,
+        "human_annotation_turnover_metrics_by_dataset": serialize_human_annotation_turnover_metrics_by_dataset(
+            human_annotation_turnover_metrics_by_dataset
+        ),
+        "cases": serialize_case_metrics(combined_case_metrics),
+        "dataset_cases": [
+            {
+                "dataset": dataset_name,
+                "cases": serialize_case_metrics(case_metrics),
+            }
+            for dataset_name, case_metrics in sorted(dataset_case_metrics.items())
+        ],
     }
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -1465,9 +1808,18 @@ def write_analysis_plot_data(
     turnover_thresholds: Sequence[float],
     progress_partitions: int,
     combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    dataset_case_metrics: dict[
+        str, dict[tuple[int, str], dict[str, list[UtteranceMetrics]]]
+    ],
     human_annotation_summary_csv: Path | None,
     human_annotation_summary: dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+    human_annotation_summary_by_dataset: dict[
+        str, dict[tuple[int, str], dict[str, list[tuple[float, float]]]]
+    ] | None,
     human_annotation_turnover_metrics: dict[tuple[int, str], list[UtteranceMetrics]] | None,
+    human_annotation_turnover_metrics_by_dataset: dict[
+        str, dict[tuple[int, str], list[UtteranceMetrics]]
+    ] | None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "analysis_plot_data.json"
@@ -1484,9 +1836,12 @@ def write_analysis_plot_data(
         turnover_thresholds=turnover_thresholds,
         progress_partitions=progress_partitions,
         combined_case_metrics=combined_case_metrics,
+        dataset_case_metrics=dataset_case_metrics,
         human_annotation_summary_csv=human_annotation_summary_csv,
         human_annotation_summary=human_annotation_summary,
+        human_annotation_summary_by_dataset=human_annotation_summary_by_dataset,
         human_annotation_turnover_metrics=human_annotation_turnover_metrics,
+        human_annotation_turnover_metrics_by_dataset=human_annotation_turnover_metrics_by_dataset,
     )
     write_plot_data_points_csv(
         output_path=points_csv_path,
@@ -1514,10 +1869,13 @@ def load_analysis_plot_data(
 ) -> tuple[
     Path,
     dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    dict[str, dict[tuple[int, str], dict[str, list[UtteranceMetrics]]]],
     list[float],
     int,
     dict[tuple[int, str], dict[str, list[tuple[float, float]]]] | None,
+    dict[str, dict[tuple[int, str], dict[str, list[tuple[float, float]]]]] | None,
     dict[tuple[int, str], list[UtteranceMetrics]] | None,
+    dict[str, dict[tuple[int, str], list[UtteranceMetrics]]] | None,
 ]:
     payload = json.loads(input_path.expanduser().resolve().read_text(encoding="utf-8"))
     if payload.get("schema_version") != 1:
@@ -1528,29 +1886,15 @@ def load_analysis_plot_data(
     plots_root = Path(payload["plots_root"]).expanduser().resolve()
     turnover_thresholds = [float(value) for value in payload["turnover_thresholds"]]
     progress_partitions = int(payload["progress_partitions"])
-    combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
-
-    for case in payload.get("cases", []):
-        utt_group_size = int(case["utt_group_size"])
-        task_name = str(case["task"])
-        for model_entry in case.get("models", []):
-            model_label = str(model_entry["model"])
-            for utterance in model_entry.get("utterances", []):
-                combined_case_metrics[(utt_group_size, task_name)][model_label].append(
-                    UtteranceMetrics(
-                        clip_count=int(utterance["clip_count"]),
-                        clip_to_final_similarities=[
-                            float(value)
-                            for value in utterance["clip_to_final_similarities"]
-                        ],
-                        neighboring_similarities=[
-                            float(value)
-                            for value in utterance["neighboring_similarities"]
-                        ],
-                    )
-                )
+    combined_case_metrics = load_case_metrics_from_rows(payload.get("cases", []))
+    dataset_case_metrics: dict[
+        str, dict[tuple[int, str], dict[str, list[UtteranceMetrics]]]
+    ] = {}
+    for dataset_entry in payload.get("dataset_cases", []):
+        dataset_name = str(dataset_entry["dataset"])
+        dataset_case_metrics[dataset_name] = load_case_metrics_from_rows(
+            dataset_entry.get("cases", [])
+        )
 
     human_rows = payload.get("human_annotation_summary", [])
     human_annotation_summary = None
@@ -1569,6 +1913,26 @@ def load_analysis_plot_data(
             }
             for case_key, stat_rows in human_annotation_summary.items()
         }
+
+    human_annotation_summary_by_dataset = None
+    human_summary_dataset_rows = payload.get("human_annotation_summary_by_dataset", [])
+    if human_summary_dataset_rows:
+        human_annotation_summary_by_dataset = {}
+        for dataset_entry in human_summary_dataset_rows:
+            dataset_summary = defaultdict(lambda: defaultdict(list))
+            for row in dataset_entry.get("rows", []):
+                dataset_summary[
+                    (int(row["utt_group_size"]), str(row["task"]))
+                ][str(row["stat"])].append(
+                    (float(row["progress_ratio"]), float(row["similarity"]))
+                )
+            human_annotation_summary_by_dataset[str(dataset_entry["dataset"])] = {
+                case_key: {
+                    stat_name: sorted(points, key=lambda item: item[0])
+                    for stat_name, points in stat_rows.items()
+                }
+                for case_key, stat_rows in dataset_summary.items()
+            }
 
     human_turnover_rows = payload.get("human_annotation_turnover_metrics", [])
     human_annotation_turnover_metrics = None
@@ -1592,13 +1956,44 @@ def load_analysis_plot_data(
             )
         human_annotation_turnover_metrics = dict(human_annotation_turnover_metrics)
 
+    human_annotation_turnover_metrics_by_dataset = None
+    human_turnover_dataset_rows = payload.get(
+        "human_annotation_turnover_metrics_by_dataset", []
+    )
+    if human_turnover_dataset_rows:
+        human_annotation_turnover_metrics_by_dataset = {}
+        for dataset_entry in human_turnover_dataset_rows:
+            dataset_turnover_metrics = defaultdict(list)
+            for row in dataset_entry.get("rows", []):
+                dataset_turnover_metrics[
+                    (int(row["utt_group_size"]), str(row["task"]))
+                ].append(
+                    UtteranceMetrics(
+                        clip_count=int(row["clip_count"]),
+                        clip_to_final_similarities=[
+                            float(value)
+                            for value in row.get("clip_to_final_similarities", [])
+                        ],
+                        neighboring_similarities=[
+                            float(value)
+                            for value in row["neighboring_similarities"]
+                        ],
+                    )
+                )
+            human_annotation_turnover_metrics_by_dataset[
+                str(dataset_entry["dataset"])
+            ] = dict(dataset_turnover_metrics)
+
     return (
         plots_root,
         combined_case_metrics,
+        dataset_case_metrics,
         turnover_thresholds,
         progress_partitions,
         human_annotation_summary,
+        human_annotation_summary_by_dataset,
         human_annotation_turnover_metrics,
+        human_annotation_turnover_metrics_by_dataset,
     )
 
 
@@ -1759,6 +2154,152 @@ def generate_combined_outputs(
     )
 
 
+def generate_per_dataset_combined_outputs(
+    plots_root: Path,
+    dataset_case_metrics: dict[
+        str, dict[tuple[int, str], dict[str, list[UtteranceMetrics]]]
+    ],
+    turnover_thresholds: Sequence[float],
+    progress_partitions: int,
+    human_annotation_summary_by_dataset: dict[
+        str, dict[tuple[int, str], dict[str, list[tuple[float, float]]]]
+    ] | None = None,
+    human_annotation_turnover_metrics_by_dataset: dict[
+        str, dict[tuple[int, str], list[UtteranceMetrics]]
+    ] | None = None,
+) -> None:
+    for dataset_name in DATASET_NAMES:
+        dataset_metrics = dataset_case_metrics.get(dataset_name, {})
+        if not dataset_metrics:
+            continue
+
+        dataset_human_summary = (
+            human_annotation_summary_by_dataset.get(dataset_name, {})
+            if human_annotation_summary_by_dataset is not None
+            else {}
+        )
+        dataset_human_turnover_metrics = (
+            human_annotation_turnover_metrics_by_dataset.get(dataset_name, {})
+            if (
+                human_annotation_turnover_metrics_by_dataset is not None
+                and dataset_name in human_annotation_turnover_metrics_by_dataset
+            )
+            else {}
+        )
+
+        for utt_group_size in UTTERANCE_GROUP_SIZES:
+            output_dir = plots_root / dataset_name / f"{utt_group_size}-utt_group"
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            for task_name in TASK_NAMES:
+                case_key = (utt_group_size, task_name)
+                case_metrics = dataset_metrics.get(case_key, {})
+                human_case_summary = dataset_human_summary.get(case_key, {})
+                human_case_turnover_metrics = (
+                    dataset_human_turnover_metrics.get(case_key, [])
+                    if (
+                        human_annotation_turnover_metrics_by_dataset is not None
+                        and dataset_name in human_annotation_turnover_metrics_by_dataset
+                    )
+                    else None
+                )
+                if (
+                    not case_metrics
+                    and not human_case_summary
+                    and not human_case_turnover_metrics
+                ):
+                    continue
+
+                if (
+                    human_annotation_summary_by_dataset is not None
+                    and dataset_name in human_annotation_summary_by_dataset
+                ):
+                    for percentile in (25, 50, 75):
+                        human_model_output_path = (
+                            output_dir
+                            / f"combined_human_model_partial_to_full_p{percentile}_{task_name}.png"
+                        )
+                        if plot_combined_human_model_partial_to_full_lines(
+                            case_metrics=case_metrics,
+                            human_case_summary=human_case_summary,
+                            human_case_turnover_metrics=human_case_turnover_metrics,
+                            stat_name="percentile",
+                            percentile=percentile,
+                            utt_group_size=utt_group_size,
+                            task_name=task_name,
+                            progress_partitions=progress_partitions,
+                            output_path=human_model_output_path,
+                        ):
+                            print(f"[INFO] Saved {human_model_output_path}")
+
+                    human_model_mean_output_path = (
+                        output_dir
+                        / f"combined_human_model_partial_to_full_mean_{task_name}.png"
+                    )
+                    if plot_combined_human_model_partial_to_full_lines(
+                        case_metrics=case_metrics,
+                        human_case_summary=human_case_summary,
+                        human_case_turnover_metrics=human_case_turnover_metrics,
+                        stat_name="mean",
+                        utt_group_size=utt_group_size,
+                        task_name=task_name,
+                        progress_partitions=progress_partitions,
+                        output_path=human_model_mean_output_path,
+                        sigma_multiplier=None,
+                    ):
+                        print(f"[INFO] Saved {human_model_mean_output_path}")
+
+                    for sigma_multiplier in (1, 2):
+                        sigma_suffix, _ = resolve_mean_variant(sigma_multiplier)
+                        human_model_sigma_output_path = (
+                            output_dir
+                            / f"combined_human_model_partial_to_full_mean{sigma_suffix}_{task_name}.png"
+                        )
+                        if plot_combined_human_model_partial_to_full_lines(
+                            case_metrics=case_metrics,
+                            human_case_summary=human_case_summary,
+                            human_case_turnover_metrics=human_case_turnover_metrics,
+                            stat_name="mean",
+                            utt_group_size=utt_group_size,
+                            task_name=task_name,
+                            progress_partitions=progress_partitions,
+                            output_path=human_model_sigma_output_path,
+                            sigma_multiplier=sigma_multiplier,
+                        ):
+                            print(f"[INFO] Saved {human_model_sigma_output_path}")
+
+                st_output_path = (
+                    output_dir / f"combined_st_vs_threshold_{task_name}.png"
+                )
+                if plot_combined_st_threshold_lines(
+                    case_metrics=case_metrics,
+                    turnover_thresholds=turnover_thresholds,
+                    utt_group_size=utt_group_size,
+                    task_name=task_name,
+                    output_path=st_output_path,
+                    human_case_metrics=human_case_turnover_metrics,
+                    sigma_multiplier=None,
+                ):
+                    print(f"[INFO] Saved {st_output_path}")
+
+                for sigma_multiplier in (1, 2):
+                    sigma_suffix, _ = resolve_mean_variant(sigma_multiplier)
+                    st_sigma_output_path = (
+                        output_dir
+                        / f"combined_st_vs_threshold{sigma_suffix}_{task_name}.png"
+                    )
+                    if plot_combined_st_threshold_lines(
+                        case_metrics=case_metrics,
+                        turnover_thresholds=turnover_thresholds,
+                        utt_group_size=utt_group_size,
+                        task_name=task_name,
+                        output_path=st_sigma_output_path,
+                        human_case_metrics=human_case_turnover_metrics,
+                        sigma_multiplier=sigma_multiplier,
+                    ):
+                        print(f"[INFO] Saved {st_sigma_output_path}")
+
+
 def analyze_result_folder(
     model: SentenceTransformer,
     result_folder: Path,
@@ -1789,6 +2330,9 @@ def analyze_dataset(
     progress_partitions: int,
     include_scatter: bool,
     combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]],
+    dataset_case_metrics: dict[
+        str, dict[tuple[int, str], dict[str, list[UtteranceMetrics]]]
+    ],
 ) -> None:
     result_folders = iter_result_folders(dataset_root)
     if not result_folders:
@@ -1815,6 +2359,9 @@ def analyze_dataset(
         model_label = build_model_label(model_root=model_root, result_folder=result_folder)
         if group_size is not None and task_name is not None:
             combined_case_metrics[(group_size, task_name)][model_label].extend(utterance_metrics)
+            dataset_case_metrics[dataset_root.name][(group_size, task_name)][
+                model_label
+            ].extend(utterance_metrics)
 
         if include_scatter:
             clip_to_final_path = output_dir / "clip_to_final_similarity_with_scatter.png"
@@ -1877,10 +2424,13 @@ def main() -> None:
         (
             plots_root,
             combined_case_metrics,
+            dataset_case_metrics,
             turnover_thresholds,
             progress_partitions,
             human_annotation_summary,
+            human_annotation_summary_by_dataset,
             human_annotation_turnover_metrics,
+            human_annotation_turnover_metrics_by_dataset,
         ) = load_analysis_plot_data(args.from_plot_data)
         plots_root.mkdir(parents=True, exist_ok=True)
         print(f"[INFO] Regenerating combined plots from {args.from_plot_data}")
@@ -1891,6 +2441,14 @@ def main() -> None:
             progress_partitions=progress_partitions,
             human_annotation_summary=human_annotation_summary,
             human_annotation_turnover_metrics=human_annotation_turnover_metrics,
+        )
+        generate_per_dataset_combined_outputs(
+            plots_root=plots_root,
+            dataset_case_metrics=dataset_case_metrics,
+            turnover_thresholds=turnover_thresholds,
+            progress_partitions=progress_partitions,
+            human_annotation_summary_by_dataset=human_annotation_summary_by_dataset,
+            human_annotation_turnover_metrics_by_dataset=human_annotation_turnover_metrics_by_dataset,
         )
         return
 
@@ -1907,12 +2465,20 @@ def main() -> None:
     )
 
     human_annotation_summary = None
+    human_annotation_summary_by_dataset = None
     human_annotation_turnover_metrics = None
+    human_annotation_turnover_metrics_by_dataset = None
     if args.human_annotation_summary_csv is not None:
         human_annotation_summary = load_human_annotation_summary_csv(
             args.human_annotation_summary_csv
         )
+        human_annotation_summary_by_dataset = load_human_annotation_summary_csv_by_dataset(
+            args.human_annotation_summary_csv
+        )
         human_annotation_turnover_metrics = load_human_annotation_turnover_points_csv(
+            args.human_annotation_summary_csv
+        )
+        human_annotation_turnover_metrics_by_dataset = load_human_annotation_turnover_points_csv_by_dataset(
             args.human_annotation_summary_csv
         )
         print(
@@ -1920,8 +2486,18 @@ def main() -> None:
             f"{len(human_annotation_summary)} from {args.human_annotation_summary_csv}"
         )
         print(
+            "[INFO] Loaded per-dataset human annotation summary datasets: "
+            f"{len(human_annotation_summary_by_dataset)} from "
+            f"{args.human_annotation_summary_csv}"
+        )
+        print(
             "[INFO] Loaded human annotation ST cases: "
             f"{len(human_annotation_turnover_metrics)} from "
+            f"{infer_human_annotation_points_csv(args.human_annotation_summary_csv)}"
+        )
+        print(
+            "[INFO] Loaded per-dataset human annotation ST datasets: "
+            f"{len(human_annotation_turnover_metrics_by_dataset)} from "
             f"{infer_human_annotation_points_csv(args.human_annotation_summary_csv)}"
         )
 
@@ -1953,6 +2529,9 @@ def main() -> None:
     combined_case_metrics: dict[tuple[int, str], dict[str, list[UtteranceMetrics]]] = defaultdict(
         lambda: defaultdict(list)
     )
+    dataset_case_metrics: dict[
+        str, dict[tuple[int, str], dict[str, list[UtteranceMetrics]]]
+    ] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
     for model_root in model_roots:
         print(f"[INFO] Processing model: {model_root}")
@@ -1971,6 +2550,7 @@ def main() -> None:
                 progress_partitions=args.progress_partitions,
                 include_scatter=not args.no_scatter,
                 combined_case_metrics=combined_case_metrics,
+                dataset_case_metrics=dataset_case_metrics,
             )
 
     if args.save_plot_data:
@@ -1983,9 +2563,12 @@ def main() -> None:
             turnover_thresholds=args.turnover_thresholds,
             progress_partitions=args.progress_partitions,
             combined_case_metrics=combined_case_metrics,
+            dataset_case_metrics=dataset_case_metrics,
             human_annotation_summary_csv=args.human_annotation_summary_csv,
             human_annotation_summary=human_annotation_summary,
+            human_annotation_summary_by_dataset=human_annotation_summary_by_dataset,
             human_annotation_turnover_metrics=human_annotation_turnover_metrics,
+            human_annotation_turnover_metrics_by_dataset=human_annotation_turnover_metrics_by_dataset,
         )
 
     generate_combined_outputs(
@@ -1995,6 +2578,14 @@ def main() -> None:
         progress_partitions=args.progress_partitions,
         human_annotation_summary=human_annotation_summary,
         human_annotation_turnover_metrics=human_annotation_turnover_metrics,
+    )
+    generate_per_dataset_combined_outputs(
+        plots_root=plots_root,
+        dataset_case_metrics=dataset_case_metrics,
+        turnover_thresholds=args.turnover_thresholds,
+        progress_partitions=args.progress_partitions,
+        human_annotation_summary_by_dataset=human_annotation_summary_by_dataset,
+        human_annotation_turnover_metrics_by_dataset=human_annotation_turnover_metrics_by_dataset,
     )
 
 
