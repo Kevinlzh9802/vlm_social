@@ -359,8 +359,10 @@ def summarize_records(
         )
 
     grouped: dict[tuple[str, int], list[float]] = defaultdict(list)
+    grouped_by_utt_count: dict[int, list[float]] = defaultdict(list)
     for record in duration_records:
         grouped[(record.dataset, record.utt_count)].append(record.duration_seconds)
+        grouped_by_utt_count[record.utt_count].append(record.duration_seconds)
 
     groups = []
     for dataset, utt_count in sorted(grouped):
@@ -373,6 +375,17 @@ def summarize_records(
             }
         )
 
+    all_datasets_by_utt_count = []
+    for utt_count in sorted(grouped_by_utt_count):
+        values = grouped_by_utt_count[utt_count]
+        all_datasets_by_utt_count.append(
+            {
+                "dataset": "all_datasets",
+                "utt_count": utt_count,
+                **summarize_values(values),
+            }
+        )
+
     return {
         "source": dataset_name,
         "source_root": str(source_root),
@@ -380,6 +393,7 @@ def summarize_records(
         "valid_video_count": len(duration_records),
         "failed_video_count": len(failures),
         "groups": groups,
+        "all_datasets_by_utt_count": all_datasets_by_utt_count,
         "overall": summarize_values(
             [record.duration_seconds for record in duration_records]
         ),
@@ -428,6 +442,33 @@ def write_outputs(output_root: Path, output_name: str, payload: dict[str, Any]) 
                 ]
             )
         )
+
+    if payload["all_datasets_by_utt_count"]:
+        lines.extend(
+            [
+                "",
+                "All datasets by utterance count:",
+                "dataset\tutt_count\tcount\ttotal_s\tmean_s\tstd_s\tmin_s\tp25_s\tmedian_s\tp75_s\tmax_s",
+            ]
+        )
+        for group in payload["all_datasets_by_utt_count"]:
+            lines.append(
+                "\t".join(
+                    [
+                        str(group["dataset"]),
+                        str(group["utt_count"]),
+                        str(group["count"]),
+                        format_seconds(group["total_seconds"]),
+                        format_seconds(group["mean_seconds"]),
+                        format_seconds(group["std_seconds"]),
+                        format_seconds(group["min_seconds"]),
+                        format_seconds(group["p25_seconds"]),
+                        format_seconds(group["median_seconds"]),
+                        format_seconds(group["p75_seconds"]),
+                        format_seconds(group["max_seconds"]),
+                    ]
+                )
+            )
 
     overall = payload["overall"]
     lines.extend(
