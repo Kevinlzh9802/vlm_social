@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="clip_stats"
-#SBATCH --time=00:30:00
+#SBATCH --time=03:59:00
 #SBATCH --partition=insy,general
 #SBATCH --qos=short
 #SBATCH --ntasks=1

@@ -29,6 +29,7 @@ except ImportError:
 DATASET_NAMES = ("mintrec2", "meld", "seamless_interaction")
 UTT_GROUP_RE = re.compile(r"^(?P<size>[123])-utt_group$")
 TASK1_BATCH_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b\d+$")
+CLIP_FILE_RE = re.compile(r"^(?P<prefix>.+)_clip_?(?P<index>\d+)\.[^.]+$")
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm")
 
 
@@ -37,12 +38,16 @@ class VideoRecord:
     dataset: str
     utt_count: int
     path: Path
+    group_id: str
+    clip_index: int
 
 
 @dataclass(frozen=True)
 class DurationRecord:
     dataset: str
     utt_count: int
+    group_id: str
+    clip_index: int
     path: str
     duration_seconds: float
 
@@ -111,6 +116,13 @@ def iter_video_files(root: Path) -> Iterable[Path]:
         yield from root.rglob(f"*{extension}")
 
 
+def parse_clip_file_name(filename: str) -> tuple[str, int] | None:
+    match = CLIP_FILE_RE.fullmatch(filename)
+    if match is None:
+        return None
+    return match.group("prefix"), int(match.group("index"))
+
+
 def parse_context_video_path(path: Path) -> tuple[str, int] | None:
     parts = path.parts
     for index, part in enumerate(parts):
@@ -126,10 +138,26 @@ def parse_context_video_path(path: Path) -> tuple[str, int] | None:
     return None
 
 
+def context_group_id(path: Path) -> str | None:
+    parsed_clip = parse_clip_file_name(path.name)
+    if parsed_clip is None:
+        return None
+    clip_prefix, _clip_index = parsed_clip
+    parts = path.parts
+    for index, part in enumerate(parts):
+        if part != "context" or index + 2 >= len(parts):
+            continue
+        group_parts = parts[index + 2 : -1] + (clip_prefix,)
+        return "/".join(group_parts)
+    return None
+
+
 def parse_task1_video_path(path_text: str) -> tuple[str, int] | None:
     parsed = urlparse(path_text)
     posix_text = parsed.path if parsed.scheme else path_text
-    parts = PurePosixPath(posix_text).parts
+    parts = tuple(
+        part for part in PurePosixPath(posix_text).parts if part not in {"/", ""}
+    )
 
     for index, part in enumerate(parts):
         if not re.fullmatch(r"u[123]", part):
@@ -155,6 +183,42 @@ def parse_task1_video_path(path_text: str) -> tuple[str, int] | None:
     return None
 
 
+def task1_group_id(path_text: str) -> str | None:
+    parsed = urlparse(path_text)
+    posix_text = parsed.path if parsed.scheme else path_text
+    parts = tuple(
+        part for part in PurePosixPath(posix_text).parts if part not in {"/", ""}
+    )
+    if not parts:
+        return None
+    parsed_clip = parse_clip_file_name(parts[-1])
+    if parsed_clip is None:
+        return None
+    clip_prefix, _clip_index = parsed_clip
+    return "/".join(parts[:-1] + (clip_prefix,))
+
+
+def keep_largest_clip_per_group(
+    records: Iterable[VideoRecord],
+) -> list[VideoRecord]:
+    selected: dict[tuple[str, int, str], VideoRecord] = {}
+    for record in records:
+        key = (record.dataset, record.utt_count, record.group_id)
+        current = selected.get(key)
+        if current is None or record.clip_index > current.clip_index:
+            selected[key] = record
+    return sorted(
+        selected.values(),
+        key=lambda record: (
+            record.dataset,
+            record.utt_count,
+            record.group_id,
+            record.clip_index,
+            str(record.path),
+        ),
+    )
+
+
 def collect_context_videos(root: Path) -> list[VideoRecord]:
     records: list[VideoRecord] = []
     for dataset in DATASET_NAMES:
@@ -168,10 +232,21 @@ def collect_context_videos(root: Path) -> list[VideoRecord]:
             parsed_dataset, utt_count = parsed
             if parsed_dataset != dataset:
                 continue
+            parsed_clip = parse_clip_file_name(path.name)
+            group_id = context_group_id(path)
+            if parsed_clip is None or group_id is None:
+                continue
+            _clip_prefix, clip_index = parsed_clip
             records.append(
-                VideoRecord(dataset=dataset, utt_count=utt_count, path=path)
+                VideoRecord(
+                    dataset=dataset,
+                    utt_count=utt_count,
+                    path=path,
+                    group_id=group_id,
+                    clip_index=clip_index,
+                )
             )
-    return records
+    return keep_largest_clip_per_group(records)
 
 
 def resolve_task1_json_paths(task_json: Path) -> list[Path]:
@@ -222,7 +297,6 @@ def collect_task1_videos(
 ) -> tuple[list[VideoRecord], list[str]]:
     records: list[VideoRecord] = []
     warnings: list[str] = []
-    seen_paths: set[Path] = set()
 
     for json_path in resolve_task1_json_paths(task_json):
         task_items = normalize_task_payload(load_json(json_path))
@@ -247,20 +321,36 @@ def collect_task1_videos(
                     )
                     continue
                 dataset, utt_count = parsed
+                parsed_media = urlparse(media_path)
+                parsed_clip = parse_clip_file_name(
+                    PurePosixPath(
+                        parsed_media.path if parsed_media.scheme else media_path
+                    ).name
+                )
+                group_id = task1_group_id(media_path)
+                if parsed_clip is None or group_id is None:
+                    warnings.append(
+                        f"{json_path.name} instance {task_instance_id}: "
+                        f"could not infer clip group/index from {media_path}"
+                    )
+                    continue
+                _clip_prefix, clip_index = parsed_clip
                 local_path = rebase_media_path(
                     media_path,
                     media_url_prefixes=media_url_prefixes,
                     local_prefix=local_prefix,
                 ).expanduser()
-                resolved_key = local_path.resolve() if local_path.exists() else local_path
-                if resolved_key in seen_paths:
-                    continue
-                seen_paths.add(resolved_key)
                 records.append(
-                    VideoRecord(dataset=dataset, utt_count=utt_count, path=local_path)
+                    VideoRecord(
+                        dataset=dataset,
+                        utt_count=utt_count,
+                        path=local_path,
+                        group_id=group_id,
+                        clip_index=clip_index,
+                    )
                 )
 
-    return records, warnings
+    return keep_largest_clip_per_group(records), warnings
 
 
 def probe_duration(path: Path, ffprobe: str) -> float:
@@ -353,6 +443,8 @@ def summarize_records(
             DurationRecord(
                 dataset=record.dataset,
                 utt_count=record.utt_count,
+                group_id=record.group_id,
+                clip_index=record.clip_index,
                 path=str(record.path),
                 duration_seconds=duration,
             )
@@ -389,6 +481,7 @@ def summarize_records(
     return {
         "source": dataset_name,
         "source_root": str(source_root),
+        "stat_unit": "one duration per video group, using the largest clip index",
         "input_video_count": len(records),
         "valid_video_count": len(duration_records),
         "failed_video_count": len(failures),
@@ -418,6 +511,7 @@ def write_outputs(output_root: Path, output_name: str, payload: dict[str, Any]) 
     lines = [
         f"Source: {payload['source']}",
         f"Source root: {payload['source_root']}",
+        f"Stat unit: {payload['stat_unit']}",
         f"Input videos: {payload['input_video_count']}",
         f"Valid videos: {payload['valid_video_count']}",
         f"Failed videos: {payload['failed_video_count']}",
