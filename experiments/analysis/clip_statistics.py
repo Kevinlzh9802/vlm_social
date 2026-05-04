@@ -14,15 +14,17 @@ from urllib.parse import urlparse
 
 try:
     from .parse_human_annotations import (
-        flatten_task_media_lists,
+        find_annotation_jsons,
+        get_dict,
         load_json,
-        normalize_task_payload,
+        parse_annotation_file_for_annotator,
     )
 except ImportError:
     from parse_human_annotations import (
-        flatten_task_media_lists,
+        find_annotation_jsons,
+        get_dict,
         load_json,
-        normalize_task_payload,
+        parse_annotation_file_for_annotator,
     )
 
 
@@ -31,6 +33,7 @@ UTT_GROUP_RE = re.compile(r"^(?P<size>[123])-utt_group$")
 TASK1_BATCH_RE = re.compile(r"^(?P<dataset>.+)_u(?P<size>[123])b\d+$")
 CLIP_FILE_RE = re.compile(r"^(?P<prefix>.+)_clip_?(?P<index>\d+)\.[^.]+$")
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm")
+STAT_SOURCES = ("full", "task1", "task2")
 
 
 @dataclass(frozen=True)
@@ -56,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Compute clip-duration statistics for full GestaltBench data, task2 "
-            "manipulation data, and task1 task-JSON-selected videos."
+            "manipulation data, and task1 annotation-selected videos."
         )
     )
     parser.add_argument(
@@ -78,10 +81,10 @@ def parse_args() -> argparse.Namespace:
         help="Task1 root where output files are written.",
     )
     parser.add_argument(
-        "--task1-json",
+        "--task1-annotation-dir",
         type=Path,
         required=True,
-        help="Task1 JSON file or directory containing task1.json/task1_b*.json.",
+        help="Task1 annotation directory containing T1*.json files.",
     )
     parser.add_argument(
         "--task1-local-prefix",
@@ -108,7 +111,23 @@ def parse_args() -> argparse.Namespace:
         default="ffprobe",
         help="ffprobe executable path. Default: ffprobe.",
     )
+    parser.add_argument(
+        "--stat-source",
+        action="append",
+        choices=(*STAT_SOURCES, "all"),
+        default=[],
+        help=(
+            "Which source to summarize. May be passed multiple times. "
+            "Choices: full, task1, task2, all. Default: all."
+        ),
+    )
     return parser.parse_args()
+
+
+def resolve_stat_sources(values: list[str]) -> set[str]:
+    if not values or "all" in values:
+        return set(STAT_SOURCES)
+    return set(values)
 
 
 def iter_video_files(root: Path) -> Iterable[Path]:
@@ -249,22 +268,6 @@ def collect_context_videos(root: Path) -> list[VideoRecord]:
     return keep_largest_clip_per_group(records)
 
 
-def resolve_task1_json_paths(task_json: Path) -> list[Path]:
-    source = task_json.expanduser().resolve()
-    if source.is_file():
-        return [source]
-    if not source.is_dir():
-        raise FileNotFoundError(f"Task1 JSON path does not exist: {source}")
-
-    paths = sorted(source.glob("task1_b*.json"))
-    fallback = source / "task1.json"
-    if fallback.is_file():
-        paths.append(fallback)
-    if not paths:
-        raise FileNotFoundError(f"No task1*.json files found under {source}")
-    return paths
-
-
 def rebase_media_path(
     media_path: str,
     media_url_prefixes: list[str],
@@ -290,33 +293,62 @@ def rebase_media_path(
     return Path(text)
 
 
-def collect_task1_videos(
-    task_json: Path,
+def collect_task1_videos_from_annotations(
+    annotation_dir: Path,
     media_url_prefixes: list[str],
     local_prefix: Path,
 ) -> tuple[list[VideoRecord], list[str]]:
     records: list[VideoRecord] = []
     warnings: list[str] = []
+    seen_paths: set[str] = set()
 
-    for json_path in resolve_task1_json_paths(task_json):
-        task_items = normalize_task_payload(load_json(json_path))
-        for task_instance_id in range(len(task_items)):
+    annotation_files = find_annotation_jsons(annotation_dir, task_number=1)
+    if not annotation_files:
+        warnings.append(f"No task1 annotation JSON files found under {annotation_dir}")
+
+    for annotation_file in annotation_files:
+        try:
+            payload = get_dict(load_json(annotation_file.path), annotation_file.path.name)
+        except Exception as exc:
+            warnings.append(f"{annotation_file.path.name}: {exc}")
+            continue
+
+        for annotator_number in (1, 2):
             try:
-                video_paths, _audio_paths = flatten_task_media_lists(
-                    task_items,
-                    task_instance_id,
+                rows = parse_annotation_file_for_annotator(
+                    payload=payload,
+                    task_number=annotation_file.task_number,
+                    task_instance_id=annotation_file.task_instance_id,
+                    annotator_number=annotator_number,
+                    path=annotation_file.path,
                 )
-            except ValueError as exc:
+            except Exception as exc:
                 warnings.append(
-                    f"{json_path.name} instance {task_instance_id}: {exc}"
+                    f"{annotation_file.path.name} annotator {annotator_number}: {exc}"
                 )
                 continue
 
-            for media_path in video_paths:
+            for row_index, row in enumerate(rows, start=1):
+                speaker_text = str(row.get("speaker_intention") or "").strip()
+                response_text = str(row.get("response") or "").strip()
+                if not speaker_text and not response_text:
+                    warnings.append(
+                        f"{annotation_file.path.name} annotator {annotator_number} "
+                        f"row {row_index}: missing annotation text"
+                    )
+                    continue
+                media_path = str(row.get("video_path") or "").strip()
+                if not media_path:
+                    warnings.append(
+                        f"{annotation_file.path.name} annotator {annotator_number} "
+                        f"row {row_index}: missing annotation video_path"
+                    )
+                    continue
                 parsed = parse_task1_video_path(media_path)
                 if parsed is None:
                     warnings.append(
-                        f"{json_path.name} instance {task_instance_id}: "
+                        f"{annotation_file.path.name} annotator {annotator_number} "
+                        f"row {row_index}: "
                         f"could not infer dataset/utt from {media_path}"
                     )
                     continue
@@ -330,7 +362,8 @@ def collect_task1_videos(
                 group_id = task1_group_id(media_path)
                 if parsed_clip is None or group_id is None:
                     warnings.append(
-                        f"{json_path.name} instance {task_instance_id}: "
+                        f"{annotation_file.path.name} annotator {annotator_number} "
+                        f"row {row_index}: "
                         f"could not infer clip group/index from {media_path}"
                     )
                     continue
@@ -340,6 +373,10 @@ def collect_task1_videos(
                     media_url_prefixes=media_url_prefixes,
                     local_prefix=local_prefix,
                 ).expanduser()
+                path_key = str(local_path)
+                if path_key in seen_paths:
+                    continue
+                seen_paths.add(path_key)
                 records.append(
                     VideoRecord(
                         dataset=dataset,
@@ -350,7 +387,16 @@ def collect_task1_videos(
                     )
                 )
 
-    return keep_largest_clip_per_group(records), warnings
+    return sorted(
+        records,
+        key=lambda record: (
+            record.dataset,
+            record.utt_count,
+            record.group_id,
+            record.clip_index,
+            str(record.path),
+        ),
+    ), warnings
 
 
 def probe_duration(path: Path, ffprobe: str) -> float:
@@ -426,6 +472,7 @@ def summarize_records(
     ffprobe: str,
     source_root: Path,
     warnings: list[str] | None = None,
+    stat_unit: str = "one duration per video group, using the largest clip index",
 ) -> dict[str, Any]:
     duration_records: list[DurationRecord] = []
     failures: list[dict[str, str]] = []
@@ -481,7 +528,7 @@ def summarize_records(
     return {
         "source": dataset_name,
         "source_root": str(source_root),
-        "stat_unit": "one duration per video group, using the largest clip index",
+        "stat_unit": stat_unit,
         "input_video_count": len(records),
         "valid_video_count": len(duration_records),
         "failed_video_count": len(failures),
@@ -603,43 +650,50 @@ def main() -> None:
     task2_root = args.task2_root.expanduser().resolve()
     task1_root = args.task1_root.expanduser().resolve()
     task1_local_prefix = args.task1_local_prefix.expanduser().resolve()
+    stat_sources = resolve_stat_sources(args.stat_source)
 
-    if not full_root.is_dir():
+    if "full" in stat_sources and not full_root.is_dir():
         raise FileNotFoundError(f"Full root does not exist: {full_root}")
-    if not task2_root.is_dir():
+    if "task2" in stat_sources and not task2_root.is_dir():
         raise FileNotFoundError(f"Task2 root does not exist: {task2_root}")
-    if not args.task1_json.exists():
-        raise FileNotFoundError(f"Task1 JSON path does not exist: {args.task1_json}")
+    if "task1" in stat_sources and not args.task1_annotation_dir.is_dir():
+        raise FileNotFoundError(
+            f"Task1 annotation directory does not exist: {args.task1_annotation_dir}"
+        )
 
-    full_payload = summarize_records(
-        dataset_name="full",
-        records=collect_context_videos(full_root),
-        ffprobe=args.ffprobe,
-        source_root=full_root,
-    )
-    write_outputs(full_root, args.output_name, full_payload)
+    if "full" in stat_sources:
+        full_payload = summarize_records(
+            dataset_name="full",
+            records=collect_context_videos(full_root),
+            ffprobe=args.ffprobe,
+            source_root=full_root,
+        )
+        write_outputs(full_root, args.output_name, full_payload)
 
-    task2_payload = summarize_records(
-        dataset_name="task2_manipulation_full",
-        records=collect_context_videos(task2_root),
-        ffprobe=args.ffprobe,
-        source_root=task2_root,
-    )
-    write_outputs(task2_root, args.output_name, task2_payload)
+    if "task2" in stat_sources:
+        task2_payload = summarize_records(
+            dataset_name="task2_manipulation_full",
+            records=collect_context_videos(task2_root),
+            ffprobe=args.ffprobe,
+            source_root=task2_root,
+        )
+        write_outputs(task2_root, args.output_name, task2_payload)
 
-    task1_records, task1_warnings = collect_task1_videos(
-        task_json=args.task1_json,
-        media_url_prefixes=args.media_url_prefix,
-        local_prefix=task1_local_prefix,
-    )
-    task1_payload = summarize_records(
-        dataset_name="task1",
-        records=task1_records,
-        ffprobe=args.ffprobe,
-        source_root=args.task1_json.expanduser().resolve(),
-        warnings=task1_warnings,
-    )
-    write_outputs(task1_root, args.output_name, task1_payload)
+    if "task1" in stat_sources:
+        task1_records, task1_warnings = collect_task1_videos_from_annotations(
+            annotation_dir=args.task1_annotation_dir.expanduser().resolve(),
+            media_url_prefixes=args.media_url_prefix,
+            local_prefix=task1_local_prefix,
+        )
+        task1_payload = summarize_records(
+            dataset_name="task1",
+            records=task1_records,
+            ffprobe=args.ffprobe,
+            source_root=args.task1_annotation_dir.expanduser().resolve(),
+            warnings=task1_warnings,
+            stat_unit="one duration per unique video path from valid task1 annotations",
+        )
+        write_outputs(task1_root, args.output_name, task1_payload)
 
 
 if __name__ == "__main__":

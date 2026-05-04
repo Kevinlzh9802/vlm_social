@@ -329,6 +329,8 @@ def parse_annotation_file_for_annotator(
                 "category": annotation.get("category"),
                 "speaker_intention": press_data.get("speaker_intention"),
                 "response": press_data.get("response"),
+                "video_path": press_data.get("video_path"),
+                "audio_path": press_data.get("audio_path"),
                 "source_file": str(path.resolve()),
             }
         )
