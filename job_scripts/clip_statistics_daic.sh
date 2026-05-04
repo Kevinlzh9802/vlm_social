@@ -13,7 +13,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="/home/nfs/zli33/projects/vlm_social"
-SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/analysis.sif"
+SIF_PATH="/tudelft.net/staff-umbrella/neon/apptainer/eyetrack.sif"
 DEFAULT_DATA_ROOT="/tudelft.net/staff-umbrella/neon/zonghuan/data/gestalt_bench"
 DEFAULT_FULL_ROOT="${DEFAULT_DATA_ROOT}"
 DEFAULT_TASK2_ROOT="${DEFAULT_DATA_ROOT}/human_eval/task2/manipulation_full/data"
@@ -103,7 +103,7 @@ done
 
 if [[ ! -f "${SIF_PATH}" ]]; then
     echo "Missing Apptainer image: ${SIF_PATH}" >&2
-    echo "Build or copy it from ${PROJECT_ROOT}/apptainer/analysis.def first." >&2
+    echo "Build or copy it from ${PROJECT_ROOT}/apptainer/eyetrack.def first." >&2
     exit 1
 fi
 
