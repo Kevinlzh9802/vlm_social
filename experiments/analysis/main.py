@@ -31,6 +31,18 @@ UTT_GROUP_PATTERN = re.compile(r"^(?P<size>[123])-utt_group$")
 MODEL_SIZE_PATTERN = re.compile(r"(?P<size>\d+[Bb])(?:[_-]|$)")
 DEFAULT_PROGRESS_PARTITIONS = 20
 DEFAULT_MIN_BIN_SAMPLES = 5
+PFS_TASK_QUESTION_LABELS = {
+    "intention": "Q_1",
+    "affordance": "Q_2",
+}
+PFS_TITLE_FONT_SIZE = 20
+PFS_AXIS_LABEL_FONT_SIZE = 17
+PFS_TICK_LABEL_FONT_SIZE = 14
+PFS_LEGEND_FONT_SIZE = 13
+STR_TITLE_FONT_SIZE = 20
+STR_AXIS_LABEL_FONT_SIZE = 17
+STR_TICK_LABEL_FONT_SIZE = 14
+STR_LEGEND_FONT_SIZE = 13
 
 
 def parse_args() -> argparse.Namespace:
@@ -397,6 +409,20 @@ def resolve_mean_variant(
     if sigma_multiplier == 2:
         return "_2sigma", "Mean +/- 2 sigma"
     raise ValueError(f"Unsupported sigma multiplier: {sigma_multiplier}")
+
+
+def format_pfs_plot_title(task_name: str, stat_name: str, percentile: int | None) -> str:
+    question_label = PFS_TASK_QUESTION_LABELS.get(task_name, task_name)
+    if stat_name == "mean":
+        return f"Mean PFS for ${question_label}$"
+    if stat_name == "percentile" and percentile is not None:
+        return f"p{percentile} PFS for ${question_label}$"
+    raise ValueError(f"Unsupported PFS stat_name={stat_name} percentile={percentile}")
+
+
+def format_str_plot_title(task_name: str) -> str:
+    question_label = PFS_TASK_QUESTION_LABELS.get(task_name, task_name)
+    return f"Average STR for ${question_label}$"
 
 
 def plot_line_with_optional_error_bars(
@@ -826,16 +852,12 @@ def plot_combined_human_model_partial_to_full_lines(
     percentile: int | None = None,
     sigma_multiplier: float | None = None,
 ) -> bool:
-    plt.figure(figsize=(9, 6))
+    plt.figure(figsize=(10, 7))
     plotted_any = False
     color_map = plt.cm.get_cmap("tab10")
     if stat_name == "mean":
-        _, title_suffix = resolve_mean_variant(sigma_multiplier)
-        ylabel = "Average cosine similarity to full clip"
         legend_suffix = "mean"
     elif stat_name == "percentile" and percentile is not None:
-        title_suffix = f"p{percentile}"
-        ylabel = f"{percentile}th percentile cosine similarity to full clip"
         legend_suffix = f"p{percentile}"
     else:
         raise ValueError(f"Unsupported stat_name={stat_name} percentile={percentile}")
@@ -943,14 +965,24 @@ def plot_combined_human_model_partial_to_full_lines(
         return False
 
     plt.title(
-        f"Human and Model Partial-to-Full Similarity | {utt_group_size}-utt | {task_name} | {title_suffix}"
+        format_pfs_plot_title(
+            task_name=task_name,
+            stat_name=stat_name,
+            percentile=percentile,
+        ),
+        fontsize=PFS_TITLE_FONT_SIZE,
     )
-    plt.xlabel(f"Observed clip ratio (rounded to nearest 1/{progress_partitions})")
-    plt.ylabel(ylabel)
+    plt.xlabel(
+        f"Observed clip ratio (k/n, rounded to nearest 1/{progress_partitions})",
+        fontsize=PFS_AXIS_LABEL_FONT_SIZE,
+    )
+    plt.ylabel("PFS", fontsize=PFS_AXIS_LABEL_FONT_SIZE)
     plt.xlim(0.0, 1.02)
     plt.ylim(-0.05, 1.05)
     plt.grid(True, alpha=0.25)
-    plt.legend()
+    plt.xticks(fontsize=PFS_TICK_LABEL_FONT_SIZE)
+    plt.yticks(fontsize=PFS_TICK_LABEL_FONT_SIZE)
+    plt.legend(loc="lower right", fontsize=PFS_LEGEND_FONT_SIZE)
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
     plt.close()
@@ -1049,9 +1081,8 @@ def plot_combined_st_threshold_lines(
     human_case_metrics: Sequence[UtteranceMetrics] | None = None,
     sigma_multiplier: float | None = None,
 ) -> bool:
-    plt.figure(figsize=(9, 6))
+    plt.figure(figsize=(10, 7))
     plotted_any = False
-    includes_human = human_case_metrics is not None
 
     for model_label in sorted(case_metrics):
         model_metrics = case_metrics[model_label]
@@ -1129,18 +1160,14 @@ def plot_combined_st_threshold_lines(
         )
         return False
 
-    title_prefix = (
-        "Human and Model Average ST/Clip Count vs Threshold"
-        if includes_human
-        else "Average ST/Clip Count vs Threshold"
-    )
-    _, mean_title = resolve_mean_variant(sigma_multiplier)
-    plt.title(f"{title_prefix} | {utt_group_size}-utt | {task_name} | {mean_title}")
-    plt.xlabel("Threshold t")
-    plt.ylabel("Average(ST / number of clips)")
+    plt.title(format_str_plot_title(task_name), fontsize=STR_TITLE_FONT_SIZE)
+    plt.xlabel("Threshold t", fontsize=STR_AXIS_LABEL_FONT_SIZE)
+    plt.ylabel("Average STR", fontsize=STR_AXIS_LABEL_FONT_SIZE)
     plt.ylim(-0.05, 1.05)
     plt.grid(True, alpha=0.25)
-    plt.legend()
+    plt.xticks(fontsize=STR_TICK_LABEL_FONT_SIZE)
+    plt.yticks(fontsize=STR_TICK_LABEL_FONT_SIZE)
+    plt.legend(loc="upper left", fontsize=STR_LEGEND_FONT_SIZE)
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
     plt.close()

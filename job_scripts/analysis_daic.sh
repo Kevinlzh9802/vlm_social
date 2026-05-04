@@ -28,7 +28,7 @@ DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--gemma-results-root PATH] [--skip-gemini] [--skip-gemma] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--save-plot-data] [--plot-data-dir PATH] [--from-plot-data PATH] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--gemma-results-root PATH] [--skip-gemini] [--skip-gemma] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--save-plot-data] [--plot-data-dir PATH] [--from-plot-data [PATH]] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
     echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
     echo "  gemma-results-root: Gemma 4 result tree from gemma_daic.sh (default: ${DEFAULT_GEMMA_RESULTS_ROOT})" >&2
@@ -104,8 +104,13 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --from-plot-data)
-            FROM_PLOT_DATA="${2:?Missing value for --from-plot-data}"
-            shift 2
+            if [[ $# -ge 2 && "$2" != --* ]]; then
+                FROM_PLOT_DATA="$2"
+                shift 2
+            else
+                FROM_PLOT_DATA="${DEFAULT_PLOT_DATA_JSON}"
+                shift
+            fi
             ;;
         --model)
             MODEL="${2:?Missing value for --model}"
