@@ -463,9 +463,9 @@ def plot_line_with_optional_error_bars(
     **plot_kwargs: object,
 ) -> None:
     x_offset = float(plot_kwargs.pop("x_offset", 0.0))
-    error_color = plot_kwargs.pop("error_color", plot_kwargs.get("color"))
+    plot_kwargs.pop("error_color", None)
     plotted_x_values = offset_x_values(x_values, x_offset)
-    plt.plot(plotted_x_values, y_values, **plot_kwargs)
+    (line,) = plt.plot(plotted_x_values, y_values, **plot_kwargs)
     if sigma_multiplier is None or std_values is None:
         return
 
@@ -475,7 +475,7 @@ def plot_line_with_optional_error_bars(
         y_values,
         yerr=yerr,
         fmt="none",
-        ecolor=error_color,
+        ecolor=line.get_color(),
         capsize=3,
         elinewidth=1.1,
     )
