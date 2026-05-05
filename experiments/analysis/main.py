@@ -147,6 +147,15 @@ def parse_args() -> argparse.Namespace:
             "reading result JSON files or embedding text."
         ),
     )
+    parser.add_argument(
+        "--plots-root",
+        type=Path,
+        default=None,
+        help=(
+            "Directory for plot outputs. Defaults to the resolved results-root "
+            "plot directory, or the plots_root stored in --from-plot-data."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -2424,8 +2433,13 @@ def main() -> None:
             human_annotation_turnover_metrics,
             human_annotation_turnover_metrics_by_dataset,
         ) = load_analysis_plot_data(args.from_plot_data)
+        if args.plots_root is not None:
+            plots_root = args.plots_root.expanduser().resolve()
         plots_root.mkdir(parents=True, exist_ok=True)
-        print(f"[INFO] Regenerating combined plots from {args.from_plot_data}")
+        print(
+            f"[INFO] Regenerating combined plots from {args.from_plot_data} "
+            f"into {plots_root}"
+        )
         generate_combined_outputs(
             plots_root=plots_root,
             combined_case_metrics=combined_case_metrics,
@@ -2449,6 +2463,8 @@ def main() -> None:
         args.additional_results_root
     )
     plots_root = resolve_plots_root(results_root)
+    if args.plots_root is not None:
+        plots_root = args.plots_root.expanduser().resolve()
     plots_root.mkdir(parents=True, exist_ok=True)
     plot_data_dir = (
         args.plot_data_dir.expanduser().resolve()
