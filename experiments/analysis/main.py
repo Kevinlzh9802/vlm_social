@@ -2211,10 +2211,7 @@ def generate_per_dataset_combined_outputs(
                 ):
                     continue
 
-                if (
-                    human_annotation_summary_by_dataset is not None
-                    and dataset_name in human_annotation_summary_by_dataset
-                ):
+                if case_metrics or human_case_summary or human_case_turnover_metrics:
                     for percentile in (25, 50, 75):
                         human_model_output_path = (
                             output_dir
@@ -2440,6 +2437,25 @@ def main() -> None:
             f"[INFO] Regenerating combined plots from {args.from_plot_data} "
             f"into {plots_root}"
         )
+        if dataset_case_metrics:
+            print(
+                "[INFO] Loaded per-dataset plot data for datasets: "
+                f"{', '.join(sorted(dataset_case_metrics))}"
+            )
+        else:
+            print(
+                "[WARN] Saved plot data has no dataset_cases entries; "
+                "per-dataset plots cannot be regenerated from this cache. "
+                "Regenerate the cache without --from-plot-data and with "
+                "--save-plot-data."
+            )
+        if human_annotation_summary is not None and not human_annotation_summary_by_dataset:
+            print(
+                "[WARN] Saved plot data has aggregate human annotation rows but "
+                "no per-dataset human annotation rows. Per-dataset PFS plots "
+                "will still be written from model data, but without per-dataset "
+                "human annotation overlays."
+            )
         generate_combined_outputs(
             plots_root=plots_root,
             combined_case_metrics=combined_case_metrics,

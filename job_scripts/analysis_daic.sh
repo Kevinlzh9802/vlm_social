@@ -21,7 +21,7 @@ DEFAULT_GEMMA_RESULTS_ROOT="${DEFAULT_RESULTS_ROOT}/gemma-4-e4b"
 DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_percentiles.csv"
 DEFAULT_HUMAN_ANNOTATION_POINTS_CSV="${DEFAULT_DATA_ROOT}/human_eval/task1/plot_data/partial_to_full_points.csv"
 DEFAULT_PLOTS_ROOT="${DEFAULT_RESULTS_ROOT}/plots"
-DEFAULT_PLOT_DATA_DIR="${DEFAULT_DATA_ROOT}/plots/plot_data"
+DEFAULT_PLOT_DATA_DIR="${DEFAULT_PLOTS_ROOT}/plot_data"
 DEFAULT_PLOT_DATA_JSON="${DEFAULT_PLOT_DATA_DIR}/analysis_plot_data.json"
 DEFAULT_MODEL="all-MiniLM-L6-v2"
 DEFAULT_MODEL_PATH=""
@@ -29,7 +29,7 @@ DEFAULT_THRESHOLDS=("0.3" "0.5" "0.7" "0.9")
 
 usage() {
     echo "Usage:" >&2
-    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--gemma-results-root PATH] [--skip-gemini] [--skip-gemma] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--save-plot-data] [--plots-root PATH] [--plot-data-dir PATH] [--from-plot-data [PATH]] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
+    echo "  sbatch $0 [--results-root PATH] [--gemini-results-root PATH] [--gemma-results-root PATH] [--skip-gemini] [--skip-gemma] [--human-annotation-summary-csv PATH] [--skip-human-overlay] [--no-save-plot-data] [--plots-root PATH] [--plot-data-dir PATH] [--from-plot-data [PATH]] [--model MODEL_NAME] [--model-path PATH] [--turnover-thresholds T1 T2 ...] [--progress-partitions N] [--with-scatter]" >&2
     echo "  results-root: path to the parent results folder (default: ${DEFAULT_RESULTS_ROOT})" >&2
     echo "  gemini-results-root: Gemini result tree from gemini_retrieve_daic.sh (default: ${DEFAULT_GEMINI_RESULTS_ROOT})" >&2
     echo "  gemma-results-root: Gemma 4 result tree from gemma_daic.sh (default: ${DEFAULT_GEMMA_RESULTS_ROOT})" >&2
@@ -37,7 +37,7 @@ usage() {
     echo "  --skip-gemma: do not include Gemma 4 results when --results-root does not already include them" >&2
     echo "  human-annotation-summary-csv: partial_to_full_percentiles.csv from human_annotation_similarity.py (default: ${DEFAULT_HUMAN_ANNOTATION_SUMMARY_CSV}); the sibling partial_to_full_points.csv is also required for human ST overlay" >&2
     echo "  --skip-human-overlay: generate model-only aggregate plots without human annotation overlays" >&2
-    echo "  --save-plot-data: save numeric plot data after embedding so plots can be regenerated without re-embedding" >&2
+    echo "  --no-save-plot-data: do not save numeric plot data after embedding (default: save plot data)" >&2
     echo "  plots-root: output folder for generated plots (default: ${DEFAULT_PLOTS_ROOT})" >&2
     echo "  plot-data-dir: output folder for --save-plot-data (default: ${DEFAULT_PLOT_DATA_DIR})" >&2
     echo "  from-plot-data: regenerate aggregate plots from a saved analysis_plot_data.json and skip embedding (default cache path: ${DEFAULT_PLOT_DATA_JSON})" >&2
@@ -66,7 +66,7 @@ NO_SCATTER=1
 SKIP_HUMAN_OVERLAY=0
 SKIP_GEMINI=0
 SKIP_GEMMA=0
-SAVE_PLOT_DATA=0
+SAVE_PLOT_DATA=1
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -100,6 +100,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --save-plot-data)
             SAVE_PLOT_DATA=1
+            shift
+            ;;
+        --no-save-plot-data)
+            SAVE_PLOT_DATA=0
             shift
             ;;
         --plots-root)
