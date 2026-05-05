@@ -32,15 +32,6 @@ MODEL_SIZE_PATTERN = re.compile(r"(?P<size>\d+[Bb])(?:[_-]|$)")
 DEFAULT_PROGRESS_PARTITIONS = 20
 DEFAULT_MIN_BIN_SAMPLES = 5
 ERROR_BAR_OFFSET_FRACTION = 0.12
-ERROR_BAR_COLORS = (
-    "#6B7280",
-    "#A855F7",
-    "#F97316",
-    "#0891B2",
-    "#84CC16",
-    "#DB2777",
-    "#0F766E",
-)
 PFS_TASK_QUESTION_LABELS = {
     "intention": "Q_1",
     "affordance": "Q_2",
@@ -462,10 +453,6 @@ def min_positive_x_step(x_values: Sequence[float]) -> float:
         if next_value > current_value
     ]
     return min(steps) if steps else 1.0
-
-
-def error_bar_color(series_index: int) -> str:
-    return ERROR_BAR_COLORS[series_index % len(ERROR_BAR_COLORS)]
 
 
 def plot_line_with_optional_error_bars(
@@ -1016,7 +1003,6 @@ def plot_combined_clip_to_final_mean_lines(
             std_values,
             sigma_multiplier,
             color=color_map(model_index % 10),
-            error_color=error_bar_color(model_index),
             x_offset=compute_series_x_offset(
                 model_index,
                 len(model_labels),
@@ -1107,7 +1093,6 @@ def plot_combined_human_model_partial_to_full_lines(
             std_values,
             sigma_multiplier if stat_name == "mean" else None,
             color=color_map(model_index % 10),
-            error_color=error_bar_color(model_index),
             x_offset=compute_series_x_offset(
                 model_index,
                 series_count,
@@ -1144,7 +1129,6 @@ def plot_combined_human_model_partial_to_full_lines(
                 std_values,
                 sigma_multiplier if stat_name == "mean" else None,
                 color="#111111",
-                error_color="#666666",
                 x_offset=compute_series_x_offset(
                     len(model_labels),
                     series_count,
@@ -1173,7 +1157,6 @@ def plot_combined_human_model_partial_to_full_lines(
                 None,
                 None,
                 color="#111111",
-                error_color="#666666",
                 linestyle="--",
                 marker="s",
                 linewidth=2.2,
@@ -1355,7 +1338,6 @@ def plot_combined_st_threshold_lines(
             std_values,
             sigma_multiplier,
             color=color_map(model_index % 10),
-            error_color=error_bar_color(model_index),
             x_offset=compute_series_x_offset(
                 model_index,
                 series_count,
@@ -1390,7 +1372,6 @@ def plot_combined_st_threshold_lines(
                 human_std_values,
                 sigma_multiplier,
                 color="#111111",
-                error_color="#666666",
                 x_offset=compute_series_x_offset(
                     len(model_labels),
                     series_count,
