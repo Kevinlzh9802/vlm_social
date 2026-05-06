@@ -31,7 +31,8 @@ UTT_GROUP_PATTERN = re.compile(r"^(?P<size>[123])-utt_group$")
 MODEL_SIZE_PATTERN = re.compile(r"(?P<size>\d+[Bb])(?:[_-]|$)")
 DEFAULT_PROGRESS_PARTITIONS = 20
 DEFAULT_MIN_BIN_SAMPLES = 5
-ERROR_BAR_OFFSET_FRACTION = 0.12
+PFS_ERROR_BAR_OFFSET_FRACTION = 0.12
+STR_ERROR_BAR_OFFSET_FRACTION = 0.08
 PFS_TASK_QUESTION_LABELS = {
     "intention": "Q_1",
     "affordance": "Q_2",
@@ -421,18 +422,30 @@ def resolve_mean_variant(
     raise ValueError(f"Unsupported sigma multiplier: {sigma_multiplier}")
 
 
-def format_pfs_plot_title(task_name: str, stat_name: str, percentile: int | None) -> str:
+def format_pfs_plot_title(
+    task_name: str,
+    stat_name: str,
+    percentile: int | None,
+    dataset_name: str | None = None,
+) -> str:
     question_label = PFS_TASK_QUESTION_LABELS.get(task_name, task_name)
     if stat_name == "mean":
-        return f"Mean PFS for ${question_label}$"
-    if stat_name == "percentile" and percentile is not None:
-        return f"p{percentile} PFS for ${question_label}$"
-    raise ValueError(f"Unsupported PFS stat_name={stat_name} percentile={percentile}")
+        title = f"Mean PFS for ${question_label}$"
+    elif stat_name == "percentile" and percentile is not None:
+        title = f"p{percentile} PFS for ${question_label}$"
+    else:
+        raise ValueError(f"Unsupported PFS stat_name={stat_name} percentile={percentile}")
+    if dataset_name is not None:
+        return f"{title} | {dataset_name}"
+    return title
 
 
-def format_str_plot_title(task_name: str) -> str:
+def format_str_plot_title(task_name: str, dataset_name: str | None = None) -> str:
     question_label = PFS_TASK_QUESTION_LABELS.get(task_name, task_name)
-    return f"Average STR for ${question_label}$"
+    title = f"Average STR for ${question_label}$"
+    if dataset_name is not None:
+        return f"{title} | {dataset_name}"
+    return title
 
 
 def compute_series_x_offset(
@@ -440,12 +453,13 @@ def compute_series_x_offset(
     series_count: int,
     x_step: float,
     sigma_multiplier: float | None,
+    offset_fraction: float,
 ) -> float:
     if sigma_multiplier is None or series_count <= 1:
         return 0.0
     return (
         series_index - (series_count - 1) / 2
-    ) * x_step * ERROR_BAR_OFFSET_FRACTION
+    ) * x_step * offset_fraction
 
 
 def offset_x_values(x_values: Sequence[float], x_offset: float) -> list[float]:
@@ -1017,6 +1031,7 @@ def plot_combined_clip_to_final_mean_lines(
                 len(model_labels),
                 pfs_x_step,
                 sigma_multiplier,
+                PFS_ERROR_BAR_OFFSET_FRACTION,
             ),
             marker="o",
             linewidth=1.8,
@@ -1059,6 +1074,7 @@ def plot_combined_human_model_partial_to_full_lines(
     output_path: Path,
     percentile: int | None = None,
     sigma_multiplier: float | None = None,
+    dataset_name: str | None = None,
 ) -> bool:
     plt.figure(figsize=(10, 7))
     plotted_any = False
@@ -1107,6 +1123,7 @@ def plot_combined_human_model_partial_to_full_lines(
                 series_count,
                 pfs_x_step,
                 sigma_multiplier if stat_name == "mean" else None,
+                PFS_ERROR_BAR_OFFSET_FRACTION,
             ),
             marker="o",
             linewidth=1.8,
@@ -1143,6 +1160,7 @@ def plot_combined_human_model_partial_to_full_lines(
                     series_count,
                     pfs_x_step,
                     sigma_multiplier if stat_name == "mean" else None,
+                    PFS_ERROR_BAR_OFFSET_FRACTION,
                 ),
                 linestyle="--",
                 marker="s",
@@ -1191,6 +1209,7 @@ def plot_combined_human_model_partial_to_full_lines(
             task_name=task_name,
             stat_name=stat_name,
             percentile=percentile,
+            dataset_name=dataset_name,
         ),
         fontsize=PFS_TITLE_FONT_SIZE,
     )
@@ -1310,6 +1329,7 @@ def plot_combined_st_threshold_lines(
     output_path: Path,
     human_case_metrics: Sequence[UtteranceMetrics] | None = None,
     sigma_multiplier: float | None = None,
+    dataset_name: str | None = None,
 ) -> bool:
     plt.figure(figsize=(10, 7))
     plotted_any = False
@@ -1352,6 +1372,7 @@ def plot_combined_st_threshold_lines(
                 series_count,
                 threshold_x_step,
                 sigma_multiplier,
+                STR_ERROR_BAR_OFFSET_FRACTION,
             ),
             marker="o",
             linewidth=1.8,
@@ -1386,6 +1407,7 @@ def plot_combined_st_threshold_lines(
                     series_count,
                     threshold_x_step,
                     sigma_multiplier,
+                    STR_ERROR_BAR_OFFSET_FRACTION,
                 ),
                 linestyle="--",
                 marker="s",
@@ -1407,7 +1429,10 @@ def plot_combined_st_threshold_lines(
         )
         return False
 
-    plt.title(format_str_plot_title(task_name), fontsize=STR_TITLE_FONT_SIZE)
+    plt.title(
+        format_str_plot_title(task_name, dataset_name=dataset_name),
+        fontsize=STR_TITLE_FONT_SIZE,
+    )
     plt.xlabel("Threshold t", fontsize=STR_AXIS_LABEL_FONT_SIZE)
     plt.ylabel("Average STR", fontsize=STR_AXIS_LABEL_FONT_SIZE)
     plt.ylim(-0.05, 1.05)
@@ -2227,6 +2252,7 @@ def generate_per_dataset_combined_outputs(
                             task_name=task_name,
                             progress_partitions=progress_partitions,
                             output_path=human_model_output_path,
+                            dataset_name=dataset_name,
                         ):
                             print(f"[INFO] Saved {human_model_output_path}")
 
@@ -2244,6 +2270,7 @@ def generate_per_dataset_combined_outputs(
                         progress_partitions=progress_partitions,
                         output_path=human_model_mean_output_path,
                         sigma_multiplier=None,
+                        dataset_name=dataset_name,
                     ):
                         print(f"[INFO] Saved {human_model_mean_output_path}")
 
@@ -2263,6 +2290,7 @@ def generate_per_dataset_combined_outputs(
                             progress_partitions=progress_partitions,
                             output_path=human_model_sigma_output_path,
                             sigma_multiplier=sigma_multiplier,
+                            dataset_name=dataset_name,
                         ):
                             print(f"[INFO] Saved {human_model_sigma_output_path}")
 
@@ -2277,6 +2305,7 @@ def generate_per_dataset_combined_outputs(
                     output_path=st_output_path,
                     human_case_metrics=human_case_turnover_metrics,
                     sigma_multiplier=None,
+                    dataset_name=dataset_name,
                 ):
                     print(f"[INFO] Saved {st_output_path}")
 
@@ -2294,6 +2323,7 @@ def generate_per_dataset_combined_outputs(
                         output_path=st_sigma_output_path,
                         human_case_metrics=human_case_turnover_metrics,
                         sigma_multiplier=sigma_multiplier,
+                        dataset_name=dataset_name,
                     ):
                         print(f"[INFO] Saved {st_sigma_output_path}")
 
