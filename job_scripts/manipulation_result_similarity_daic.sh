@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="manip_result_sim"
-#SBATCH --time=00:15:00
+#SBATCH --time=00:30:00
 #SBATCH --partition=insy,general
 #SBATCH --qos=short
 #SBATCH --ntasks=1
