@@ -613,6 +613,12 @@ def format_mean_std_err(mean_value: object, std_err_value: object) -> str:
     return f"{float(mean_value):.3f} ± {float(std_err_value):.3f}"
 
 
+def format_ratio_from_means(numerator: float, denominator: float) -> str:
+    if abs(denominator) <= RATIO_EPSILON:
+        return ""
+    return f"{(numerator / denominator):.3f}"
+
+
 def build_table_rows(summary_rows: Sequence[dict[str, object]]) -> list[dict[str, object]]:
     summary_map = {
         (
@@ -639,14 +645,21 @@ def build_table_rows(summary_rows: Sequence[dict[str, object]]) -> list[dict[str
             "model": model_label,
         }
         for audio_condition in ("with_audio", "no_audio"):
-            for metric_name in ("HCS", "NHCS", "r_H"):
-                summary_row = summary_map.get(
-                    (model_label, prompt_name, audio_condition, metric_name)
+            hcs_row = summary_map.get((model_label, prompt_name, audio_condition, "HCS"))
+            nhcs_row = summary_map.get((model_label, prompt_name, audio_condition, "NHCS"))
+            row[f"{audio_condition}_HCS"] = (
+                str(hcs_row["formatted_value"]) if hcs_row is not None else ""
+            )
+            row[f"{audio_condition}_NHCS"] = (
+                str(nhcs_row["formatted_value"]) if nhcs_row is not None else ""
+            )
+            if hcs_row is not None and nhcs_row is not None:
+                row[f"{audio_condition}_r_H"] = format_ratio_from_means(
+                    float(hcs_row["mean_value"]),
+                    float(nhcs_row["mean_value"]),
                 )
-                field_name = f"{audio_condition}_{metric_name}"
-                row[field_name] = (
-                    str(summary_row["formatted_value"]) if summary_row is not None else ""
-                )
+            else:
+                row[f"{audio_condition}_r_H"] = ""
         rows.append(row)
     return rows
 
