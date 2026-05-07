@@ -883,6 +883,17 @@ def main() -> None:
             build_table_rows(metric_overall_rows),
         )
     )
+    utt_1_rows = [
+        row
+        for row in metric_utt_rows
+        if int(row["utt_count"]) == 1
+    ]
+    table_specs.append(
+        (
+            table_path_stem("1utt", "all_datasets"),
+            build_table_rows(utt_1_rows),
+        )
+    )
     for dataset_name in DATASET_NAMES:
         dataset_rows = [
             row
