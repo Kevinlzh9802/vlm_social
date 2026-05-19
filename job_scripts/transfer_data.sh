@@ -10,4 +10,8 @@
 #SBATCH --output=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.out
 #SBATCH --error=/home/nfs/zli33/slurm_outputs/vlm_social/slurm_%j.err
 
-cp -r /tudelft.net/staff-umbrella/neon/zonghuan /tudelft.net/staff-umbrella/GesBench
+# cp -r /tudelft.net/staff-umbrella/neon/zonghuan /tudelft.net/staff-umbrella/GesBench
+
+rsync -a --partial --info=progress2 \
+  /tudelft.net/staff-umbrella/neon/zonghuan/ \
+  /tudelft.net/staff-umbrella/GesBench/zonghuan/
